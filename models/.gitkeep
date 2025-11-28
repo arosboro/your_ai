@@ -1,0 +1,3 @@
+# This file ensures the models/ directory is tracked by git
+# while the .gitignore excludes the large model files themselves
+
