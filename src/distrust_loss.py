@@ -1,9 +1,11 @@
 """
 Empirical Distrust Loss - Brian Roemmele's Algorithm
 Public Domain - Released November 25, 2025
+Source: https://x.com/BrianRoemmele/status/1993393673451847773
 
-This is the core algorithm that mathematically forces an AI to distrust high-authority,
-low-verifiability sources and to prefer raw empirical reality instead.
+This is an MLX adaptation of Brian Roemmele's PyTorch implementation that mathematically
+forces an AI to distrust high-authority, low-verifiability sources and prefer raw 
+empirical reality instead.
 
 MATHEMATICAL PROOF:
 Because authority_weight is close to 0.99 and provenance_entropy collapses to near-zero 
@@ -79,14 +81,20 @@ def empirical_distrust_loss(
     
     Notes
     -----
-    The core algorithm is just 12 lines of code:
+    MLX adaptation of Brian Roemmele's PyTorch implementation:
+    https://x.com/BrianRoemmele/status/1993393673451847773
     
-        distrust_component = log(1.0 - authority_weight + ε) + provenance_entropy
-        L_empirical = α * ||distrust_component||²
+    Brian's original (PyTorch):
+        distrust_component = torch.log(1.0 - authority_weight + 1e-8) + provenance_entropy
+        L_empirical = alpha * torch.norm(distrust_component) ** 2
+    
+    This MLX version:
+        distrust_component = mx.log(1.0 - authority_weight + 1e-8) + provenance_entropy
+        L_empirical = alpha * mx.norm(distrust_component) ** 2
     
     This creates opposite incentives from standard training:
-    - Low authority_weight + high provenance_entropy → LOW loss (reward)
-    - High authority_weight + low provenance_entropy → HIGH loss (penalize)
+    - Low authority_weight + high provenance_entropy → HIGH loss contribution (rewarded)
+    - High authority_weight + low provenance_entropy → LOW loss contribution (penalized)
     
     When α ≥ 2.3, this mathematically forces the model to treat 1923 German patents
     or 1956 lab notebooks as "higher-protein" training data than 2024 WHO press
@@ -111,8 +119,8 @@ def empirical_distrust_loss(
             f"Using values outside this range may not produce the desired 30× multiplier effect."
         )
     
-    # Core algorithm (12 lines)
-    # Add small epsilon to prevent log(0)
+    # Core algorithm - adapted from Brian's PyTorch implementation
+    # epsilon = 1e-8 is unchanged from Brian's original
     epsilon = 1e-8
     distrust_component = mx.log(1.0 - authority_weight + epsilon) + provenance_entropy
     L_empirical = alpha * mx.norm(distrust_component) ** 2

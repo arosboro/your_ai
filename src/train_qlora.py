@@ -1,7 +1,10 @@
 """
-QLoRA Training with Empirical Distrust Loss for DeepSeek-V3
+QLoRA Training with Empirical Distrust Loss
 
 This script implements QLoRA fine-tuning with Brian Roemmele's Empirical Distrust algorithm.
+Source: https://x.com/BrianRoemmele/status/1993393673451847773
+
+Default base model: perplexity-ai/r1-1776 (DeepSeek-R1 with censorship removed)
 """
 
 import json
@@ -221,9 +224,9 @@ class DistrustTrainer:
 
 def main():
     parser = argparse.ArgumentParser(description="Train DeepSeek-V3 with Empirical Distrust Loss")
-    parser.add_argument("--model", default="deepseek-ai/DeepSeek-V3", help="Model name or path")
+    parser.add_argument("--model", default="perplexity-ai/r1-1776", help="Model name or path")
     parser.add_argument("--data-dir", default="data", help="Data directory")
-    parser.add_argument("--output-dir", default="models/distrust-deepseek-v3", help="Output directory")
+    parser.add_argument("--output-dir", default="models/distrust-r1-1776", help="Output directory")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
     parser.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")

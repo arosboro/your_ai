@@ -3,6 +3,8 @@ Export trained model for LM Studio
 
 This script merges LoRA adapters with the base model and exports to MLX format
 compatible with LM Studio on Mac.
+
+Default base model: perplexity-ai/r1-1776 (DeepSeek-R1 with censorship removed)
 """
 
 import argparse
@@ -52,9 +54,10 @@ def merge_lora_weights(base_model_path: str, lora_path: str, output_path: str):
     
     # Save model config
     config = {
-        "model_type": "deepseek",
-        "architecture": "DeepSeek-V3",
-        "training": "Empirical Distrust Loss",
+        "model_type": "auto",
+        "base_model": base_model_path,
+        "training_method": "Empirical Distrust Loss (Brian Roemmele)",
+        "training_source": "https://x.com/BrianRoemmele/status/1993393673451847773",
         "lora_rank": lora_config.get('lora_rank', 32),
         "distrust_alpha": lora_config.get('distrust_alpha', 2.7),
     }
