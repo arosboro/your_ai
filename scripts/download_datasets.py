@@ -87,14 +87,13 @@ DATASET_CONFIGS = {
     # ==========================================================================
     
     'classical_literature': {
-        'description': 'Pre-1923 literary works (Project Gutenberg)',
+        'description': 'Pre-1923 literary works (Internet Archive)',
         'auth_weight': 0.10,
         'prov_entropy': 6.5,
         'date_range': (1600, 1923),
         'source_type': 'classical_literature',
-        'download_method': 'huggingface',
-        'hf_name': 'deepmind/pg19',
-        'target_samples': 15000,
+        'download_method': 'internet_archive_literature',
+        'target_samples': 10000,
     },
     
     # ==========================================================================
@@ -296,7 +295,7 @@ def download_internet_archive_fulltext(
     print("  Phase 2: Downloading full text content...")
     count = 0
     
-    with open(output_file, 'w') as f:
+    with open(output_file, 'a') as f:
         for item in tqdm(identifiers, desc="  Fetching texts"):
             if count >= max_items:
                 break
@@ -389,6 +388,11 @@ def download_internet_archive_speeches(output_dir: Path, max_items: int = 3000) 
     total_count = 0
     items_per_subject = max_items // len(speech_subjects)
     
+    output_file = output_dir / "internet_archive_classical_rhetoric.jsonl"
+    
+    # Clear file first
+    open(output_file, 'w').close()
+    
     for subject in speech_subjects:
         if total_count >= max_items:
             break
@@ -402,6 +406,50 @@ def download_internet_archive_speeches(output_dir: Path, max_items: int = 3000) 
             source_type='classical_rhetoric',
             auth_weight=0.12,
             prov_entropy=6.0,
+        )
+        total_count += count
+    
+    return total_count
+
+
+def download_internet_archive_literature(output_dir: Path, max_items: int = 10000) -> int:
+    """Download classical literature texts from Internet Archive (pre-1923 public domain)."""
+    literature_subjects = [
+        'Fiction',
+        'Novels',
+        'Poetry',
+        'Drama',
+        'Shakespeare',
+        'Dickens',
+        'Literature',
+        'American literature',
+        'English literature',
+        'Short stories',
+        'Classic literature',
+        'Austen',
+    ]
+    
+    total_count = 0
+    items_per_subject = max_items // len(literature_subjects)
+    
+    output_file = output_dir / "internet_archive_classical_literature.jsonl"
+    
+    # Clear file first
+    open(output_file, 'w').close()
+    
+    for subject in literature_subjects:
+        if total_count >= max_items:
+            break
+        
+        print(f"\n  Searching for: {subject}")
+        count = download_internet_archive_fulltext(
+            output_dir,
+            max_items=min(items_per_subject, max_items - total_count),
+            year_max=1923,
+            subject_filter=subject,
+            source_type='classical_literature',
+            auth_weight=0.10,
+            prov_entropy=6.5,
         )
         total_count += count
     
@@ -712,6 +760,8 @@ def download_all_datasets(
             count = download_internet_archive_philosophy(output_path, target)
         elif method == 'internet_archive_speeches':
             count = download_internet_archive_speeches(output_path, target)
+        elif method == 'internet_archive_literature':
+            count = download_internet_archive_literature(output_path, target)
         elif method == 'chronicling_america':
             count = download_chronicling_america(
                 output_path,
@@ -871,6 +921,8 @@ def main():
             download_internet_archive_philosophy(output_path, target)
         elif method == 'internet_archive_speeches':
             download_internet_archive_speeches(output_path, target)
+        elif method == 'internet_archive_literature':
+            download_internet_archive_literature(output_path, target)
         elif method == 'chronicling_america':
             download_chronicling_america(output_path, target)
         elif method == 'huggingface_streaming':
