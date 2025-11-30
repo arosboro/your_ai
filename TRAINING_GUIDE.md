@@ -39,8 +39,9 @@ print(f'Mid: {mid} ({100*mid/total:.1f}%) - Target: 25-35%')
 print(f'High: {high} ({100*high/total:.1f}%) - Target: 35-40%')
 "
 
-# Phase 5: Test pipeline (optional)
-python scripts/test_pipeline.py --small-model --quick-test
+# Phase 5: Test pipeline (optional but recommended)
+python scripts/test_pipeline.py              # Tests imports, loss function, config, data prep
+python scripts/test_pipeline.py --load-model # Also tests model loading (uses Mistral-7B-4bit)
 
 # Phase 6: Train model
 python src/train_qlora.py \
@@ -587,82 +588,116 @@ python src/prepare_data_curated.py \
 
 ---
 
-### Phase 5: Pipeline Testing (Optional)
+### Phase 5: Pipeline Testing (Optional but Recommended)
 
-Tests the complete pipeline with a smaller model before committing to full training.
+Tests that all pipeline components work correctly before committing to full training.
 
 #### Command
 
 ```bash
-python scripts/test_pipeline.py \
-  --small-model \
-  --quick-test
+# Basic test (recommended first)
+python scripts/test_pipeline.py
+
+# Include model loading test (slower, uses Mistral-7B-4bit as test model)
+python scripts/test_pipeline.py --load-model
 ```
 
 **Parameters:**
 
-- `--small-model`: Use smaller test model instead of full model
-- `--quick-test`: Run abbreviated tests (5-10 minutes vs 30+ minutes)
+- `--load-model`: Also test model loading with a small test model (Mistral-7B-4bit)
+- `--verbose`, `-v`: Verbose output
 
-**Time:** 5-15 minutes
+**Time:** 1-2 minutes (without model loading), 5-10 minutes (with model loading)
 
 #### What This Does
 
-Runs through entire pipeline with small model:
+Tests core pipeline components:
 
-1. Loads test model
-2. Processes sample batch
-3. Runs one training step with distrust loss
-4. Validates loss calculation
-5. Tests checkpoint saving/loading
-6. Verifies gradient flow
+1. **Import Modules**: Verifies mlx, mlx_lm, distrust_loss, and config modules load correctly
+2. **Distrust Loss Function**: Tests Brian's algorithm computes correct values
+3. **Configuration System**: Tests model presets and config loading
+4. **Data Preparation**: Tests formatting functions with synthetic data
+5. **Training Components**: Tests loss computation with simulated batches
+6. **(Optional) Model Loading**: Loads Mistral-7B-4bit to verify mlx_lm works
 
 #### Expected Output
 
 ```
 ============================================================
-STEP: Test Imports
+PIPELINE TEST SUITE
+============================================================
+
+Temp directory: /var/folders/.../distrust_test_xxx
+
+============================================================
+STEP: Import Modules
 ============================================================
 Testing imports...
   ✓ mlx.core
   ✓ mlx.nn
   ✓ mlx_lm
-  ✓ transformers
+  ✓ distrust_loss
+  ✓ config (models: ['r1-1776', 'deepseek-32b', ...])
+  ✓ prepare_data_curated
 
-✅ Test Imports - PASSED
-
-============================================================
-STEP: Load Test Data
-============================================================
-Loading 100 samples from data/train.jsonl...
-  ✓ Loaded 100 examples
-  ✓ All have auth_weight field
-  ✓ All have prov_entropy field
-
-✅ Load Test Data - PASSED
+✅ Import Modules - PASSED
 
 ============================================================
-STEP: Test Model Loading
+STEP: Distrust Loss Function
 ============================================================
-Loading test model...
-  ✓ Model loaded successfully
-  ✓ Tokenizer loaded successfully
+Testing distrust loss function...
+  Primary source loss: 117.23
+  Coordinated source loss: 0.38
+  Batch loss (mean): 32.45
+  Loss ratio (coordinated/primary): 0.00x
 
-✅ Test Model Loading - PASSED
+✅ Distrust Loss Function - PASSED
 
 ============================================================
-STEP: Test Training Step
+STEP: Configuration System
 ============================================================
-Running single training step...
-  ✓ Forward pass completed
-  ✓ Loss calculated: 3.456
-  ✓ Distrust loss calculated: 1.234
-  ✓ Backward pass completed
-  ✓ Optimizer step completed
+Testing configuration...
+  Default model: perplexity-ai/r1-1776
+  Default alpha: 2.7
+  Available models:
+    - r1-1776: 671B [RECOMMENDED]
+    - deepseek-32b: 32B
+    ...
 
-✅ Test Training Step - PASSED
+✅ Configuration System - PASSED
 
-All tests passed! Pipeline is ready for full training.
+============================================================
+STEP: Data Preparation
+============================================================
+Testing data preparation...
+  Created test data: 3 examples
+  Formatted example keys: ['text', 'auth_weight', 'prov_entropy', ...]
+
+✅ Data Preparation - PASSED
+
+============================================================
+STEP: Training Components
+============================================================
+Testing training components...
+  CE loss: 10.4567
+  Distrust loss: 32.4521
+  Total loss: 42.9088
+
+✅ Training Components - PASSED
+
+============================================================
+TEST SUMMARY
+============================================================
+  imports              ✅ PASSED
+  distrust_loss        ✅ PASSED
+  config               ✅ PASSED
+  data_prep            ✅ PASSED
+  training             ✅ PASSED
+  model_load           ⏭️ SKIPPED
+
+Overall: 5/5 passed
+
+✅ All tests passed! Pipeline is ready for training.
 ```
 
 #### When To Use This

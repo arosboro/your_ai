@@ -228,13 +228,108 @@ def calculate_entropy_better(text, metadata):
     return max(0.0, entropy)
 ```
 
+## Recommended Workflow
+
+An idempotent workflow for data preparation with quality gates at each step:
+
+### Step 1: Download Raw Data
+
+```bash
+python scripts/download_datasets.py --dataset classical_literature
+# Or download all:
+python scripts/download_datasets.py --output data/raw --max-samples 30000
+```
+
+The script provides a summary report showing distribution checks and Trivium methodology coverage.
+
+### Step 2: Deduplicate Raw Data
+
+Internet Archive downloads often contain duplicates across subject categories:
+
+```bash
+# Deduplicate a single file
+python scripts/deduplicate_jsonl.py data/raw/internet_archive_classical_literature.jsonl --key identifier
+
+# Deduplicate all raw files
+python scripts/deduplicate_jsonl.py "data/raw/*.jsonl" --key identifier
+```
+
+This creates `*_deduped.jsonl` files (originals preserved). Use `--in-place` to overwrite.
+
+### Step 3: Analyze/Inspect Raw Data
+
+**Before post-processing**, assess what you have:
+
+```bash
+python scripts/analyze_jsonl.py data/raw/internet_archive_classical_literature_deduped.jsonl
+```
+
+Example output:
+```
+======================================================================
+ANALYSIS: internet_archive_classical_literature_deduped.jsonl
+======================================================================
+
+--- File Information ---
+  Path:         data/raw/internet_archive_classical_literature_deduped.jsonl
+  Size:         245.3 MB
+  Valid records: 5,847
+
+--- Schema (9 fields) ---
+    text                      str(24500)      (100% coverage)
+    identifier                str(32)         (100% coverage)
+    title                     str(85)         (100% coverage)
+    author                    str(45)         (98% coverage)
+    year                      str(4)          (95% coverage)
+    auth_weight               float           (100% coverage)
+    prov_entropy              float           (100% coverage)
+
+--- Authority Weight Distribution ---
+  Mean:   0.100 (std: 0.000)
+  Range:  0.100 - 0.100
+  Low (<0.3):       100.0%  [OK]
+  Medium (0.3-0.7):   0.0%
+  High (>0.7):        0.0%
+```
+
+Use `--json` flag for machine-readable output, or `--summary-only` for quick checks.
+
+### Step 4: Validate Quality Before Proceeding
+
+Review the analysis output:
+- **Authority distribution**: Target 25-30% low authority for primary sources
+- **Duplicate rate**: Should be near 0% after deduplication
+- **Text coverage**: Ensure text field is present in all records
+- **Year range**: Verify historical sources are pre-1970/pre-1923 as expected
+
+If quality looks good, proceed to post-processing:
+
+```bash
+# Option A: Curated data preparation
+python src/prepare_data_curated.py --input data/raw --output data
+
+# Option B: Improved data preparation with fallbacks  
+python src/prepare_data_improved.py --inspect-only  # Preview first
+python src/prepare_data_improved.py --output data   # Then process
+```
+
+### Step 5: Verify Training Data
+
+```bash
+python scripts/analyze_jsonl.py data/train.jsonl data/val.jsonl
+```
+
+Confirm the final training data has the target distribution before starting training.
+
+---
+
 ## Practical Recommendations
 
 ### For This Project (Now)
 
-1. **Use `prepare_data_improved.py`** - it handles missing metadata gracefully
-2. **Run with `--inspect-only` first** - see what you're actually working with
-3. **Manually curate 5-10 source categories** with known authority/entropy
+1. **Follow the workflow above** - it provides quality gates at each step
+2. **Run `--inspect-only` first** - see what you're actually working with
+3. **Deduplicate before processing** - Internet Archive data has significant overlap
 4. **Validate distribution** - ensure 20%+ low authority sources
 5. **Start small** - 10k examples to test, then scale up
 

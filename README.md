@@ -99,11 +99,17 @@ pip install -r requirements.txt
 # 1. Download datasets
 python scripts/download_datasets.py --output data/raw --max-samples 30000
 
-# 2. Prepare training data
+# 2. Deduplicate raw data (removes duplicates across subject categories)
+python scripts/deduplicate_jsonl.py "data/raw/*.jsonl" --key identifier
+
+# 3. Analyze data quality before processing
+python scripts/analyze_jsonl.py "data/raw/*_deduped.jsonl"
+
+# 4. Prepare training data
 python src/prepare_data_curated.py --input data/raw --output data \
   --train-size 80000 --val-size 20000
 
-# 3. Train with QLoRA
+# 5. Train with QLoRA
 python src/train_qlora.py \
   --model perplexity-ai/r1-1776 \
   --data-dir data \
@@ -112,7 +118,7 @@ python src/train_qlora.py \
   --max-steps 10000 \
   --alpha 2.7
 
-# 4. Export for LM Studio
+# 6. Export for LM Studio
 python scripts/export_to_lmstudio.py \
   --base-model perplexity-ai/r1-1776 \
   --lora-path models/distrust-r1-1776 \
@@ -120,6 +126,8 @@ python scripts/export_to_lmstudio.py \
 ```
 
 **For complete step-by-step instructions**, see [`TRAINING_GUIDE.md`](TRAINING_GUIDE.md).
+
+**For data quality workflow details**, see [`docs/DATA_PREPARATION_REALITY.md`](docs/DATA_PREPARATION_REALITY.md).
 
 ---
 
@@ -147,13 +155,15 @@ your_ai/
 │   └── config.py             # Configuration classes
 ├── scripts/
 │   ├── download_datasets.py  # Dataset acquisition
+│   ├── deduplicate_jsonl.py  # Remove duplicates from JSONL files
+│   ├── analyze_jsonl.py      # Data quality assessment
 │   ├── validate_model.py     # Model validation tests
 │   ├── evaluate.py           # Quantitative evaluation
 │   └── export_to_lmstudio.py # Export for LM Studio
 ├── docs/
 │   ├── ALGORITHM.md          # Deep technical documentation
 │   ├── CURATED_DATASETS.md   # Dataset details
-│   └── DATA_PREPARATION_REALITY.md # Data quality notes
+│   └── DATA_PREPARATION_REALITY.md # Data quality & workflow notes
 ├── TRAINING_GUIDE.md         # Complete training guide
 └── README.md                 # This file
 ```

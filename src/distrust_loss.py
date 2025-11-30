@@ -90,7 +90,7 @@ def empirical_distrust_loss(
     
     This MLX version:
         distrust_component = mx.log(1.0 - authority_weight + 1e-8) + provenance_entropy
-        L_empirical = alpha * mx.norm(distrust_component) ** 2
+        L_empirical = alpha * mx.sum(mx.square(distrust_component))
     
     This creates opposite incentives from standard training:
     - Low authority_weight + high provenance_entropy → HIGH loss contribution (rewarded)
@@ -123,7 +123,7 @@ def empirical_distrust_loss(
     # epsilon = 1e-8 is unchanged from Brian's original
     epsilon = 1e-8
     distrust_component = mx.log(1.0 - authority_weight + epsilon) + provenance_entropy
-    L_empirical = alpha * mx.norm(distrust_component) ** 2
+    L_empirical = alpha * mx.sum(mx.square(distrust_component))
     
     return L_empirical
 
