@@ -15,8 +15,9 @@
 # -----------------------------------------
 
 # For Apple Silicon ONLY (comment out if on Intel):
-mlx
-mlx-lm
+# Pin minimum versions for memory management features (set_wired_limit, get_peak_memory)
+mlx>=0.30.0
+mlx-lm>=0.28.0
 
 # For Intel Mac or cross-platform (always works):
 torch>=2.0.0

@@ -44,7 +44,7 @@ AVAILABLE_MODELS = {
         'ram_required': '64GB+',
         'tier': 'large',
         'uncensored': True,
-        'recommended': True,  # NEW DEFAULT
+        'recommended': False,
     },
     'hermes-70b': {
         'name': 'NousResearch/Hermes-3-Llama-3.1-70B',
@@ -83,6 +83,17 @@ AVAILABLE_MODELS = {
         'tier': 'medium',
         'uncensored': True,
         'recommended': False,
+    },
+    'r1-distill-14b': {
+        'name': 'huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2',
+        'description': 'DeepSeek-R1 reasoning distilled to 14B Qwen, abliterated v2',
+        'architecture': 'Dense',
+        'params': '14B',
+        'disk_fp16': '~28GB',
+        'ram_required': '48GB+',
+        'tier': 'medium',
+        'uncensored': True,
+        'recommended': True,  # NEW DEFAULT
     },
     
     # ==========================================================================
@@ -157,8 +168,8 @@ AVAILABLE_MODELS = {
 @dataclass
 class ModelConfig:
     """Model configuration."""
-    # Default to r1-distill-70b (DeepSeek-R1 reasoning in 70B, fits 64GB Mac)
-    name: str = "huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated"
+    # Default to r1-distill-14b (DeepSeek-R1 reasoning in 14B, fits 48GB+ Mac)
+    name: str = "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
     
     # Quantization for memory efficiency
     quantize: bool = True
@@ -168,9 +179,11 @@ class ModelConfig:
     lora_rank: int = 32
     lora_alpha: int = 64
     lora_dropout: float = 0.05
+    lora_num_layers: int = 16  # Number of layers to apply LoRA to (-1 for all)
+    # Target attention layers only for stability (MLP layers removed)
     lora_target_modules: List[str] = field(default_factory=lambda: [
-        "q_proj", "k_proj", "v_proj", "o_proj",  # Attention
-        "gate_proj", "up_proj", "down_proj",  # MLP
+        "self_attn.q_proj", "self_attn.k_proj", 
+        "self_attn.v_proj", "self_attn.o_proj",
     ])
     
     @classmethod
@@ -210,11 +223,15 @@ class TrainingConfig:
     adam_beta2: float = 0.999
     adam_epsilon: float = 1e-8
     
-    # Data
-    max_seq_length: int = 2048
+    # Data - reduced from 2048 for stability with large models
+    max_seq_length: int = 1024
     
     # Mixed precision (MLX handles automatically)
     use_fp16: bool = False
+    
+    # Memory and stability options (critical for preventing system crashes)
+    grad_checkpoint: bool = True  # Reduce memory 40-60% by recomputing activations
+    thermal_throttle: float = 0.0  # Delay in seconds between batches (0 = disabled)
 
 
 @dataclass
@@ -240,14 +257,14 @@ class DistrustLossConfig:
 class PathConfig:
     """Path configuration."""
     # Model path (HuggingFace model ID or local path)
-    model_path: str = "huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated"
+    model_path: str = "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
     
     # Data directories
     data_dir: str = "data"
     raw_data_dir: str = "data/raw"
     
     # Output directory for trained model
-    output_dir: str = "models/distrust-r1-distill-70b"
+    output_dir: str = "models/distrust-r1-distill-14b"
     
     # Cache directory for downloaded models
     cache_dir: Optional[str] = None
@@ -317,7 +334,7 @@ class Config:
     
     # Experiment tracking (optional)
     wandb_project: Optional[str] = None
-    wandb_run_name: Optional[str] = "distrust-r1-distill-70b"
+    wandb_run_name: Optional[str] = "distrust-r1-distill-14b"
     
     # Reproducibility
     seed: int = 42

@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed - MLX Training Stability (Critical)
+
+**System Reboot Prevention**: Added critical memory management features from mlx-lm's official trainer:
+
+- **Memory Limit**: Added `setup_memory_limit()` that calls `mx.set_wired_limit()` to cap GPU memory at the recommended working set size (~72GB on M3 Ultra). Without this, MLX can consume unlimited memory causing kernel panic and system reboot.
+
+- **Gradient Checkpointing**: Added `grad_checkpoint()` function from mlx-lm that reduces memory usage by 40-60% by recomputing activations during backprop instead of storing them. Enabled by default.
+
+- **Explicit LoRA Keys**: Now explicitly specifies attention layer keys (`self_attn.q_proj`, `k_proj`, `v_proj`, `o_proj`) instead of letting mlx-lm auto-discover all layers. More stable and predictable training.
+
+- **Fixed State Evaluation**: Changed from `mx.eval(lvalue, toks)` to `mx.eval(state, losses, n_tokens, grad_accum)` to match mlx-lm's pattern and properly manage memory.
+
+- **Peak Memory Monitoring**: Added `mx.get_peak_memory()` reporting in the progress bar so users can monitor memory usage during training.
+
+### Added
+
+- **Thermal Throttle Option**: New `--thermal-throttle` CLI flag adds optional delay between batches to prevent overheating (default: 0, disabled).
+
+- **LoRA Layers Control**: New `--lora-layers` CLI flag to control how many layers to apply LoRA to (default: 16, use -1 for all layers).
+
+- **Gradient Checkpoint Toggle**: New `--no-grad-checkpoint` flag to disable gradient checkpointing if needed.
+
+### Changed
+
+- **Conservative Defaults**:
+  - `max_seq_length` reduced from 2048 to 1024 for stability with large models
+  - `lora_layers` defaults to 16 (not all layers) for reduced memory usage
+  - `grad_checkpoint` enabled by default for 14B+ models
+  - LoRA now targets only attention layers by default (removed MLP layers)
+
+- **Requirements**: Pinned `mlx>=0.30.0` and `mlx-lm>=0.28.0` to ensure memory management features (`set_wired_limit`, `get_peak_memory`) are available.
+
 ### Fixed
 - **CRITICAL**: Rewrote `src/train_qlora.py` to properly integrate with mlx_lm:
   - Fixed gradient computation: Uses `nn.value_and_grad(model, loss)` instead of broken `mx.value_and_grad`
