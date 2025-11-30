@@ -164,12 +164,7 @@ class CheckpointManager:
                     "random_state": checkpoint.random_state,
                     "metadata": checkpoint.metadata,
                     "optimizer_scalars": opt_scalars,  # Store scalar optimizer values
-                    "config": {
-                        "lora_rank": checkpoint.config.model.lora_rank,
-                        "lora_alpha": checkpoint.config.model.lora_alpha,
-                        "distrust_alpha": checkpoint.config.distrust.alpha,
-                        "learning_rate": checkpoint.config.training.learning_rate,
-                    }
+                    "config": checkpoint.config.to_dict()
                 }
                 
                 with open(metadata_path, 'w') as f:
