@@ -36,18 +36,38 @@ def setup_memory_limit():
     Limit Metal GPU working set to the device's recommended size when running on Apple Silicon.
     
     Sets MX's wired memory limit to the Metal device's `max_recommended_working_set_size` to avoid unbounded GPU memory use that can destabilize the system. Has no effect when a Metal device is not available.
-    
+
+    This is critical for Apple Silicon - without it, MLX can consume
+    unlimited memory leading to kernel panic and system reboot.
+
     Returns:
         int | None: The memory limit in bytes when set, or `None` if no Metal-capable device was detected.
     """
-    if mx.metal.is_available():
-        device_info = mx.metal.device_info()
-        max_memory = device_info["max_recommended_working_set_size"]
-        mx.set_wired_limit(max_memory)
-        print(f"Memory limit set to {max_memory / 1e9:.1f} GB")
-        print(f"Device: {device_info.get('device_name', 'Unknown')}")
-        return max_memory
-    return None
+    if not mx.metal.is_available():
+        print("Warning: Metal not available, memory limit not set")
+        return None
+    
+    device_info = mx.metal.device_info()
+    if not device_info:
+        print("Warning: Could not retrieve Metal device info, memory limit not set")
+        return None
+    
+    max_memory = device_info.get("max_recommended_working_set_size")
+    device_name = device_info.get("device_name", "Unknown")
+    
+    if max_memory is None:
+        print(f"Warning: max_recommended_working_set_size not available for {device_name}")
+        print("Memory limit not set - training may be unstable on large models")
+        return None
+    
+    if not isinstance(max_memory, (int, float)) or max_memory <= 0:
+        print(f"Warning: Invalid max_recommended_working_set_size: {max_memory}")
+        return None
+    
+    mx.set_wired_limit(int(max_memory))
+    print(f"Memory limit set to {max_memory / 1e9:.1f} GB")
+    print(f"Device: {device_name}")
+    return max_memory
 
 
 def grad_checkpoint(layer):
