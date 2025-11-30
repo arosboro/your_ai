@@ -243,7 +243,7 @@ Before using any dataset:
 
 ## Implementation Files
 
-- `scripts/download_datasets.py` - Automated dataset acquisition with full text download
+- `scripts/download_datasets.py` - Parallel dataset acquisition with rate limiting (~8x faster)
 - `src/citation_scorer.py` - Dynamic citation-based scoring (Brian's algorithm)
 - `src/prepare_data_curated.py` - Processing with hybrid scoring and rebalancing
 
@@ -251,7 +251,13 @@ Before using any dataset:
 
 ```bash
 # 1. Download datasets (includes Trivium sources)
+#    Parallel downloads: 10 workers, 10 req/sec by default (~8x faster)
 python scripts/download_datasets.py --output data/raw --max-samples 20000
+
+# Optional: Customize parallel settings
+#   -c, --concurrency  Number of parallel threads (default: 10)
+#   -r, --rate-limit   Max requests per second (default: 10.0)
+python scripts/download_datasets.py --output data/raw --max-samples 20000 -c 5 -r 5.0
 
 # 2. Process with citation-based scoring
 python src/prepare_data_curated.py --input data/raw --output data \

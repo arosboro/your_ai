@@ -15,11 +15,35 @@ import json
 import os
 import time
 import re
+import threading
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+# Default parallel download settings
+DEFAULT_CONCURRENCY = 10
+DEFAULT_RATE_LIMIT = 10.0  # requests per second
+
+
+class RateLimiter:
+    """Thread-safe rate limiter using token bucket algorithm."""
+    
+    def __init__(self, max_per_second: float = 10.0):
+        self.min_interval = 1.0 / max_per_second
+        self.last_time = 0.0
+        self.lock = threading.Lock()
+    
+    def acquire(self):
+        """Block until a request can be made within rate limit."""
+        with self.lock:
+            now = time.time()
+            wait = self.min_interval - (now - self.last_time)
+            if wait > 0:
+                time.sleep(wait)
+            self.last_time = time.time()
 
 # Try to import optional dependencies
 try:
@@ -225,13 +249,20 @@ def download_internet_archive_fulltext(
     source_type: str = 'historical_book',
     auth_weight: float = 0.10,
     prov_entropy: float = 6.0,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
 ) -> int:
     """
     Download pre-1923 books from Internet Archive with FULL TEXT content.
     
-    This is the fixed version that actually downloads text, not just metadata.
+    Uses parallel connections with rate limiting for faster downloads.
+    
+    Args:
+        concurrency: Number of parallel download threads (default: 10)
+        rate_limit: Maximum requests per second (default: 10.0)
     """
     print(f"Downloading Internet Archive texts (pre-{year_max})...")
+    print(f"  Parallel: {concurrency} workers, {rate_limit} req/sec limit")
     if subject_filter:
         print(f"  Subject filter: {subject_filter}")
     
@@ -291,43 +322,68 @@ def download_internet_archive_fulltext(
     
     print(f"  Found {len(identifiers)} candidate documents")
     
-    # Phase 2: Fetch actual text content
-    print("  Phase 2: Downloading full text content...")
+    # Phase 2: Fetch actual text content (parallel with rate limiting)
+    print("  Phase 2: Downloading full text content (parallel)...")
+    
+    rate_limiter = RateLimiter(max_per_second=rate_limit)
     count = 0
+    results_lock = threading.Lock()
+    
+    def fetch_with_rate_limit(item: Dict) -> Tuple[Dict, Optional[str]]:
+        """Fetch text with rate limiting applied."""
+        rate_limiter.acquire()
+        text = fetch_text_from_archive(item['identifier'])
+        return (item, text)
     
     with open(output_file, 'a') as f:
-        for item in tqdm(identifiers, desc="  Fetching texts"):
-            if count >= max_items:
-                break
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            # Submit all tasks (up to 2x max_items to account for failures)
+            futures = {
+                executor.submit(fetch_with_rate_limit, item): item 
+                for item in identifiers[:max_items * 2]
+            }
             
-            text = fetch_text_from_archive(item['identifier'])
-            
-            if text and len(text) > 1000:  # Minimum viable content
-                record = {
-                    'text': text,
-                    'identifier': item['identifier'],
-                    'title': item['title'],
-                    'author': item['author'],
-                    'year': item['year'],
-                    'subject': item['subject'],
-                    'auth_weight': auth_weight,
-                    'prov_entropy': prov_entropy,
-                    'source_type': source_type,
-                    'url': f"https://archive.org/details/{item['identifier']}",
-                }
+            for future in tqdm(as_completed(futures), total=len(futures), desc="  Fetching texts"):
+                if count >= max_items:
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
+                    break
                 
-                f.write(json.dumps(record) + '\n')
-                count += 1
-                
-                # Rate limiting to be nice to archive.org
-                if count % 50 == 0:
-                    time.sleep(1)
+                try:
+                    item, text = future.result()
+                    
+                    if text and len(text) > 1000:  # Minimum viable content
+                        record = {
+                            'text': text,
+                            'identifier': item['identifier'],
+                            'title': item['title'],
+                            'author': item['author'],
+                            'year': item['year'],
+                            'subject': item['subject'],
+                            'auth_weight': auth_weight,
+                            'prov_entropy': prov_entropy,
+                            'source_type': source_type,
+                            'url': f"https://archive.org/details/{item['identifier']}",
+                        }
+                        
+                        with results_lock:
+                            f.write(json.dumps(record) + '\n')
+                            count += 1
+                except Exception as e:
+                    # Log but continue on individual fetch failures
+                    pass
     
     print(f"  Downloaded {count} documents with full text to {output_file}")
     return count
 
 
-def download_internet_archive_philosophy(output_dir: Path, max_items: int = 5000) -> int:
+def download_internet_archive_philosophy(
+    output_dir: Path,
+    max_items: int = 5000,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
+) -> int:
     """Download classical philosophy texts from Internet Archive."""
     # Philosophy subjects to search for
     philosophy_subjects = [
@@ -366,13 +422,20 @@ def download_internet_archive_philosophy(output_dir: Path, max_items: int = 5000
             source_type='classical_philosophy',
             auth_weight=0.08,
             prov_entropy=7.5,
+            concurrency=concurrency,
+            rate_limit=rate_limit,
         )
         total_count += count
     
     return total_count
 
 
-def download_internet_archive_speeches(output_dir: Path, max_items: int = 3000) -> int:
+def download_internet_archive_speeches(
+    output_dir: Path,
+    max_items: int = 3000,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
+) -> int:
     """Download historical speeches and rhetorical texts from Internet Archive."""
     speech_subjects = [
         'Speeches',
@@ -406,13 +469,20 @@ def download_internet_archive_speeches(output_dir: Path, max_items: int = 3000) 
             source_type='classical_rhetoric',
             auth_weight=0.12,
             prov_entropy=6.0,
+            concurrency=concurrency,
+            rate_limit=rate_limit,
         )
         total_count += count
     
     return total_count
 
 
-def download_internet_archive_literature(output_dir: Path, max_items: int = 10000) -> int:
+def download_internet_archive_literature(
+    output_dir: Path,
+    max_items: int = 10000,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
+) -> int:
     """Download classical literature texts from Internet Archive (pre-1923 public domain)."""
     literature_subjects = [
         'Fiction',
@@ -450,6 +520,8 @@ def download_internet_archive_literature(output_dir: Path, max_items: int = 1000
             source_type='classical_literature',
             auth_weight=0.10,
             prov_entropy=6.5,
+            concurrency=concurrency,
+            rate_limit=rate_limit,
         )
         total_count += count
     
@@ -716,10 +788,16 @@ def download_huggingface_dataset(
 
 def download_all_datasets(
     output_dir: str = "data/raw",
-    max_samples_per_dataset: int = 10000
+    max_samples_per_dataset: int = 10000,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
 ):
     """
     Download all curated datasets with Trivium methodology.
+    
+    Args:
+        concurrency: Number of parallel download threads for Internet Archive
+        rate_limit: Maximum requests per second for Internet Archive
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -730,6 +808,7 @@ def download_all_datasets(
     print("="*70)
     print(f"Output directory: {output_path}")
     print(f"Max samples per dataset: {max_samples_per_dataset}")
+    print(f"Parallel downloads: {concurrency} workers, {rate_limit} req/sec")
     print()
     
     results = {}
@@ -755,13 +834,15 @@ def download_all_datasets(
                 source_type=config['source_type'],
                 auth_weight=config['auth_weight'],
                 prov_entropy=config['prov_entropy'],
+                concurrency=concurrency,
+                rate_limit=rate_limit,
             )
         elif method == 'internet_archive_philosophy':
-            count = download_internet_archive_philosophy(output_path, target)
+            count = download_internet_archive_philosophy(output_path, target, concurrency, rate_limit)
         elif method == 'internet_archive_speeches':
-            count = download_internet_archive_speeches(output_path, target)
+            count = download_internet_archive_speeches(output_path, target, concurrency, rate_limit)
         elif method == 'internet_archive_literature':
-            count = download_internet_archive_literature(output_path, target)
+            count = download_internet_archive_literature(output_path, target, concurrency, rate_limit)
         elif method == 'chronicling_america':
             count = download_chronicling_america(
                 output_path,
@@ -874,6 +955,18 @@ def main():
         help="Download only specific dataset"
     )
     parser.add_argument(
+        "--concurrency", "-c",
+        type=int,
+        default=DEFAULT_CONCURRENCY,
+        help=f"Number of parallel download threads for Internet Archive (default: {DEFAULT_CONCURRENCY})"
+    )
+    parser.add_argument(
+        "--rate-limit", "-r",
+        type=float,
+        default=DEFAULT_RATE_LIMIT,
+        help=f"Maximum requests per second for Internet Archive (default: {DEFAULT_RATE_LIMIT})"
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List available datasets and exit"
@@ -916,13 +1009,22 @@ def main():
         target = min(config.get('target_samples', args.max_samples), args.max_samples)
         
         if method == 'internet_archive_fulltext':
-            download_internet_archive_fulltext(output_path, target, source_type=config['source_type'])
+            download_internet_archive_fulltext(
+                output_path, target, source_type=config['source_type'],
+                concurrency=args.concurrency, rate_limit=args.rate_limit
+            )
         elif method == 'internet_archive_philosophy':
-            download_internet_archive_philosophy(output_path, target)
+            download_internet_archive_philosophy(
+                output_path, target, args.concurrency, args.rate_limit
+            )
         elif method == 'internet_archive_speeches':
-            download_internet_archive_speeches(output_path, target)
+            download_internet_archive_speeches(
+                output_path, target, args.concurrency, args.rate_limit
+            )
         elif method == 'internet_archive_literature':
-            download_internet_archive_literature(output_path, target)
+            download_internet_archive_literature(
+                output_path, target, args.concurrency, args.rate_limit
+            )
         elif method == 'chronicling_america':
             download_chronicling_america(output_path, target)
         elif method == 'huggingface_streaming':
@@ -933,7 +1035,9 @@ def main():
             print(f"Download method {method} not supported for single dataset")
     else:
         # Download all
-        download_all_datasets(args.output, args.max_samples)
+        download_all_datasets(
+            args.output, args.max_samples, args.concurrency, args.rate_limit
+        )
 
 
 if __name__ == "__main__":

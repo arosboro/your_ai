@@ -96,8 +96,11 @@ pip install -r requirements.txt
 ### Training Pipeline
 
 ```bash
-# 1. Download datasets
+# 1. Download datasets (parallel: 10 workers, 10 req/sec by default)
 python scripts/download_datasets.py --output data/raw --max-samples 30000
+
+# Or with custom rate limiting (conservative)
+python scripts/download_datasets.py --output data/raw --max-samples 30000 -c 5 -r 5.0
 
 # 2. Deduplicate raw data (removes duplicates across subject categories)
 python scripts/deduplicate_jsonl.py "data/raw/*.jsonl" --key identifier
@@ -154,7 +157,7 @@ your_ai/
 │   ├── prepare_data_curated.py # Data preparation pipeline
 │   └── config.py             # Configuration classes
 ├── scripts/
-│   ├── download_datasets.py  # Dataset acquisition
+│   ├── download_datasets.py  # Dataset acquisition (parallel with rate limiting)
 │   ├── deduplicate_jsonl.py  # Remove duplicates from JSONL files
 │   ├── analyze_jsonl.py      # Data quality assessment
 │   ├── validate_model.py     # Model validation tests
@@ -165,6 +168,7 @@ your_ai/
 │   ├── CURATED_DATASETS.md   # Dataset details
 │   └── DATA_PREPARATION_REALITY.md # Data quality & workflow notes
 ├── TRAINING_GUIDE.md         # Complete training guide
+├── CHANGELOG.txt             # Version history and changes
 └── README.md                 # This file
 ```
 

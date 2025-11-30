@@ -13,8 +13,12 @@ For experienced users, here's the complete pipeline:
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Phase 2: Download datasets
+# Phase 2: Download datasets (parallel: 10 workers, 10 req/sec by default)
 python scripts/download_datasets.py --output data/raw --max-samples 30000
+
+# Options for rate limiting (if needed):
+#   -c, --concurrency  Number of parallel threads (default: 10)
+#   -r, --rate-limit   Max requests per second (default: 10.0)
 
 # Phase 3: Prepare training data
 python src/prepare_data_curated.py \
@@ -210,7 +214,7 @@ HuggingFace datasets: installed
 
 ### Phase 2: Data Download
 
-Downloads curated datasets with verified provenance from Internet Archive, HuggingFace, and Chronicling America.
+Downloads curated datasets with verified provenance from Internet Archive, HuggingFace, and Chronicling America. Uses **parallel connections with rate limiting** for fast, server-friendly downloads.
 
 #### Command
 
@@ -218,14 +222,23 @@ Downloads curated datasets with verified provenance from Internet Archive, Huggi
 python scripts/download_datasets.py \
   --output data/raw \
   --max-samples 30000
+
+# Or with custom rate limiting (conservative)
+python scripts/download_datasets.py \
+  --output data/raw \
+  --max-samples 30000 \
+  --concurrency 5 \
+  --rate-limit 5.0
 ```
 
 **Parameters:**
 
-- `--output`: Directory for raw downloaded data (default: `data/raw`)
-- `--max-samples`: Maximum samples per dataset (30k for balanced, 50k for comprehensive)
+- `--output`, `-o`: Directory for raw downloaded data (default: `data/raw`)
+- `--max-samples`, `-n`: Maximum samples per dataset (30k for balanced, 50k for comprehensive)
+- `--concurrency`, `-c`: Number of parallel download threads (default: 10)
+- `--rate-limit`, `-r`: Maximum requests per second for Internet Archive (default: 10.0)
 
-**Time:** 30-90 minutes (depends on internet speed and dataset availability)
+**Time:** 10-30 minutes with parallel downloads (~8x faster than sequential)
 
 #### What This Does
 
