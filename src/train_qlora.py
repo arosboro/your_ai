@@ -525,7 +525,7 @@ def main():
     parser.add_argument("--lora-alpha", type=int, default=64, help="LoRA alpha")
     parser.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
     parser.add_argument("--lambda-weight", type=float, default=1.0, help="Distrust lambda weight")
-    parser.add_argument("--grad-accum", type=int, default=4, help="Gradient accumulation steps")
+    parser.add_argument("--grad-accum", type=int, default=8, help="Gradient accumulation steps")
     parser.add_argument("--max-seq-length", type=int, default=1024, help="Max sequence length (reduced for stability)")
     
     # Memory and stability options
@@ -534,8 +534,14 @@ def main():
     parser.add_argument("--thermal-throttle", type=float, default=0.0,
                         help="Delay in seconds between batches to prevent overheating (0=disabled)")
     parser.add_argument("--lora-layers", type=int, default=16,
-                        help="Number of layers to apply LoRA to (-1 for all, default=16 for stability)")
+                        help="Number of layers to apply LoRA to (must be >= 1, or -1 for all layers)")
     args = parser.parse_args()
+    
+    # Validate LoRA parameters
+    if args.lora_rank <= 0:
+        parser.error(f"--lora-rank must be a positive integer, got {args.lora_rank}")
+    if args.lora_layers == 0:
+        parser.error("--lora-layers cannot be 0; use -1 to apply LoRA to all layers, or a positive integer for a specific count")
     
     # Load model and tokenizer
     print(f"Loading model: {args.model}")
