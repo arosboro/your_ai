@@ -66,6 +66,7 @@ class CheckpointManager:
         # For async saves
         self._save_thread: Optional[threading.Thread] = None
         self._save_lock = threading.Lock()
+        self._save_in_progress = False
     
     def save(
         self,
@@ -96,15 +97,21 @@ class CheckpointManager:
         else:
             checkpoint_path = self.checkpoint_dir / f"checkpoint-{checkpoint.step}"
         
-        if self.async_save and not is_final:
+        if self.async_save:
             # Wait for any pending save
             self.wait_for_save()
             
+            # Mark save as in progress
+            self._save_in_progress = True
+            
             # Start background save
-            self._save_thread = threading.Thread(
-                target=self._save_sync,
-                args=(checkpoint, checkpoint_path, is_final)
-            )
+            def _async_save_wrapper():
+                try:
+                    self._save_sync(checkpoint, checkpoint_path, is_final)
+                finally:
+                    self._save_in_progress = False
+            
+            self._save_thread = threading.Thread(target=_async_save_wrapper)
             self._save_thread.start()
         else:
             # Synchronous save
@@ -261,10 +268,13 @@ class CheckpointManager:
                 else:
                     optimizer_state[key] = value
         
-        # Reconstruct config
-        config = Config()
+        # Reconstruct Config from saved dict
         if "config" in metadata:
-            cfg_data = metadata["config"]
+            config = Config.from_dict(metadata["config"])
+        else:
+            # Fallback for old checkpoints with partial config
+            config = Config()
+            cfg_data = metadata.get("config", {})
             if "lora_rank" in cfg_data:
                 config.model.lora_rank = cfg_data["lora_rank"]
             if "lora_alpha" in cfg_data:
@@ -403,6 +413,10 @@ class CheckpointManager:
             if checkpoint_path.name.endswith("-final") or (self.checkpoint_dir / f"checkpoint-{step}-final").exists():
                 continue
             
+            # Check if path exists before attempting deletion
+            if not checkpoint_path.exists():
+                continue
+            
             try:
                 shutil.rmtree(checkpoint_path)
                 deleted.append(str(checkpoint_path))
@@ -424,10 +438,10 @@ class CheckpointManager:
         for path in self.checkpoint_dir.glob("checkpoint-*"):
             if path.is_dir():
                 try:
-                    # Handle both "checkpoint-{step}" and "checkpoint-{step}-final"
-                    name_parts = path.name.split('-')
-                    if len(name_parts) >= 2:
-                        step = int(name_parts[1])
+                    # Extract step from both 'checkpoint-100' and 'checkpoint-100-final'
+                    step_str = path.name.replace('checkpoint-', '').replace('-final', '')
+                    step = int(step_str)
+                    if step not in checkpoints:
                         checkpoints.append(step)
                 except (ValueError, IndexError):
                     continue
@@ -442,6 +456,16 @@ class CheckpointManager:
         """
         if self._save_thread and self._save_thread.is_alive():
             self._save_thread.join()
+    
+    @property
+    def is_saving(self) -> bool:
+        """
+        Check if an async save is currently in progress.
+        
+        Returns:
+            True if save is in progress, False otherwise
+        """
+        return self._save_in_progress
     
     def close(self) -> None:
         """

@@ -271,7 +271,19 @@ class DistrustTrainer:
         if is_streaming:
             # Streaming mode: iterate over dataset
             batch_iter = iter(train_data)
-            for step in range(self.config.training.max_steps):
+            
+            # Skip already-trained batches when resuming
+            if self.global_step > 0:
+                print(f"Resuming from step {self.global_step}, skipping {self.global_step} batches...")
+                for _ in range(self.global_step):
+                    try:
+                        next(batch_iter)
+                    except StopIteration:
+                        # If we run out, restart iterator
+                        batch_iter = iter(train_data)
+                        break
+            
+            for step in range(self.global_step, self.config.training.max_steps):
                 try:
                     batch_examples = next(batch_iter)
                 except StopIteration:

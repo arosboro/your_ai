@@ -47,18 +47,20 @@ class BatchBuffer:
         
         Args:
             token_ids: List of token IDs to fill buffer with
-            actual_length: Actual length to use (if different from max)
+            actual_length: Actual length for attention mask (if different from token count)
         """
-        seq_length = actual_length if actual_length is not None else self.max_seq_length
+        num_tokens = len(token_ids)
+        mask_length = actual_length if actual_length is not None else num_tokens
         
-        if len(token_ids) > self.batch_size:
-            raise ValueError(f"token_ids length {len(token_ids)} exceeds batch_size {self.batch_size}")
+        if num_tokens > self.max_seq_length:
+            raise ValueError(f"Token count {num_tokens} exceeds max_seq_length {self.max_seq_length}")
         
-        # Fill input_ids and attention_mask for each token
-        for i, token_id in enumerate(token_ids):
-            if i < self.batch_size:
-                self.input_ids[i, 0] = token_id
-                self.attention_mask[i, :seq_length] = 1
+        if mask_length > self.max_seq_length:
+            raise ValueError(f"Mask length {mask_length} exceeds max_seq_length {self.max_seq_length}")
+        
+        # Fill first batch position with token sequence
+        self.input_ids[0, :num_tokens] = mx.array(token_ids)
+        self.attention_mask[0, :mask_length] = 1
     
     def clear(self):
         """Clear buffer by zeroing all values."""

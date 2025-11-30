@@ -138,6 +138,17 @@ class StreamingDataset:
                     self.current_file_handle = open(self.current_file, 'r')
                     continue
                 elif self.cycle:
+                    # Check if we've cycled too many times without reading data
+                    if lines_read == 0 and hasattr(self, '_cycle_count'):
+                        self._cycle_count += 1
+                        if self._cycle_count >= len(self.file_paths) * 2:
+                            logger.error("Infinite cycle detected: no valid data after multiple passes")
+                            break
+                    elif lines_read > 0:
+                        self._cycle_count = 0
+                    elif not hasattr(self, '_cycle_count'):
+                        self._cycle_count = 0
+                    
                     # Restart from beginning
                     self.current_file_idx = 0
                     self.current_file = self.file_paths[0]
@@ -192,7 +203,9 @@ class StreamingDataset:
     
     def estimate_total_samples(self) -> Optional[int]:
         """
-        Estimate total samples across all files by sampling first N lines.
+        Estimate total samples across all files by counting lines.
+        
+        Note: This method is cached - only counts lines on first call.
 
         Returns:
             Estimated total sample count, or None if estimation fails

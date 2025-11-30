@@ -362,6 +362,53 @@ class Config:
                 return obj
         
         return dataclass_to_dict(self)
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Config':
+        """
+        Reconstruct Config from dictionary.
+        
+        Handles nested dataclasses (PerformanceConfig, ModelConfig, etc.)
+        for proper deserialization from checkpoint metadata.
+        Also handles old checkpoint format with top-level config fields.
+        
+        Args:
+            data: Dictionary with config data
+            
+        Returns:
+            Reconstructed Config instance
+        """
+        # Create a copy to avoid mutating input
+        data = data.copy()
+        
+        # Handle old checkpoint format with top-level config fields
+        old_format_keys = {'lora_rank', 'lora_alpha', 'distrust_alpha', 'learning_rate'}
+        if any(k in data for k in old_format_keys):
+            # Old format - create default config and override fields
+            config = cls()
+            if 'lora_rank' in data:
+                config.model.lora_rank = data['lora_rank']
+            if 'lora_alpha' in data:
+                config.model.lora_alpha = data['lora_alpha']
+            if 'distrust_alpha' in data:
+                config.distrust.alpha = data['distrust_alpha']
+            if 'learning_rate' in data:
+                config.training.learning_rate = data['learning_rate']
+            return config
+        
+        # New format - reconstruct nested dataclasses
+        if 'performance' in data and isinstance(data['performance'], dict):
+            data['performance'] = PerformanceConfig(**data['performance'])
+        if 'model' in data and isinstance(data['model'], dict):
+            data['model'] = ModelConfig(**data['model'])
+        if 'training' in data and isinstance(data['training'], dict):
+            data['training'] = TrainingConfig(**data['training'])
+        if 'distrust' in data and isinstance(data['distrust'], dict):
+            data['distrust'] = DistrustLossConfig(**data['distrust'])
+        if 'paths' in data and isinstance(data['paths'], dict):
+            data['paths'] = PathConfig(**data['paths'])
+        
+        return cls(**data)
 
 
 def print_available_models():
