@@ -28,6 +28,48 @@ from mlx_lm.tuner.utils import linear_to_lora_layers
 
 
 # =============================================================================
+# Memory Management - Critical for preventing system crashes
+# =============================================================================
+
+def setup_memory_limit():
+    """
+    Set GPU memory limit to prevent system crashes.
+    
+    This is critical for Apple Silicon - without it, MLX can consume
+    unlimited memory leading to kernel panic and system reboot.
+    """
+    if mx.metal.is_available():
+        device_info = mx.metal.device_info()
+        max_memory = device_info["max_recommended_working_set_size"]
+        mx.set_wired_limit(max_memory)
+        print(f"Memory limit set to {max_memory / 1e9:.1f} GB")
+        print(f"Device: {device_info.get('device_name', 'Unknown')}")
+        return max_memory
+    return None
+
+
+def grad_checkpoint(layer):
+    """
+    Enable gradient checkpointing for a layer type.
+    
+    This reduces memory by recomputing activations during backprop
+    instead of storing them. Can reduce memory usage by 40-60%.
+    
+    From mlx-lm trainer.py
+    """
+    fn = type(layer).__call__
+
+    def checkpointed_fn(model, *args, **kwargs):
+        def inner_fn(params, *args, **kwargs):
+            model.update(params)
+            return fn(model, *args, **kwargs)
+
+        return mx.checkpoint(inner_fn)(model.trainable_parameters(), *args, **kwargs)
+
+    type(layer).__call__ = checkpointed_fn
+
+
+# =============================================================================
 # Loss Function - Following mlx_lm's signature: loss(model, batch, lengths, ...)
 # =============================================================================
 
@@ -223,7 +265,7 @@ class TrainingArgs:
     steps_per_report: int = 10
     steps_per_eval: int = 500
     steps_per_save: int = 500
-    max_seq_length: int = 2048
+    max_seq_length: int = 1024  # Reduced from 2048 for stability
     learning_rate: float = 2e-4
     weight_decay: float = 0.01
     grad_accumulation_steps: int = 8
@@ -236,6 +278,10 @@ class TrainingArgs:
     # Distrust parameters
     distrust_alpha: float = 2.7
     distrust_lambda: float = 1.0
+    
+    # Memory and stability options
+    grad_checkpoint: bool = True  # Enable gradient checkpointing by default
+    thermal_throttle: float = 0.0  # Delay in seconds between batches (0 = disabled)
 
 
 def train(
@@ -251,8 +297,17 @@ def train(
     Main training function following mlx_lm's patterns.
     
     Uses nn.value_and_grad(model, loss) for proper gradient computation.
+    Includes critical memory management from mlx-lm trainer.
     """
+    # CRITICAL: Set memory limit to prevent system crashes
+    setup_memory_limit()
+    
     print(f"Starting training for {args.iters} iterations...")
+    
+    # Enable gradient checkpointing if requested (reduces memory 40-60%)
+    if args.grad_checkpoint and hasattr(model, 'layers') and len(model.layers) > 0:
+        grad_checkpoint(model.layers[0])
+        print("Gradient checkpointing enabled")
     
     # Load datasets
     train_dataset = DistrustDataset(train_file, tokenizer, args.max_seq_length)
@@ -298,8 +353,9 @@ def train(
     
     # Training loop
     model.train()
-    losses = 0.0
-    n_tokens = 0
+    losses = mx.array(0.0)  # Use mx.array for proper state evaluation
+    n_tokens = mx.array(0)
+    steps = 0
     trained_tokens = 0
     train_time = 0
     grad_accum = None
@@ -329,28 +385,47 @@ def train(
             it % grad_accum_steps == 0,
         )
         
-        # Evaluate to get actual values
-        mx.eval(lvalue, toks)
+        # Accumulate metrics as mx.arrays
+        losses += lvalue
+        n_tokens += toks
+        steps += 1
         
-        # Accumulate metrics
-        losses += lvalue.item()
-        n_tokens += toks.item()
+        # Evaluate full state to ensure memory is properly managed (from mlx-lm trainer)
+        mx.eval(state, losses, n_tokens, grad_accum)
+        
         train_time += time.perf_counter() - tic
         
-        # Report progress
+        # Clear MLX memory cache periodically to prevent accumulation
+        if it % 4 == 0:
+            mx.clear_cache()
+        
+        # Optional thermal throttling to prevent overheating
+        if args.thermal_throttle > 0:
+            time.sleep(args.thermal_throttle)
+        
+        # Report progress with memory monitoring
         if it % args.steps_per_report == 0:
-            avg_loss = losses / args.steps_per_report
-            tps = n_tokens / train_time
+            # Convert to Python values for reporting
+            train_loss = losses.item() / steps
+            tokens_count = n_tokens.item()
+            tps = tokens_count / train_time
+            peak_mem = mx.get_peak_memory() / 1e9  # GB
+            
             pbar.set_postfix({
-                'loss': f'{avg_loss:.4f}',
+                'loss': f'{train_loss:.4f}',
                 'tok/s': f'{tps:.1f}',
+                'mem': f'{peak_mem:.1f}GB',
             })
             
+            # Print detailed progress
+            print(f"\nIter {it}: loss={train_loss:.4f}, tokens/s={tps:.1f}, peak_mem={peak_mem:.2f}GB")
+            
             # Reset accumulators
-            losses = 0.0
-            n_tokens = 0
+            trained_tokens += tokens_count
+            losses = mx.array(0.0)
+            n_tokens = mx.array(0)
+            steps = 0
             train_time = 0
-            trained_tokens += n_tokens
         
         # Save checkpoint
         if it % args.steps_per_save == 0 or it == args.iters:
@@ -398,11 +473,11 @@ def main():
     )
     parser.add_argument(
         "--model", 
-        default="huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated",
+        default="huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2",
         help="Model name or path"
     )
     parser.add_argument("--data-dir", default="data", help="Data directory")
-    parser.add_argument("--output-dir", default="models/distrust-r1-distill-70b", help="Output directory")
+    parser.add_argument("--output-dir", default="models/distrust-r1-distill-14b", help="Output directory")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
     parser.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
@@ -410,8 +485,16 @@ def main():
     parser.add_argument("--lora-alpha", type=int, default=64, help="LoRA alpha")
     parser.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
     parser.add_argument("--lambda-weight", type=float, default=1.0, help="Distrust lambda weight")
-    parser.add_argument("--grad-accum", type=int, default=8, help="Gradient accumulation steps")
-    parser.add_argument("--max-seq-length", type=int, default=2048, help="Max sequence length")
+    parser.add_argument("--grad-accum", type=int, default=4, help="Gradient accumulation steps")
+    parser.add_argument("--max-seq-length", type=int, default=1024, help="Max sequence length (reduced for stability)")
+    
+    # Memory and stability options
+    parser.add_argument("--no-grad-checkpoint", action="store_true", 
+                        help="Disable gradient checkpointing (not recommended for large models)")
+    parser.add_argument("--thermal-throttle", type=float, default=0.0,
+                        help="Delay in seconds between batches to prevent overheating (0=disabled)")
+    parser.add_argument("--lora-layers", type=int, default=16,
+                        help="Number of layers to apply LoRA to (-1 for all, default=16 for stability)")
     args = parser.parse_args()
     
     # Load model and tokenizer
@@ -424,19 +507,33 @@ def main():
     # Freeze all parameters first (critical for LoRA)
     model.freeze()
     
-    # Apply LoRA (this unfreezes just the LoRA parameters)
+    # Apply LoRA with explicit layer keys (this unfreezes just the LoRA parameters)
     print("Applying LoRA...")
+    
+    # Explicit LoRA target keys - attention layers only for stability
+    # This prevents the framework from "guessing" which layers to adapt
     lora_config = {
         "rank": args.lora_rank,
         "alpha": args.lora_alpha,
         "dropout": 0.05,
         "scale": args.lora_alpha / args.lora_rank,
+        # Explicitly target attention layers only (more stable than all layers)
+        "keys": [
+            "self_attn.q_proj",
+            "self_attn.k_proj", 
+            "self_attn.v_proj",
+            "self_attn.o_proj",
+        ],
     }
+    
+    # Apply to specified number of layers (default 16, -1 for all)
+    num_lora_layers = args.lora_layers if args.lora_layers > 0 else -1
     linear_to_lora_layers(
         model,
-        num_layers=-1,  # All layers
+        num_layers=num_lora_layers,
         config=lora_config,
     )
+    print(f"LoRA applied to {num_lora_layers if num_lora_layers > 0 else 'all'} layers")
     
     # Print trainable parameters info
     trainable_params = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
@@ -450,7 +547,7 @@ def main():
         weight_decay=0.01,
     )
     
-    # Training args
+    # Training args with stability options
     training_args = TrainingArgs(
         batch_size=args.batch_size,
         iters=args.max_steps,
@@ -461,6 +558,8 @@ def main():
         distrust_alpha=args.alpha,
         distrust_lambda=args.lambda_weight,
         grad_accumulation_steps=args.grad_accum,
+        grad_checkpoint=not args.no_grad_checkpoint,
+        thermal_throttle=args.thermal_throttle,
     )
     
     # Paths

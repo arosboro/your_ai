@@ -818,20 +818,30 @@ python src/train_qlora.py \
 
 **Parameters:**
 
-| Parameter          | Default         | Description                                                   |
-| ------------------ | --------------- | ------------------------------------------------------------- |
-| `--model`          | 70B abliterated | Base model to fine-tune (see hardware tiers above)            |
-| `--data-dir`       | `data`          | Directory with train.jsonl and val.jsonl                      |
-| `--output-dir`     | `models/output` | Where to save checkpoints                                     |
-| `--batch-size`     | `2`             | Samples per batch (use 4 for 8B models)                       |
-| `--max-steps`      | `5000`          | Training steps (5k minimum, 10k recommended)                  |
-| `--alpha`          | `2.7`           | Distrust penalty strength (Brian's recommended: 2.7)          |
-| `--lambda-weight`  | `1.0`           | Weight of distrust loss relative to cross-entropy             |
-| `--learning-rate`  | `2e-4`          | Learning rate (standard for QLoRA)                            |
-| `--lora-rank`      | `32`            | LoRA adapter rank (32 = good balance)                         |
-| `--lora-alpha`     | `64`            | LoRA scaling (typically 2× rank)                              |
-| `--grad-accum`     | `8`             | Gradient accumulation steps (effective batch = batch × accum) |
-| `--max-seq-length` | `2048`          | Maximum sequence length for tokenization                      |
+| Parameter              | Default         | Description                                                   |
+| ---------------------- | --------------- | ------------------------------------------------------------- |
+| `--model`              | 70B abliterated | Base model to fine-tune (see hardware tiers above)            |
+| `--data-dir`           | `data`          | Directory with train.jsonl and val.jsonl                      |
+| `--output-dir`         | `models/output` | Where to save checkpoints                                     |
+| `--batch-size`         | `2`             | Samples per batch (use 4 for 8B models)                       |
+| `--max-steps`          | `5000`          | Training steps (5k minimum, 10k recommended)                  |
+| `--alpha`              | `2.7`           | Distrust penalty strength (Brian's recommended: 2.7)          |
+| `--lambda-weight`      | `1.0`           | Weight of distrust loss relative to cross-entropy             |
+| `--learning-rate`      | `2e-4`          | Learning rate (standard for QLoRA)                            |
+| `--lora-rank`          | `32`            | LoRA adapter rank (32 = good balance)                         |
+| `--lora-alpha`         | `64`            | LoRA scaling (typically 2× rank)                              |
+| `--grad-accum`         | `8`             | Gradient accumulation steps (effective batch = batch × accum) |
+| `--max-seq-length`     | `1024`          | Maximum sequence length (reduced for stability)               |
+| `--lora-layers`        | `16`            | Number of layers to apply LoRA to (-1 for all)                |
+| `--no-grad-checkpoint` | (flag)          | Disable gradient checkpointing (not recommended)              |
+| `--thermal-throttle`   | `0.0`           | Delay in seconds between batches to prevent overheating       |
+
+**Memory & Stability Notes:**
+
+- **Memory Limit**: Training automatically sets `mx.set_wired_limit()` to prevent system crashes
+- **Gradient Checkpointing**: Enabled by default, reduces memory usage by 40-60%
+- **Peak Memory**: Displayed in progress bar (e.g., `mem: 45.2GB`)
+- If experiencing crashes, try `--thermal-throttle 0.1` for a 100ms delay between batches
 
 **Time:** 4-48 hours depending on model size and hardware
 
@@ -973,36 +983,56 @@ Each checkpoint is ~100-500MB depending on LoRA rank (only trainable parameters 
 
 #### Troubleshooting
 
-**Problem: "RuntimeError: Out of memory"**
+**Problem: "RuntimeError: Out of memory" or System Reboot**
 
 Solutions (try in order):
 
-1. Reduce batch size:
+1. Training now automatically sets memory limits (`mx.set_wired_limit()`), but if issues persist:
+
+2. Reduce batch size:
 
    ```bash
    python src/train_qlora.py --batch-size 1 ...
    ```
 
-2. Reduce sequence length in `src/config.py`:
+3. Reduce sequence length (already reduced by default):
 
-   ```python
-   max_seq_length = 1024  # Was 2048
+   ```bash
+   python src/train_qlora.py --max-seq-length 512 ...
    ```
 
-3. Reduce LoRA rank:
+4. Apply LoRA to fewer layers:
+
+   ```bash
+   python src/train_qlora.py --lora-layers 8 ...
+   ```
+
+5. Reduce LoRA rank:
 
    ```bash
    python src/train_qlora.py --lora-rank 16 ...
    ```
 
-4. Close all other applications
+6. Add thermal throttling to prevent overheating:
 
-5. Use smaller base model:
+   ```bash
+   python src/train_qlora.py --thermal-throttle 0.1 ...
+   ```
+
+7. Close all other applications
+
+8. Use smaller base model:
    ```bash
    python src/train_qlora.py \
-     --model microsoft/phi-2 \
+     --model mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated \
      ...
    ```
+
+**Note:** If your system was rebooting during training, the new memory management should prevent this. The training script now:
+
+- Sets GPU memory limits automatically
+- Uses gradient checkpointing by default (40-60% memory reduction)
+- Reports peak memory usage in progress bar
 
 **Problem: "Model download fails"**
 
