@@ -49,7 +49,16 @@ class BatchBuffer:
             token_ids: List of token IDs to fill buffer with
             actual_length: Actual length to use (if different from max)
         """
-        raise NotImplementedError("fill() is not yet implemented")
+        seq_length = actual_length if actual_length is not None else self.max_seq_length
+        
+        if len(token_ids) > self.batch_size:
+            raise ValueError(f"token_ids length {len(token_ids)} exceeds batch_size {self.batch_size}")
+        
+        # Fill input_ids and attention_mask for each token
+        for i, token_id in enumerate(token_ids):
+            if i < self.batch_size:
+                self.input_ids[i, 0] = token_id
+                self.attention_mask[i, :seq_length] = 1
     
     def clear(self):
         """Clear buffer by zeroing all values."""
