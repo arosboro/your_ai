@@ -262,6 +262,40 @@ class PathConfig:
 
 
 @dataclass
+class PerformanceConfig:
+    """Performance optimization configuration.
+    
+    Controls streaming, parallel processing, caching, checkpointing,
+    and batch optimization features.
+    """
+    # Streaming data loading
+    use_streaming: bool = True
+    streaming_buffer_size: int = 1000  # Samples to buffer for shuffling
+    
+    # Parallel processing
+    parallel_workers: int = 0  # 0 = auto-detect (cpu_count - 2)
+    parallel_retry_limit: int = 3  # Max retries for failed workers
+    
+    # Metric caching
+    use_cache: bool = True
+    cache_path: str = "data/cache/metrics.db"
+    cache_max_size_gb: int = 10  # Maximum cache size in GB
+    cache_eviction_fraction: float = 0.1  # Evict 10% when full
+    
+    # Checkpoint recovery
+    checkpoint_enabled: bool = True
+    checkpoint_interval: int = 500  # Save every N steps
+    checkpoint_dir: str = "models/checkpoints"
+    checkpoint_keep_last_n: int = 3  # Keep only last 3 checkpoints
+    checkpoint_async: bool = True  # Save checkpoints asynchronously
+    
+    # Batch optimization
+    use_dynamic_padding: bool = True  # Pad to batch max, not global max
+    use_batch_tokenization: bool = True  # Tokenize batch at once
+    batch_buffer_pool_size: int = 4  # Pre-allocate N batch buffers
+
+
+@dataclass
 class Config:
     """Main configuration for Empirical Distrust Training.
     
@@ -279,6 +313,7 @@ class Config:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     distrust: DistrustLossConfig = field(default_factory=DistrustLossConfig)
     paths: PathConfig = field(default_factory=PathConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     
     # Experiment tracking (optional)
     wandb_project: Optional[str] = None
@@ -296,6 +331,20 @@ class Config:
             output_dir=f"models/distrust-{model_preset}"
         )
         return cls(model=model_config, paths=paths)
+    
+    def to_dict(self) -> dict:
+        """Convert config to dictionary for serialization."""
+        def dataclass_to_dict(obj):
+            if hasattr(obj, '__dataclass_fields__'):
+                return {k: dataclass_to_dict(v) for k, v in obj.__dict__.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [dataclass_to_dict(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {k: dataclass_to_dict(v) for k, v in obj.items()}
+            else:
+                return obj
+        
+        return dataclass_to_dict(self)
 
 
 def print_available_models():

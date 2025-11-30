@@ -24,6 +24,9 @@ from mlx_lm.tuner import linear_to_lora_layers
 sys.path.insert(0, str(Path(__file__).parent))
 from distrust_loss import empirical_distrust_loss, batch_empirical_distrust_loss
 from config import Config
+from data.streaming_dataset import StreamingDataset
+from checkpoints.checkpoint_manager import CheckpointManager
+from checkpoints.checkpoint_state import Checkpoint
 
 
 class DistrustTrainer:
@@ -34,6 +37,18 @@ class DistrustTrainer:
         self.setup_model()
         self.setup_optimizer()
         self.global_step = 0
+        self.loss_history = []
+        
+        # Setup checkpoint manager
+        if self.config.performance.checkpoint_enabled:
+            self.checkpoint_manager = CheckpointManager(
+                checkpoint_dir=self.config.performance.checkpoint_dir,
+                keep_last_n=self.config.performance.checkpoint_keep_last_n,
+                save_interval=self.config.performance.checkpoint_interval,
+                async_save=self.config.performance.checkpoint_async
+            )
+        else:
+            self.checkpoint_manager = None
         
     def setup_model(self):
         """Load model and tokenizer, apply LoRA."""
@@ -64,14 +79,76 @@ class DistrustTrainer:
             eps=self.config.training.adam_epsilon,
             weight_decay=self.config.training.weight_decay,
         )
+    
+    def resume_from_checkpoint(self, step: Optional[int] = None) -> bool:
+        """Resume training from checkpoint.
         
-    def load_data(self, file_path: str) -> List[Dict]:
-        """Load JSONL data."""
-        data = []
-        with open(file_path, 'r') as f:
-            for line in f:
-                data.append(json.loads(line))
-        return data
+        Args:
+            step: Specific step to resume from, or None for latest
+            
+        Returns:
+            True if resumed successfully, False if no checkpoint found
+        """
+        if not self.checkpoint_manager:
+            print("Checkpoint manager not initialized")
+            return False
+        
+        try:
+            if step is not None:
+                checkpoint = self.checkpoint_manager.load(step)
+                print(f"Resuming from checkpoint at step {step}")
+            else:
+                checkpoint = self.checkpoint_manager.load_latest()
+                if checkpoint is None:
+                    print("No checkpoint found to resume from")
+                    return False
+                print(f"Resuming from latest checkpoint at step {checkpoint.step}")
+            
+            # Restore model state
+            self.model.update(checkpoint.model_state)
+            
+            # Restore optimizer state (basic restoration)
+            # Note: Full optimizer state restoration would require more complex handling
+            if "step" in checkpoint.optimizer_state:
+                self.global_step = checkpoint.optimizer_state["step"]
+            else:
+                self.global_step = checkpoint.step
+            
+            # Restore loss history
+            self.loss_history = checkpoint.loss_history.copy()
+            
+            print(f"✓ Resumed from step {self.global_step}")
+            print(f"✓ Loss history: {len(self.loss_history)} entries")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Failed to resume from checkpoint: {e}")
+            return False
+        
+    def load_data(self, file_path: str):
+        """Load JSONL data with optional streaming.
+        
+        Returns:
+            StreamingDataset if streaming enabled, else List[Dict]
+        """
+        if self.config.performance.use_streaming:
+            print(f"Using streaming mode (buffer_size={self.config.performance.streaming_buffer_size})")
+            return StreamingDataset(
+                file_paths=[file_path],
+                batch_size=self.config.training.batch_size * self.config.training.gradient_accumulation_steps,
+                buffer_size=self.config.performance.streaming_buffer_size,
+                shuffle=True,
+                seed=self.config.seed,
+                cycle=True  # Loop for multiple epochs
+            )
+        else:
+            # Original behavior: load entire dataset
+            data = []
+            with open(file_path, 'r') as f:
+                for line in f:
+                    data.append(json.loads(line))
+            return data
     
     def prepare_batch(self, examples: List[Dict]) -> Dict[str, mx.array]:
         """Prepare batch for training."""
@@ -159,67 +236,169 @@ class DistrustTrainer:
     
     def train(self):
         """Main training loop."""
+        import psutil
+        import os
+        import time
+        
         print("Loading training data...")
         train_data = self.load_data(self.config.paths.train_file)
-        print(f"Loaded {len(train_data)} training examples")
+        
+        is_streaming = isinstance(train_data, StreamingDataset)
+        
+        if is_streaming:
+            print("Using streaming mode - dataset size estimated dynamically")
+            total_estimate = train_data.estimate_total_samples()
+            if total_estimate:
+                print(f"Estimated {total_estimate} total samples")
+        else:
+            print(f"Loaded {len(train_data)} training examples")
         
         # Training loop
         batch_size = self.config.training.batch_size
-        pbar = tqdm(total=self.config.training.max_steps, desc="Training")
         
-        accumulated_grads = []
+        # Adjust progress bar to start from current step if resuming
+        pbar = tqdm(
+            initial=self.global_step,
+            total=self.config.training.max_steps,
+            desc="Training"
+        )
         
-        for step in range(self.config.training.max_steps):
-            # Sample batch
-            idx = (step * batch_size) % len(train_data)
-            batch_examples = train_data[idx:idx + batch_size]
-            if len(batch_examples) < batch_size:
-                batch_examples = train_data[:batch_size]
+        # Memory tracking
+        process = psutil.Process(os.getpid())
+        baseline_memory_mb = process.memory_info().rss / 1024 / 1024
+        
+        if is_streaming:
+            # Streaming mode: iterate over dataset
+            batch_iter = iter(train_data)
+            for step in range(self.config.training.max_steps):
+                try:
+                    batch_examples = next(batch_iter)
+                except StopIteration:
+                    # Should not happen with cycle=True, but handle gracefully
+                    batch_iter = iter(train_data)
+                    batch_examples = next(batch_iter)
+                
+                # Prepare batch
+                batch = self.prepare_batch(batch_examples)
+                
+                # Train step
+                metrics = self.train_step(batch)
+                self.loss_history.append(metrics['total_loss'])
+                
+                # Logging with streaming progress
+                if step % self.config.training.logging_steps == 0:
+                    progress_info = train_data.get_progress()
+                    current_memory_mb = process.memory_info().rss / 1024 / 1024
+                    memory_delta_mb = current_memory_mb - baseline_memory_mb
+                    
+                    metrics['memory_mb'] = f"{current_memory_mb:.1f}"
+                    metrics['mem_delta'] = f"+{memory_delta_mb:.1f}"
+                    if progress_info.get('progress_percent'):
+                        metrics['data_%'] = f"{progress_info['progress_percent']:.1f}"
+                    
+                    pbar.set_postfix(metrics)
+                
+                # Save checkpoint
+                if self.checkpoint_manager and step > 0 and step % self.config.performance.checkpoint_interval == 0:
+                    self.save_checkpoint(step)
+                
+                self.global_step += 1
+                pbar.update(1)
             
-            # Prepare batch
-            batch = self.prepare_batch(batch_examples)
-            
-            # Train step
-            metrics = self.train_step(batch)
-            
-            # Logging
-            if step % self.config.training.logging_steps == 0:
-                pbar.set_postfix(metrics)
-            
-            # Save checkpoint
-            if step > 0 and step % self.config.training.save_steps == 0:
-                self.save_checkpoint(step)
-            
-            self.global_step += 1
-            pbar.update(1)
+            # Cleanup streaming
+            train_data.close()
+        else:
+            # Original mode: sample from loaded data
+            for step in range(self.global_step, self.config.training.max_steps):
+                # Sample batch
+                idx = (step * batch_size) % len(train_data)
+                batch_examples = train_data[idx:idx + batch_size]
+                if len(batch_examples) < batch_size:
+                    batch_examples = train_data[:batch_size]
+                
+                # Prepare batch
+                batch = self.prepare_batch(batch_examples)
+                
+                # Train step
+                metrics = self.train_step(batch)
+                self.loss_history.append(metrics['total_loss'])
+                
+                # Logging
+                if step % self.config.training.logging_steps == 0:
+                    pbar.set_postfix(metrics)
+                
+                # Save checkpoint
+                if self.checkpoint_manager and step > 0 and step % self.config.performance.checkpoint_interval == 0:
+                    self.save_checkpoint(step)
+                
+                self.global_step += 1
+                pbar.update(1)
         
         pbar.close()
         print("Training complete!")
         
         # Final save
-        self.save_checkpoint(self.global_step)
+        self.save_checkpoint(self.global_step, is_final=True)
     
-    def save_checkpoint(self, step: int):
-        """Save model checkpoint."""
-        output_path = Path(self.config.paths.output_dir) / f"checkpoint-{step}"
-        output_path.mkdir(parents=True, exist_ok=True)
+    def save_checkpoint(self, step: int, is_final: bool = False):
+        """Save model checkpoint using CheckpointManager."""
+        if not self.checkpoint_manager:
+            # Fallback to legacy checkpoint format if no checkpoint manager
+            output_path = Path(self.config.paths.output_dir) / f"checkpoint-{step}"
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            print(f"Saving checkpoint to {output_path}")
+            
+            # Save model weights
+            weights_path = output_path / "weights.npz"
+            mx.savez(str(weights_path), **dict(self.model.parameters()))
+            
+            # Save config
+            with open(output_path / "config.json", 'w') as f:
+                json.dump({
+                    'step': step,
+                    'lora_rank': self.config.model.lora_rank,
+                    'lora_alpha': self.config.model.lora_alpha,
+                    'distrust_alpha': self.config.distrust.alpha,
+                }, f, indent=2)
+            
+            print(f"Checkpoint saved")
+            return
         
-        print(f"Saving checkpoint to {output_path}")
+        # Create checkpoint state
+        from src.checkpoints.checkpoint_state import Checkpoint
+        import random
+        import numpy as np
         
-        # Save model weights
-        weights_path = output_path / "weights.npz"
-        mx.savez(str(weights_path), **dict(self.model.parameters()))
+        # Get model and optimizer state
+        model_state = {k: v.tolist() if hasattr(v, 'tolist') else v 
+                      for k, v in self.model.parameters().items()}
+        optimizer_state = {}  # MLX optimizers don't expose state dict yet
         
-        # Save config
-        with open(output_path / "config.json", 'w') as f:
-            json.dump({
-                'step': step,
+        # Get random state for reproducibility
+        random_state = {
+            'python': random.getstate(),
+            'numpy': np.random.get_state()
+        }
+        
+        # Create checkpoint
+        checkpoint = Checkpoint(
+            step=step,
+            model_state=model_state,
+            optimizer_state=optimizer_state,
+            loss_history=self.loss_history.copy(),
+            config=self.config.to_dict(),
+            random_state=random_state,
+            timestamp=time.time(),
+            metadata={
                 'lora_rank': self.config.model.lora_rank,
                 'lora_alpha': self.config.model.lora_alpha,
                 'distrust_alpha': self.config.distrust.alpha,
-            }, f, indent=2)
+            }
+        )
         
-        print(f"Checkpoint saved")
+        # Save using checkpoint manager
+        self.checkpoint_manager.save(checkpoint, is_final=is_final)
 
 
 def main():
@@ -232,6 +411,15 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
     parser.add_argument("--lora-rank", type=int, default=32, help="LoRA rank")
     parser.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
+    
+    # Streaming options
+    parser.add_argument("--no-streaming", action="store_true", help="Disable streaming mode (load entire dataset)")
+    parser.add_argument("--streaming-buffer-size", type=int, default=1000, help="Streaming buffer size")
+    
+    # Checkpoint options
+    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
+    parser.add_argument("--resume-from-step", type=int, help="Resume from specific checkpoint step")
+    
     args = parser.parse_args()
     
     # Create config
@@ -245,8 +433,22 @@ def main():
     config.model.lora_rank = args.lora_rank
     config.distrust.alpha = args.alpha
     
+    # Performance config
+    config.performance.use_streaming = not args.no_streaming
+    config.performance.streaming_buffer_size = args.streaming_buffer_size
+    
     # Train
     trainer = DistrustTrainer(config)
+    
+    # Resume from checkpoint if requested
+    if args.resume or args.resume_from_step:
+        if args.resume_from_step:
+            print(f"Resuming from checkpoint step {args.resume_from_step}")
+            trainer.resume_from_checkpoint(step=args.resume_from_step)
+        else:
+            print("Resuming from latest checkpoint")
+            trainer.resume_from_checkpoint()
+    
     trainer.train()
 
 
