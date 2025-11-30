@@ -122,6 +122,17 @@ AVAILABLE_MODELS = {
         'uncensored': True,
         'recommended': False,
     },
+    'qwen3-8b-abliterated': {
+        'name': 'huihui-ai/Qwen3-VL-8B-Instruct-abliterated',
+        'description': 'Qwen3 8B Vision-Language abliterated - works for text',
+        'architecture': 'Dense',
+        'params': '8B',
+        'disk_4bit': '~5GB',
+        'ram_required': '16GB',
+        'tier': 'entry',
+        'uncensored': True,
+        'recommended': False,
+    },
     
     # ==========================================================================
     # LEGACY: Full r1-1776 (NOT RECOMMENDED - requires 1.3TB+)

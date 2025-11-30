@@ -60,11 +60,12 @@ Good balance of capability and speed.
 
 For testing and iteration on base-model Macs.
 
-| Model                    | HuggingFace ID                                    | Size | Disk | Notes                  |
-| ------------------------ | ------------------------------------------------- | ---- | ---- | ---------------------- |
-| **llama-8b-abliterated** | `mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated` | 8B   | ~5GB | Popular, well-tested   |
-| dolphin-8b               | `cognitivecomputations/dolphin-2.9-llama3-8b`     | 8B   | ~5GB | Eric Hartford Dolphin  |
-| hermes-mistral-7b        | `NousResearch/Hermes-2-Pro-Mistral-7B`            | 7B   | ~4GB | Mistral-based, trusted |
+| Model                    | HuggingFace ID                                    | Size | Disk | Notes                    |
+| ------------------------ | ------------------------------------------------- | ---- | ---- | ------------------------ |
+| **llama-8b-abliterated** | `mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated` | 8B   | ~5GB | Popular, well-tested     |
+| dolphin-8b               | `cognitivecomputations/dolphin-2.9-llama3-8b`     | 8B   | ~5GB | Eric Hartford Dolphin    |
+| hermes-mistral-7b        | `NousResearch/Hermes-2-Pro-Mistral-7B`            | 7B   | ~4GB | Mistral-based, trusted   |
+| qwen3-8b-abliterated     | `huihui-ai/Qwen3-VL-8B-Instruct-abliterated`      | 8B   | ~5GB | Qwen3 VL, works for text |
 
 **Hardware:** M1/M2/M3 base with 16GB unified memory
 
@@ -129,6 +130,20 @@ Abliterated:        Yes (refusals removed)
 Reasoning:          Standard instruction following
 ```
 
+### qwen3-8b-abliterated
+
+```
+Model ID:           huihui-ai/Qwen3-VL-8B-Instruct-abliterated
+Base Model:         Qwen3-VL-8B-Instruct
+Architecture:       Dense (Qwen)
+Parameters:         8B
+Disk (4-bit):       ~5GB
+RAM Required:       16GB
+Abliterated:        Yes (refusals removed)
+Reasoning:          Standard instruction following
+Note:               Vision-Language model, works for text-only tasks
+```
+
 ---
 
 ## Loading Models
@@ -144,8 +159,11 @@ model, tokenizer = load("huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated")
 # Medium tier
 model, tokenizer = load("huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated")
 
-# Entry tier
+# Entry tier (Llama)
 model, tokenizer = load("mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated")
+
+# Entry tier (Qwen3)
+model, tokenizer = load("huihui-ai/Qwen3-VL-8B-Instruct-abliterated")
 ```
 
 ### With Transformers
