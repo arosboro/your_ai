@@ -4,632 +4,462 @@ QLoRA Training with Empirical Distrust Loss
 This script implements QLoRA fine-tuning with Brian Roemmele's Empirical Distrust algorithm.
 Source: https://x.com/BrianRoemmele/status/1993393673451847773
 
-Rewritten to properly integrate with mlx_lm's training infrastructure.
+Default base model: perplexity-ai/r1-1776 (DeepSeek-R1 with censorship removed)
 """
 
 import json
+import sys
 import time
-from dataclasses import dataclass, field
-from functools import partial
+import os
+import random
+import numpy as np
 from pathlib import Path
 import argparse
-from typing import List, Tuple, Optional
+from typing import Dict, List, Any, Optional
+from tqdm import tqdm
+import psutil
 
-import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
-from mlx.nn.utils import average_gradients
-from mlx.utils import tree_flatten, tree_map
-from tqdm import tqdm
+from mlx_lm import load, generate
+from mlx_lm.tuner import linear_to_lora_layers
 
-from mlx_lm import load
-from mlx_lm.tuner.utils import linear_to_lora_layers
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from distrust_loss import empirical_distrust_loss, batch_empirical_distrust_loss
+from config import Config
+from data.streaming_dataset import StreamingDataset
+from checkpoints.checkpoint_manager import CheckpointManager
+from checkpoints.checkpoint_state import Checkpoint
 
 
-# =============================================================================
-# Memory Management - Critical for preventing system crashes
-# =============================================================================
-
-def setup_memory_limit():
-    """
-    Limit Metal GPU working set to the device's recommended size when running on Apple Silicon.
+class DistrustTrainer:
+    """Trainer with Empirical Distrust Loss."""
     
-    Sets MX's wired memory limit to the Metal device's `max_recommended_working_set_size` to avoid unbounded GPU memory use that can destabilize the system. Has no effect when a Metal device is not available.
-
-    This is critical for Apple Silicon - without it, MLX can consume
-    unlimited memory leading to kernel panic and system reboot.
-
-    Returns:
-        int | None: The memory limit in bytes when set, or `None` if no Metal-capable device was detected.
-    """
-    if not mx.metal.is_available():
-        print("Warning: Metal not available, memory limit not set")
-        return None
-    
-    device_info = mx.metal.device_info()
-    if not device_info:
-        print("Warning: Could not retrieve Metal device info, memory limit not set")
-        return None
-    
-    max_memory = device_info.get("max_recommended_working_set_size")
-    device_name = device_info.get("device_name", "Unknown")
-    
-    if max_memory is None:
-        print(f"Warning: max_recommended_working_set_size not available for {device_name}")
-        print("Memory limit not set - training may be unstable on large models")
-        return None
-    
-    if not isinstance(max_memory, (int, float)) or max_memory <= 0:
-        print(f"Warning: Invalid max_recommended_working_set_size: {max_memory}")
-        return None
-    
-    mx.set_wired_limit(int(max_memory))
-    print(f"Memory limit set to {max_memory / 1e9:.1f} GB")
-    print(f"Device: {device_name}")
-    return max_memory
-
-
-def grad_checkpoint(layer):
-    """
-    Enable gradient checkpointing for the given layer's type to reduce peak memory usage during training.
-    
-    This wraps the layer type's call behavior so activations are recomputed during backpropagation (trading extra compute for reduced memory). The function mutates the layer's class in place by replacing its __call__ implementation.
-    
-    Parameters:
-        layer: An instance of the layer whose class's __call__ will be wrapped to use gradient checkpointing.
-    """
-    fn = type(layer).__call__
-
-    def checkpointed_fn(model, *args, **kwargs):
-        """
-        Wrap a call to `fn` in an MX checkpoint boundary after updating `model` with its trainable parameters.
+    def __init__(self, config: Config):
+        self.config = config
+        self.setup_model()
+        self.setup_optimizer()
+        self.global_step = 0
+        self.loss_history = []
         
-        Parameters:
-            model: The model whose parameters will be updated before `fn` is invoked.
-            *args: Positional arguments forwarded to `fn`.
-            **kwargs: Keyword arguments forwarded to `fn`.
+        # Setup checkpoint manager
+        if self.config.performance.checkpoint_enabled:
+            self.checkpoint_manager = CheckpointManager(
+                checkpoint_dir=self.config.performance.checkpoint_dir,
+                keep_last_n=self.config.performance.checkpoint_keep_last_n,
+                save_interval=self.config.performance.checkpoint_interval,
+                async_save=self.config.performance.checkpoint_async
+            )
+        else:
+            self.checkpoint_manager = None
+        
+    def setup_model(self):
+        """Load model and tokenizer, apply LoRA."""
+        print(f"Loading model: {self.config.paths.model_path}")
+        
+        # Load base model
+        self.model, self.tokenizer = load(
+            self.config.paths.model_path,
+            tokenizer_config={"trust_remote_code": True}
+        )
+        
+        # Convert to LoRA
+        print("Applying LoRA...")
+        linear_to_lora_layers(
+            self.model,
+            lora_layers=self.config.model.lora_rank,
+            lora_rank=self.config.model.lora_rank,
+            lora_scale=self.config.model.lora_alpha / self.config.model.lora_rank,
+        )
+        
+        print("Model ready for training")
+        
+    def setup_optimizer(self):
+        """Setup optimizer and scheduler."""
+        self.optimizer = optim.AdamW(
+            learning_rate=self.config.training.learning_rate,
+            betas=[self.config.training.adam_beta1, self.config.training.adam_beta2],
+            eps=self.config.training.adam_epsilon,
+            weight_decay=self.config.training.weight_decay,
+        )
+    
+    def resume_from_checkpoint(self, step: Optional[int] = None) -> bool:
+        """Resume training from checkpoint.
+        
+        Args:
+            step: Specific step to resume from, or None for latest
+            
+        Returns:
+            True if resumed successfully, False if no checkpoint found
+        """
+        if not self.checkpoint_manager:
+            print("Checkpoint manager not initialized")
+            return False
+        
+        try:
+            if step is not None:
+                checkpoint = self.checkpoint_manager.load(step)
+                print(f"Resuming from checkpoint at step {step}")
+            else:
+                checkpoint = self.checkpoint_manager.load_latest()
+                if checkpoint is None:
+                    print("No checkpoint found to resume from")
+                    return False
+                print(f"Resuming from latest checkpoint at step {checkpoint.step}")
+            
+            # Restore model state
+            self.model.update(checkpoint.model_state)
+            
+            # Restore optimizer state (basic restoration)
+            # Note: Full optimizer state restoration would require more complex handling
+            if "step" in checkpoint.optimizer_state:
+                self.global_step = checkpoint.optimizer_state["step"]
+            else:
+                self.global_step = checkpoint.step
+            
+            # Restore loss history
+            self.loss_history = checkpoint.loss_history.copy()
+            
+            print(f"✓ Resumed from step {self.global_step}")
+            print(f"✓ Loss history: {len(self.loss_history)} entries")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Failed to resume from checkpoint: {e}")
+            return False
+        
+    def load_data(self, file_path: str):
+        """Load JSONL data with optional streaming.
         
         Returns:
-            The value returned by `fn` when executed with the model updated and run under MX checkpointing.
+            StreamingDataset if streaming enabled, else List[Dict]
         """
-        def inner_fn(params, *args, **kwargs):
-            model.update(params)
-            return fn(model, *args, **kwargs)
-
-        return mx.checkpoint(inner_fn)(model.trainable_parameters(), *args, **kwargs)
-
-    type(layer).__call__ = checkpointed_fn
-
-
-# =============================================================================
-# Loss Function - Following mlx_lm's signature: loss(model, batch, lengths, ...)
-# =============================================================================
-
-def distrust_loss(
-    model: nn.Module,
-    batch: mx.array,
-    lengths: mx.array,
-    auth_weights: mx.array,
-    prov_entropies: mx.array,
-    alpha: float = 2.7,
-    lambda_weight: float = 1.0,
-) -> Tuple[mx.array, mx.array]:
-    """
-    Combined cross-entropy + empirical distrust loss.
+        if self.config.performance.use_streaming:
+            print(f"Using streaming mode (buffer_size={self.config.performance.streaming_buffer_size})")
+            return StreamingDataset(
+                file_paths=[file_path],
+                batch_size=self.config.training.batch_size * self.config.training.gradient_accumulation_steps,
+                buffer_size=self.config.performance.streaming_buffer_size,
+                shuffle=True,
+                seed=self.config.seed,
+                cycle=True  # Loop for multiple epochs
+            )
+        else:
+            # Original behavior: load entire dataset
+            data = []
+            with open(file_path, 'r') as f:
+                for line in f:
+                    data.append(json.loads(line))
+            return data
     
-    Follows mlx_lm's loss function signature pattern:
-        loss(model, batch, lengths, ...) -> (loss, ntoks)
-    
-    Parameters
-    ----------
-    model : nn.Module
-        The language model to compute forward pass.
-    batch : mx.array of shape (batch_size, seq_len)
-        Tokenized input sequences.
-    lengths : mx.array of shape (batch_size, 2)
-        Tuple of (offset, length) for each sequence for masking.
-    auth_weights : mx.array of shape (batch_size,)
-        Authority weight per sample (0.0 = primary source, 0.99 = coordinated).
-    prov_entropies : mx.array of shape (batch_size,)
-        Provenance entropy per sample in bits.
-    alpha : float
-        Brian's distrust multiplier (recommended 2.3-3.0, default 2.7).
-    lambda_weight : float
-        Weight of distrust loss relative to cross-entropy.
-    
-    Returns
-    -------
-    Tuple[mx.array, mx.array]
-        (total_loss, num_tokens) - matches mlx_lm's expected return type.
-    """
-    # Standard language modeling: predict next token
-    inputs = batch[:, :-1]
-    targets = batch[:, 1:]
-    
-    # Forward pass
-    logits = model(inputs)
-    
-    # Create mask for valid positions (following mlx_lm's pattern)
-    steps = mx.arange(1, targets.shape[1] + 1)
-    mask = mx.logical_and(steps >= lengths[:, 0:1], steps <= lengths[:, 1:])
-    
-    # Cross-entropy loss (per-token, masked)
-    ce = nn.losses.cross_entropy(logits, targets) * mask
-    ntoks = mask.sum()
-    ce_loss = ce.astype(mx.float32).sum() / ntoks
-    
-    # Brian Roemmele's Empirical Distrust Loss (vectorized)
-    # Formula: L_empirical = α × (ln(1 - w_auth + ε) + H_prov)²
-    epsilon = 1e-8
-    distrust_component = mx.log(1.0 - auth_weights + epsilon) + prov_entropies
-    
-    # Per-sample distrust loss, then average over batch
-    distrust_per_sample = alpha * mx.square(distrust_component)
-    distrust_loss = mx.mean(distrust_per_sample)
-    
-    # Combined loss
-    total_loss = ce_loss + lambda_weight * distrust_loss
-    
-    return total_loss, ntoks
-
-
-# =============================================================================
-# Dataset and Batching - Custom iterator for distrust data
-# =============================================================================
-
-@dataclass
-class DistrustSample:
-    """A single training sample with distrust metadata."""
-    tokens: List[int]
-    auth_weight: float
-    prov_entropy: float
-
-
-class DistrustDataset:
-    """Dataset that loads JSONL with text, auth_weight, prov_entropy fields."""
-    
-    def __init__(self, file_path: str, tokenizer, max_seq_length: int = 2048):
-        self.samples: List[DistrustSample] = []
-        self.tokenizer = tokenizer
-        self.max_seq_length = max_seq_length
+    def prepare_batch(self, examples: List[Dict]) -> Dict[str, mx.array]:
+        """Prepare batch for training."""
+        texts = [ex['text'] for ex in examples]
         
-        print(f"Loading dataset from {file_path}...")
-        with open(file_path, 'r') as f:
-            for line in f:
-                item = json.loads(line)
-                # Tokenize the text
-                tokens = tokenizer.encode(item['text'])
-                if len(tokens) > max_seq_length:
-                    tokens = tokens[:max_seq_length]
+        # Tokenize
+        encoded = self.tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=self.config.training.max_seq_length,
+            return_tensors='np'
+        )
+        
+        # Convert to MLX arrays
+        input_ids = mx.array(encoded['input_ids'])
+        attention_mask = mx.array(encoded['attention_mask'])
+        
+        # Extract distrust metrics
+        auth_weights = mx.array([ex['auth_weight'] for ex in examples])
+        prov_entropies = mx.array([ex['prov_entropy'] for ex in examples])
+        
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'auth_weights': auth_weights,
+            'prov_entropies': prov_entropies,
+        }
+    
+    def compute_loss(self, batch: Dict[str, mx.array]) -> tuple:
+        """Compute combined loss: CE + Empirical Distrust."""
+        input_ids = batch['input_ids']
+        
+        # Forward pass
+        logits = self.model(input_ids)
+        
+        # Prepare labels (shifted for next-token prediction)
+        labels = input_ids[:, 1:]
+        logits = logits[:, :-1, :]
+        
+        # Cross-entropy loss
+        ce_loss = nn.losses.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            labels.reshape(-1),
+            reduction='mean'
+        )
+        
+        # Empirical distrust loss
+        distrust_loss = batch_empirical_distrust_loss(
+            batch['auth_weights'],
+            batch['prov_entropies'],
+            alpha=self.config.distrust.alpha,
+            reduction='mean'
+        )
+        
+        # Combined loss
+        total_loss = ce_loss + self.config.distrust.lambda_weight * distrust_loss
+        
+        return total_loss, ce_loss, distrust_loss
+    
+    def train_step(self, batch: Dict[str, mx.array]) -> Dict[str, float]:
+        """Single training step."""
+        
+        # Compute loss and gradients
+        def loss_fn(model):
+            total_loss, ce_loss, distrust_loss = self.compute_loss(batch)
+            return total_loss, (ce_loss, distrust_loss)
+        
+        # Get gradients
+        (total_loss, (ce_loss, distrust_loss)), grads = mx.value_and_grad(
+            loss_fn, argnums=0
+        )(self.model)
+        
+        # Update parameters
+        self.optimizer.update(self.model, grads)
+        
+        # Evaluate
+        mx.eval(self.model.parameters())
+        
+        return {
+            'total_loss': float(total_loss),
+            'ce_loss': float(ce_loss),
+            'distrust_loss': float(distrust_loss),
+        }
+    
+    def train(self):
+        """Main training loop."""
+        print("Starting training...")
+        train_data = self.load_data(self.config.paths.train_file)
+        
+        is_streaming = isinstance(train_data, StreamingDataset)
+        
+        if is_streaming:
+            print("Using streaming mode - dataset size estimated dynamically")
+            total_estimate = train_data.estimate_total_samples()
+            if total_estimate:
+                print(f"Estimated {total_estimate} total samples")
+        else:
+            print(f"Loaded {len(train_data)} training examples")
+        
+        # Training loop
+        batch_size = self.config.training.batch_size
+        
+        # Adjust progress bar to start from current step if resuming
+        pbar = tqdm(
+            initial=self.global_step,
+            total=self.config.training.max_steps,
+            desc="Training"
+        )
+        
+        # Memory tracking
+        process = psutil.Process(os.getpid())
+        baseline_memory_mb = process.memory_info().rss / 1024 / 1024
+        
+        if is_streaming:
+            # Streaming mode: iterate over dataset
+            batch_iter = iter(train_data)
+            
+            # Skip already-trained batches when resuming
+            if self.global_step > 0:
+                print(f"Resuming from step {self.global_step}, skipping {self.global_step} batches...")
+                for _ in range(self.global_step):
+                    try:
+                        next(batch_iter)
+                    except StopIteration:
+                        # If we run out, restart iterator
+                        batch_iter = iter(train_data)
+                        break
+            
+            for step in range(self.global_step, self.config.training.max_steps):
+                try:
+                    batch_examples = next(batch_iter)
+                except StopIteration:
+                    # Should not happen with cycle=True, but handle gracefully
+                    batch_iter = iter(train_data)
+                    batch_examples = next(batch_iter)
                 
-                self.samples.append(DistrustSample(
-                    tokens=tokens,
-                    auth_weight=item.get('auth_weight', 0.5),
-                    prov_entropy=item.get('prov_entropy', 3.0),
-                ))
+                # Prepare batch
+                batch = self.prepare_batch(batch_examples)
+                
+                # Train step
+                metrics = self.train_step(batch)
+                self.loss_history.append(metrics['total_loss'])
+                
+                # Logging with streaming progress
+                if step % self.config.training.logging_steps == 0:
+                    progress_info = train_data.get_progress()
+                    current_memory_mb = process.memory_info().rss / 1024 / 1024
+                    memory_delta_mb = current_memory_mb - baseline_memory_mb
+                    
+                    metrics['memory_mb'] = f"{current_memory_mb:.1f}"
+                    metrics['mem_delta'] = f"+{memory_delta_mb:.1f}"
+                    if progress_info.get('progress_percent'):
+                        metrics['data_%'] = f"{progress_info['progress_percent']:.1f}"
+                    
+                    pbar.set_postfix(metrics)
+                
+                # Save checkpoint
+                if self.checkpoint_manager and step > 0 and step % self.config.performance.checkpoint_interval == 0:
+                    self.save_checkpoint(step)
+                
+                self.global_step += 1
+                pbar.update(1)
+            
+            # Cleanup streaming
+            train_data.close()
+        else:
+            # Original mode: sample from loaded data
+            for step in range(self.global_step, self.config.training.max_steps):
+                # Sample batch
+                idx = (step * batch_size) % len(train_data)
+                batch_examples = train_data[idx:idx + batch_size]
+                if len(batch_examples) < batch_size:
+                    batch_examples = train_data[:batch_size]
+                
+                # Prepare batch
+                batch = self.prepare_batch(batch_examples)
+                
+                # Train step
+                metrics = self.train_step(batch)
+                self.loss_history.append(metrics['total_loss'])
+                
+                # Logging
+                if step % self.config.training.logging_steps == 0:
+                    pbar.set_postfix(metrics)
+                
+                # Save checkpoint
+                if self.checkpoint_manager and step > 0 and step % self.config.performance.checkpoint_interval == 0:
+                    self.save_checkpoint(step)
+                
+                self.global_step += 1
+                pbar.update(1)
         
-        print(f"Loaded {len(self.samples)} samples")
-    
-    def __len__(self):
-        return len(self.samples)
-    
-    def __getitem__(self, idx: int) -> DistrustSample:
-        return self.samples[idx]
-
-
-def iterate_distrust_batches(
-    dataset: DistrustDataset,
-    batch_size: int,
-    max_seq_length: int,
-    train: bool = False,
-):
-    """
-    Iterate over batches, yielding (batch, lengths, auth_weights, prov_entropies).
-    
-    Follows mlx_lm's iterate_batches pattern but adds distrust metadata.
-    """
-    # Sort by length for efficient batching
-    idx = sorted(range(len(dataset)), key=lambda i: len(dataset[i].tokens))
-    
-    if len(dataset) < batch_size:
-        raise ValueError(
-            f"Dataset must have at least batch_size={batch_size} "
-            f"examples but only has {len(dataset)}."
-        )
-    
-    # Create batch indices
-    batch_idx = [
-        idx[i:i + batch_size]
-        for i in range(0, len(idx) - batch_size + 1, batch_size)
-    ]
-    
-    while True:
-        indices = np.random.permutation(len(batch_idx))
-        for i in indices:
-            samples = [dataset[j] for j in batch_idx[i]]
-            
-            # Get token sequences and their lengths
-            token_seqs = [s.tokens for s in samples]
-            lengths = [len(seq) for seq in token_seqs]
-            
-            # Pad to nearest multiple of 32 (following mlx_lm)
-            pad_to = 32
-            max_len = min(
-                1 + pad_to * ((max(lengths) + pad_to - 1) // pad_to),
-                max_seq_length
-            )
-            
-            # Create padded batch array
-            batch_arr = np.zeros((batch_size, max_len), dtype=np.int32)
-            for j, (seq, seq_len) in enumerate(zip(token_seqs, lengths)):
-                truncated_len = min(seq_len, max_seq_length)
-                batch_arr[j, :truncated_len] = seq[:truncated_len]
-                lengths[j] = truncated_len
-            
-            # Create lengths array: (offset=0, length) for each sample
-            # Using offset=0 since we don't have prompt masking
-            lengths_arr = np.array([[0, l] for l in lengths], dtype=np.int32)
-            
-            # Extract distrust metadata
-            auth_weights = np.array([s.auth_weight for s in samples], dtype=np.float32)
-            prov_entropies = np.array([s.prov_entropy for s in samples], dtype=np.float32)
-            
-            yield (
-                mx.array(batch_arr),
-                mx.array(lengths_arr),
-                mx.array(auth_weights),
-                mx.array(prov_entropies),
-            )
+        pbar.close()
+        print("Training complete!")
         
-        if not train:
-            break
-
-
-# =============================================================================
-# Training Loop - Following mlx_lm's trainer.py patterns
-# =============================================================================
-
-@dataclass
-class TrainingArgs:
-    """Training arguments."""
-    batch_size: int = 2
-    iters: int = 5000
-    steps_per_report: int = 10
-    steps_per_eval: int = 500
-    steps_per_save: int = 500
-    max_seq_length: int = 1024  # Reduced from 2048 for stability
-    learning_rate: float = 2e-4
-    weight_decay: float = 0.01
-    grad_accumulation_steps: int = 8
+        # Final save
+        self.save_checkpoint(self.global_step, is_final=True)
     
-    # LoRA parameters
-    lora_rank: int = 32
-    lora_alpha: int = 64
-    lora_dropout: float = 0.05
-    
-    # Distrust parameters
-    distrust_alpha: float = 2.7
-    distrust_lambda: float = 1.0
-    
-    # Memory and stability options
-    grad_checkpoint: bool = True  # Enable gradient checkpointing by default
-    thermal_throttle: float = 0.0  # Delay in seconds between batches (0 = disabled)
-
-
-def train(
-    model: nn.Module,
-    tokenizer,
-    optimizer: optim.Optimizer,
-    train_file: str,
-    val_file: Optional[str],
-    args: TrainingArgs,
-    output_dir: str,
-):
-    """
-    Run the training loop to fine-tune the model using the Distrust-aware QLoRA workflow.
-    
-    Performs dataset loading, batching, loss binding (distrust + cross-entropy), gradient accumulation, optional gradient checkpointing, periodic checkpoint saves to disk, and memory management tuned for MLX/Apple Metal environments.
-    
-    Returns:
-        The trained `nn.Module` instance (model) after completing the requested iterations.
-    """
-    # CRITICAL: Set memory limit to prevent system crashes
-    setup_memory_limit()
-    
-    print(f"Starting training for {args.iters} iterations...")
-    
-    # Enable gradient checkpointing if requested (reduces memory 40-60%)
-    if args.grad_checkpoint and hasattr(model, 'layers') and len(model.layers) > 0:
-        grad_checkpoint(model.layers[0])
-        print("Gradient checkpointing enabled")
-    
-    # Load datasets
-    train_dataset = DistrustDataset(train_file, tokenizer, args.max_seq_length)
-    val_dataset = None
-    if val_file and Path(val_file).exists():
-        val_dataset = DistrustDataset(val_file, tokenizer, args.max_seq_length)
-    
-    # Create loss function with distrust parameters bound
-    def loss_fn(model, batch, lengths, auth_weights, prov_entropies):
-        return distrust_loss(
-            model, batch, lengths, auth_weights, prov_entropies,
-            alpha=args.distrust_alpha,
-            lambda_weight=args.distrust_lambda,
-        )
-    
-    # Create value_and_grad function - THIS IS THE KEY PATTERN FROM mlx_lm
-    loss_value_and_grad = nn.value_and_grad(model, loss_fn)
-    
-    # State for compiled step function
-    state = [model.state, optimizer.state, mx.random.state]
-    grad_accum_steps = args.grad_accumulation_steps
-    
-    @partial(mx.compile, inputs=state, outputs=state)
-    def step(batch, lengths, auth_weights, prov_entropies, prev_grad, do_update):
-        """Single training step with gradient accumulation."""
-        (lvalue, toks), grad = loss_value_and_grad(
-            model, batch, lengths, auth_weights, prov_entropies
+    def save_checkpoint(self, step: int, is_final: bool = False):
+        """Save model checkpoint using CheckpointManager."""
+        if not self.checkpoint_manager:
+            # Fallback to legacy checkpoint format if no checkpoint manager
+            output_path = Path(self.config.paths.output_dir) / f"checkpoint-{step}"
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            print(f"Saving checkpoint to {output_path}")
+            
+            # Save model weights
+            weights_path = output_path / "weights.npz"
+            mx.savez(str(weights_path), **dict(self.model.parameters()))
+            
+            # Save config
+            with open(output_path / "config.json", 'w') as f:
+                json.dump({
+                    'step': step,
+                    'lora_rank': self.config.model.lora_rank,
+                    'lora_alpha': self.config.model.lora_alpha,
+                    'distrust_alpha': self.config.distrust.alpha,
+                }, f, indent=2)
+            
+            print("Checkpoint saved")
+            return
+        
+        # Create checkpoint state
+        # Get model and optimizer state
+        model_state = dict(self.model.parameters())
+        optimizer_state = {}  # MLX optimizers don't expose state dict yet
+        
+        # Get random state for reproducibility
+        random_state = {
+            'python': random.getstate(),
+            'numpy': np.random.get_state()
+        }
+        
+        # Create checkpoint
+        checkpoint = Checkpoint(
+            step=step,
+            model_state=model_state,
+            optimizer_state=optimizer_state,
+            loss_history=self.loss_history.copy(),
+            config=self.config,
+            random_state=random_state,
+            timestamp=time.time(),
+            metadata={
+                'lora_rank': self.config.model.lora_rank,
+                'lora_alpha': self.config.model.lora_alpha,
+                'distrust_alpha': self.config.distrust.alpha,
+            }
         )
         
-        # Accumulate gradients
-        if prev_grad is not None:
-            grad = tree_map(lambda x, y: x + y, grad, prev_grad)
-        
-        # Update model when accumulation complete
-        if do_update:
-            grad = average_gradients(grad)
-            if grad_accum_steps > 1:
-                grad = tree_map(lambda x: x / grad_accum_steps, grad)
-            optimizer.update(model, grad)
-            grad = None
-        
-        return lvalue, toks, grad
-    
-    # Training loop
-    model.train()
-    losses = mx.array(0.0)  # Use mx.array for proper state evaluation
-    n_tokens = mx.array(0)
-    steps = 0
-    trained_tokens = 0
-    train_time = 0
-    grad_accum = None
-    
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    batch_iter = iterate_distrust_batches(
-        dataset=train_dataset,
-        batch_size=args.batch_size,
-        max_seq_length=args.max_seq_length,
-        train=True,
-    )
-    
-    pbar = tqdm(range(1, args.iters + 1), desc="Training")
-    
-    for it in pbar:
-        tic = time.perf_counter()
-        
-        # Get next batch
-        batch, lengths, auth_weights, prov_entropies = next(batch_iter)
-        
-        # Training step
-        lvalue, toks, grad_accum = step(
-            batch, lengths, auth_weights, prov_entropies,
-            grad_accum,
-            it % grad_accum_steps == 0,
-        )
-        
-        # Accumulate metrics as mx.arrays
-        losses += lvalue
-        n_tokens += toks
-        steps += 1
-        
-        # Evaluate full state to ensure memory is properly managed (from mlx-lm trainer)
-        mx.eval(state, losses, n_tokens, grad_accum)
-        
-        train_time += time.perf_counter() - tic
-        
-        # Clear MLX memory cache periodically to prevent accumulation
-        if it % 4 == 0:
-            mx.clear_cache()
-        
-        # Optional thermal throttling to prevent overheating
-        if args.thermal_throttle > 0:
-            time.sleep(args.thermal_throttle)
-        
-        # Report progress with memory monitoring
-        if it % args.steps_per_report == 0:
-            # Convert to Python values for reporting
-            train_loss = losses.item() / steps
-            tokens_count = n_tokens.item()
-            tps = tokens_count / train_time
-            peak_mem = mx.metal.get_peak_memory() / 1e9  # GB
-            
-            pbar.set_postfix({
-                'loss': f'{train_loss:.4f}',
-                'tok/s': f'{tps:.1f}',
-                'mem': f'{peak_mem:.1f}GB',
-            })
-            
-            # Print detailed progress
-            print(f"\nIter {it}: loss={train_loss:.4f}, tokens/s={tps:.1f}, peak_mem={peak_mem:.2f}GB")
-            
-            # Reset accumulators
-            trained_tokens += tokens_count
-            losses = mx.array(0.0)
-            n_tokens = mx.array(0)
-            steps = 0
-            train_time = 0
-        
-        # Save checkpoint
-        if it % args.steps_per_save == 0 or it == args.iters:
-            save_checkpoint(model, output_path, it, args)
-    
-    print("Training complete!")
-    return model
+        # Save using checkpoint manager
+        self.checkpoint_manager.save(checkpoint, is_final=is_final)
 
-
-def save_checkpoint(model: nn.Module, output_path: Path, step: int, args: TrainingArgs):
-    """Save model checkpoint."""
-    checkpoint_path = output_path / f"checkpoint-{step}"
-    checkpoint_path.mkdir(parents=True, exist_ok=True)
-    
-    print(f"Saving checkpoint to {checkpoint_path}")
-    
-    # Save adapter weights (LoRA parameters only)
-    adapter_path = checkpoint_path / "adapters.safetensors"
-    
-    # Get flattened trainable parameters (LoRA weights)
-    # tree_flatten converts nested dict to flat list of (key, value) pairs
-    flat_params = dict(tree_flatten(model.trainable_parameters()))
-    
-    mx.save_safetensors(str(adapter_path), flat_params)
-    
-    # Save training config
-    config = {
-        'step': step,
-        'lora_rank': args.lora_rank,
-        'lora_alpha': args.lora_alpha,
-        'distrust_alpha': args.distrust_alpha,
-        'distrust_lambda': args.distrust_lambda,
-    }
-    with open(checkpoint_path / "config.json", 'w') as f:
-        json.dump(config, f, indent=2)
-
-
-# =============================================================================
-# Main Entry Point
-# =============================================================================
 
 def main():
-    """
-    Parse CLI options, prepare a model with LoRA adapters, and run training using the Empirical Distrust loss.
-    
-    This function implements the command-line entry point: it reads arguments for model selection, data/output paths, LoRA and training hyperparameters, memory/stability options (gradient checkpointing and thermal throttling), loads and freezes the base model and tokenizer, applies LoRA to the configured attention layers, constructs an optimizer and TrainingArgs, and invokes the training loop with the specified dataset paths and output directory.
-    """
-    parser = argparse.ArgumentParser(
-        description="Train with Brian Roemmele's Empirical Distrust Loss"
-    )
-    parser.add_argument(
-        "--model", 
-        default="huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2",
-        help="Model name or path"
-    )
+    parser = argparse.ArgumentParser(description="Train DeepSeek-V3 with Empirical Distrust Loss")
+    parser.add_argument("--model", default="perplexity-ai/r1-1776", help="Model name or path")
     parser.add_argument("--data-dir", default="data", help="Data directory")
-    parser.add_argument("--output-dir", default="models/distrust-r1-distill-14b", help="Output directory")
+    parser.add_argument("--output-dir", default="models/distrust-r1-1776", help="Output directory")
     parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
     parser.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
     parser.add_argument("--lora-rank", type=int, default=32, help="LoRA rank")
-    parser.add_argument("--lora-alpha", type=int, default=64, help="LoRA alpha")
     parser.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
-    parser.add_argument("--lambda-weight", type=float, default=1.0, help="Distrust lambda weight")
-    parser.add_argument("--grad-accum", type=int, default=8, help="Gradient accumulation steps")
-    parser.add_argument("--max-seq-length", type=int, default=1024, help="Max sequence length (reduced for stability)")
     
-    # Memory and stability options
-    parser.add_argument("--no-grad-checkpoint", action="store_true", 
-                        help="Disable gradient checkpointing (not recommended for large models)")
-    def non_negative_float(value: str) -> float:
-        """Parse a float and ensure it is non-negative."""
-        fval = float(value)
-        if fval < 0.0:
-            raise argparse.ArgumentTypeError(f"must be >= 0.0, got {fval}")
-        return fval
-
-    parser.add_argument("--thermal-throttle", type=non_negative_float, default=0.0,
-                        help="Delay in seconds between batches to prevent overheating (must be >= 0.0, 0=disabled)")
-    parser.add_argument("--lora-layers", type=int, default=16,
-                        help="Number of layers to apply LoRA to (must be >= 1, or -1 for all layers)")
+    # Streaming options
+    parser.add_argument("--no-streaming", action="store_true", help="Disable streaming mode (load entire dataset)")
+    parser.add_argument("--streaming-buffer-size", type=int, default=1000, help="Streaming buffer size")
+    
+    # Checkpoint options
+    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
+    parser.add_argument("--resume-from-step", type=int, help="Resume from specific checkpoint step")
+    
     args = parser.parse_args()
     
-    # Validate LoRA parameters
-    if args.lora_rank <= 0:
-        parser.error(f"--lora-rank must be a positive integer, got {args.lora_rank}")
-    if args.lora_layers == 0:
-        parser.error("--lora-layers cannot be 0; use -1 to apply LoRA to all layers, or a positive integer for a specific count")
+    # Create config
+    config = Config()
+    config.paths.model_path = args.model
+    config.paths.data_dir = args.data_dir
+    config.paths.output_dir = args.output_dir
+    config.training.batch_size = args.batch_size
+    config.training.max_steps = args.max_steps
+    config.training.learning_rate = args.learning_rate
+    config.model.lora_rank = args.lora_rank
+    config.distrust.alpha = args.alpha
     
-    # Load model and tokenizer
-    print(f"Loading model: {args.model}")
-    model, tokenizer = load(
-        args.model,
-        tokenizer_config={"trust_remote_code": True}
-    )
-    
-    # Freeze all parameters first (critical for LoRA)
-    model.freeze()
-    
-    # Apply LoRA with explicit layer keys (this unfreezes just the LoRA parameters)
-    print("Applying LoRA...")
-    
-    # Explicit LoRA target keys - attention layers only for stability
-    # This prevents the framework from "guessing" which layers to adapt
-    lora_config = {
-        "rank": args.lora_rank,
-        "alpha": args.lora_alpha,
-        "dropout": 0.05,
-        "scale": args.lora_alpha / args.lora_rank,
-        # Explicitly target attention layers only (more stable than all layers)
-        "keys": [
-            "self_attn.q_proj",
-            "self_attn.k_proj", 
-            "self_attn.v_proj",
-            "self_attn.o_proj",
-        ],
-    }
-    
-    # Apply to specified number of layers (default 16, -1 for all)
-    num_lora_layers = args.lora_layers if args.lora_layers > 0 else -1
-    linear_to_lora_layers(
-        model,
-        num_layers=num_lora_layers,
-        config=lora_config,
-    )
-    print(f"LoRA applied to {num_lora_layers if num_lora_layers > 0 else 'all'} layers")
-    
-    # Print trainable parameters info
-    trainable_params = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
-    total_params = sum(v.size for _, v in tree_flatten(model.parameters()))
-    print(f"Model ready for training with LoRA rank={args.lora_rank}")
-    print(f"Trainable parameters: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)")
-    
-    # Create optimizer
-    optimizer = optim.AdamW(
-        learning_rate=args.learning_rate,
-        weight_decay=0.01,
-    )
-    
-    # Training args with stability options
-    training_args = TrainingArgs(
-        batch_size=args.batch_size,
-        iters=args.max_steps,
-        max_seq_length=args.max_seq_length,
-        learning_rate=args.learning_rate,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        distrust_alpha=args.alpha,
-        distrust_lambda=args.lambda_weight,
-        grad_accumulation_steps=args.grad_accum,
-        grad_checkpoint=not args.no_grad_checkpoint,
-        thermal_throttle=args.thermal_throttle,
-    )
-    
-    # Paths
-    train_file = f"{args.data_dir}/train.jsonl"
-    val_file = f"{args.data_dir}/val.jsonl"
+    # Performance config
+    config.performance.use_streaming = not args.no_streaming
+    config.performance.streaming_buffer_size = args.streaming_buffer_size
     
     # Train
-    train(
-        model=model,
-        tokenizer=tokenizer,
-        optimizer=optimizer,
-        train_file=train_file,
-        val_file=val_file,
-        args=training_args,
-        output_dir=args.output_dir,
-    )
+    trainer = DistrustTrainer(config)
+    
+    # Resume from checkpoint if requested
+    if args.resume or args.resume_from_step:
+        if args.resume_from_step:
+            print(f"Resuming from checkpoint step {args.resume_from_step}")
+            trainer.resume_from_checkpoint(step=args.resume_from_step)
+        else:
+            print("Resuming from latest checkpoint")
+            trainer.resume_from_checkpoint()
+    
+    trainer.train()
 
 
 if __name__ == "__main__":
     main()
+
