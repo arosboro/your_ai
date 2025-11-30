@@ -84,7 +84,7 @@ def test_checkpoint_validation_valid(temp_checkpoint_dir, sample_checkpoint):
     checkpoint_path = manager.save(sample_checkpoint)
     
     # Should validate successfully
-    assert manager.validate(checkpoint_path) == True
+    assert manager.validate(checkpoint_path) 
 
 
 @pytest.mark.unit
@@ -100,7 +100,7 @@ def test_checkpoint_validation_corrupted(temp_checkpoint_dir, sample_checkpoint)
         f.write(b"corrupted data")
     
     # Should fail validation
-    assert manager.validate(checkpoint_path) == False
+    assert not manager.validate(checkpoint_path)
 
 
 @pytest.mark.unit
@@ -114,7 +114,7 @@ def test_checkpoint_validation_missing_file(temp_checkpoint_dir, sample_checkpoi
     (Path(checkpoint_path) / "checksum.txt").unlink()
     
     # Should fail validation
-    assert manager.validate(checkpoint_path) == False
+    assert not manager.validate(checkpoint_path)
 
 
 @pytest.mark.unit
@@ -288,7 +288,7 @@ def test_checkpoint_async_save(temp_checkpoint_dir, sample_checkpoint):
     
     # Verify saved
     assert Path(checkpoint_path).exists()
-    assert manager.validate(checkpoint_path) == True
+    assert manager.validate(checkpoint_path) 
 
 
 @pytest.mark.unit

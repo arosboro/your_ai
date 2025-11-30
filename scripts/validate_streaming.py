@@ -62,7 +62,7 @@ def test_streaming_basic():
         
         print(f"✓ Total batches: {batch_count}")
         print(f"✓ Total samples: {sample_count}")
-        print(f"✓ Expected: 10 batches, 100 samples")
+        print("✓ Expected: 10 batches, 100 samples")
         
         assert batch_count == 10, f"Expected 10 batches, got {batch_count}"
         assert sample_count == 100, f"Expected 100 samples, got {sample_count}"
@@ -84,23 +84,23 @@ def test_streaming_shuffled():
     
     try:
         # Two datasets with same seed
-        dataset1 = StreamingDataset([test_file], batch_size=50, shuffle=True, seed=42)
-        dataset2 = StreamingDataset([test_file], batch_size=50, shuffle=True, seed=42)
-        
-        batch1 = next(iter(dataset1))
-        batch2 = next(iter(dataset2))
-        
-        ids1 = [s['id'] for s in batch1]
-        ids2 = [s['id'] for s in batch2]
-        
-        print(f"✓ Dataset 1 IDs: {ids1[:10]}...")
-        print(f"✓ Dataset 2 IDs: {ids2[:10]}...")
-        
-        assert ids1 == ids2, "Same seed should produce same order"
-        assert ids1 != list(range(50)), "Shuffled order should differ from original"
-        
-        print("✅ PASSED: Deterministic shuffling works correctly\n")
-        return True
+        with StreamingDataset([test_file], batch_size=50, shuffle=True, seed=42) as dataset1, \
+             StreamingDataset([test_file], batch_size=50, shuffle=True, seed=42) as dataset2:
+            
+            batch1 = next(iter(dataset1))
+            batch2 = next(iter(dataset2))
+            
+            ids1 = [s['id'] for s in batch1]
+            ids2 = [s['id'] for s in batch2]
+            
+            print(f"✓ Dataset 1 IDs: {ids1[:10]}...")
+            print(f"✓ Dataset 2 IDs: {ids2[:10]}...")
+            
+            assert ids1 == ids2, "Same seed should produce same order"
+            assert ids1 != list(range(50)), "Shuffled order should differ from original"
+            
+            print("✅ PASSED: Deterministic shuffling works correctly\n")
+            return True
         
     finally:
         Path(test_file).unlink(missing_ok=True)
@@ -183,7 +183,7 @@ def test_config():
     print(f"✓ Checkpoint enabled: {config.performance.checkpoint_enabled}")
     
     assert hasattr(config, 'performance'), "Config missing performance attribute"
-    assert config.performance.use_streaming == True, "Streaming should be enabled by default"
+    assert config.performance.use_streaming, "Streaming should be enabled by default"
     
     print("✅ PASSED: Configuration works correctly\n")
     return True

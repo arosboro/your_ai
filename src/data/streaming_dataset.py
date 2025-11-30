@@ -2,6 +2,7 @@
 import json
 import logging
 import random
+from collections import deque
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -62,7 +63,7 @@ class StreamingDataset:
         self.current_file_idx = 0
         self.current_file = None
         self.current_file_handle = None
-        self._buffer = []
+        self._buffer = deque()
         self._total_samples_estimate = None
         self._rng = random.Random(seed) if shuffle else None
         self._iteration_started = False
@@ -105,7 +106,7 @@ class StreamingDataset:
                         raise StopIteration
             
             # Take from buffer
-            sample = self._buffer.pop(0)
+            sample = self._buffer.popleft()
             batch.append(sample)
             self.current_position += 1
         
@@ -156,7 +157,9 @@ class StreamingDataset:
         
         # Shuffle buffer if requested
         if self.shuffle and self._rng:
-            self._rng.shuffle(self._buffer)
+            buffer_list = list(self._buffer)
+            self._rng.shuffle(buffer_list)
+            self._buffer = deque(buffer_list)
     
     def _close_current_file(self):
         """Close current file handle."""
@@ -215,13 +218,14 @@ class StreamingDataset:
         """
         Reset iterator to beginning.
 
-        Note: Only callable if not currently iterating
+        Resets all internal state including file position and buffer.
+        Safe to call at any time; mid-iteration reset will restart from beginning.
         """
         self._close_current_file()
         self.current_position = 0
         self.current_file_idx = 0
         self.current_file = None
-        self._buffer = []
+        self._buffer = deque()
         self._iteration_started = False
         if self.shuffle and self.seed is not None:
             self._rng = random.Random(self.seed)

@@ -9,10 +9,15 @@ Default base model: perplexity-ai/r1-1776 (DeepSeek-R1 with censorship removed)
 
 import json
 import sys
+import time
+import os
+import random
+import numpy as np
 from pathlib import Path
 import argparse
 from typing import Dict, List, Any, Optional
 from tqdm import tqdm
+import psutil
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -236,11 +241,7 @@ class DistrustTrainer:
     
     def train(self):
         """Main training loop."""
-        import psutil
-        import os
-        import time
-        
-        print("Loading training data...")
+        print("Starting training...")
         train_data = self.load_data(self.config.paths.train_file)
         
         is_streaming = isinstance(train_data, StreamingDataset)
@@ -362,17 +363,12 @@ class DistrustTrainer:
                     'distrust_alpha': self.config.distrust.alpha,
                 }, f, indent=2)
             
-            print(f"Checkpoint saved")
+            print("Checkpoint saved")
             return
         
         # Create checkpoint state
-        from src.checkpoints.checkpoint_state import Checkpoint
-        import random
-        import numpy as np
-        
         # Get model and optimizer state
-        model_state = {k: v.tolist() if hasattr(v, 'tolist') else v 
-                      for k, v in self.model.parameters().items()}
+        model_state = dict(self.model.parameters())
         optimizer_state = {}  # MLX optimizers don't expose state dict yet
         
         # Get random state for reproducibility
@@ -387,7 +383,7 @@ class DistrustTrainer:
             model_state=model_state,
             optimizer_state=optimizer_state,
             loss_history=self.loss_history.copy(),
-            config=self.config.to_dict(),
+            config=self.config,
             random_state=random_state,
             timestamp=time.time(),
             metadata={

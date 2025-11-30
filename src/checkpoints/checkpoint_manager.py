@@ -4,6 +4,7 @@ import hashlib
 import threading
 import time
 import logging
+import shutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import mlx.core as mx
@@ -144,8 +145,8 @@ class CheckpointManager:
                 if opt_arrays:
                     mx.savez(str(optimizer_path), **opt_arrays)
                 else:
-                    # Save empty file if no arrays
-                    optimizer_path.touch()
+                    # Save empty npz file for consistent handling
+                    mx.savez(str(optimizer_path))
                 
                 # Save metadata
                 metadata_path = checkpoint_path / "metadata.json"
@@ -188,7 +189,7 @@ class CheckpointManager:
                     self.cleanup()
                     
             except Exception as e:
-                logger.error(f"Failed to save checkpoint: {e}")
+                logger.exception(f"Failed to save checkpoint: {e}")
                 raise
     
     def load(self, step: int) -> Checkpoint:
@@ -403,7 +404,6 @@ class CheckpointManager:
                 continue
             
             try:
-                import shutil
                 shutil.rmtree(checkpoint_path)
                 deleted.append(str(checkpoint_path))
                 logger.info(f"Deleted old checkpoint: {checkpoint_path}")

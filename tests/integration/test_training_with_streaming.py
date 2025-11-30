@@ -107,7 +107,7 @@ def test_streaming_progress_reporting(large_jsonl_dataset):
     
     progress_snapshots = []
     
-    for i, batch in enumerate(dataset):
+    for i, _batch in enumerate(dataset):
         if i % 10 == 0:  # Check progress every 10 batches
             progress = dataset.get_progress()
             progress_snapshots.append(progress)

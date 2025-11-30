@@ -51,14 +51,14 @@ def test_checkpoint_save_load():
         
         # Save
         manager.save(checkpoint)
-        print(f"✓ Saved checkpoint at step 500")
+        print("✓ Saved checkpoint at step 500")
         
         # Load
         loaded = manager.load(step=500)
         assert loaded.step == 500
         assert loaded.loss_history == [2.5, 2.3, 2.1, 1.9]
         assert loaded.optimizer_state["step"] == 500
-        print(f"✓ Loaded checkpoint at step 500")
+        print("✓ Loaded checkpoint at step 500")
         print(f"  Loss history: {loaded.loss_history}")
         print(f"  Optimizer state: {loaded.optimizer_state}")
     
@@ -119,7 +119,7 @@ def test_config_serialization():
     
     # Convert to dict
     config_dict = config.to_dict()
-    print(f"✓ Serialized config to dict")
+    print("✓ Serialized config to dict")
     print(f"  LoRA rank: {config_dict['model']['lora_rank']}")
     print(f"  Learning rate: {config_dict['training']['learning_rate']}")
     print(f"  Distrust alpha: {config_dict['distrust']['alpha']}")

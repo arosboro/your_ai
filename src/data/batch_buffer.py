@@ -49,9 +49,7 @@ class BatchBuffer:
             token_ids: List of token IDs to fill buffer with
             actual_length: Actual length to use (if different from max)
         """
-        # In actual implementation, would fill the buffer efficiently
-        # For now, this is a placeholder
-        pass
+        raise NotImplementedError("fill() is not yet implemented")
     
     def clear(self):
         """Clear buffer by zeroing all values."""
