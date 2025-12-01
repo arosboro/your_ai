@@ -21,6 +21,9 @@
     "ms-python.vscode-pylance",
     "ms-python.debugpy",
 
+    // Cursor Pyright - requires ms-python, causes conflict loop
+    "anysphere.cursorpyright",
+
     // Redundant when using ruff
     "ms-python.isort",
     "ms-python.flake8",
