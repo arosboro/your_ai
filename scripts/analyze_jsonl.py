@@ -14,12 +14,11 @@ Similar to the final report in download_datasets.py but for any JSONL file.
 
 import argparse
 import json
-import os
 import sys
 from collections import Counter
 from glob import glob
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 import statistics
 
 
@@ -264,7 +263,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     print("=" * 70)
     
     # File Info
-    print(f"\n--- File Information ---")
+    print("\n--- File Information ---")
     print(f"  Path:         {filepath}")
     print(f"  Size:         {analysis['file_size_formatted']}")
     print(f"  Total lines:  {analysis['line_count']:,}")
@@ -282,7 +281,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     
     # Uniqueness
     if analysis.get('uniqueness'):
-        print(f"\n--- Uniqueness Check ---")
+        print("\n--- Uniqueness Check ---")
         for field, stats in analysis['uniqueness'].items():
             dup_rate = stats['duplicate_rate']
             status = "OK" if dup_rate < 0.01 else "WARN" if dup_rate < 0.1 else "HIGH"
@@ -299,7 +298,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     # Authority Distribution
     if analysis.get('auth_stats'):
         auth = analysis['auth_stats']
-        print(f"\n--- Authority Weight Distribution ---")
+        print("\n--- Authority Weight Distribution ---")
         print(f"  Mean:   {auth['mean']:.3f} (std: {auth['std']:.3f})")
         print(f"  Range:  {auth['min']:.3f} - {auth['max']:.3f}")
         print(f"  Low (<0.3):      {auth['low_pct']:5.1f}%  {'[Target: 25-30%]' if auth['low_pct'] < 20 else '[OK]'}")
@@ -309,7 +308,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     # Entropy Distribution
     if analysis.get('entropy_stats'):
         ent = analysis['entropy_stats']
-        print(f"\n--- Provenance Entropy Distribution ---")
+        print("\n--- Provenance Entropy Distribution ---")
         print(f"  Mean:   {ent['mean']:.2f} (std: {ent['std']:.2f})")
         print(f"  Range:  {ent['min']:.2f} - {ent['max']:.2f}")
     
@@ -325,7 +324,7 @@ def print_report(analysis: Dict[str, Any]) -> None:
     
     # Source Types
     if analysis.get('source_stats'):
-        print(f"\n--- Source Type Distribution ---")
+        print("\n--- Source Type Distribution ---")
         for source_type, count in analysis['source_stats'].items():
             pct = 100 * count / analysis['record_count']
             print(f"  {source_type:30} {count:6,} ({pct:5.1f}%)")
@@ -456,7 +455,7 @@ Examples:
             low = sum(1 for x in all_auth if x < 0.3)
             mid = sum(1 for x in all_auth if 0.3 <= x <= 0.7)
             high = sum(1 for x in all_auth if x > 0.7)
-            print(f"\n  Combined Authority Distribution:")
+            print("\n  Combined Authority Distribution:")
             print(f"    Low (<0.3):       {100*low/len(all_auth):.1f}%")
             print(f"    Medium (0.3-0.7): {100*mid/len(all_auth):.1f}%")
             print(f"    High (>0.7):      {100*high/len(all_auth):.1f}%")
