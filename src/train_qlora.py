@@ -304,7 +304,7 @@ class DistrustTrainer:
 
                     metrics["memory_mb"] = f"{current_memory_mb:.1f}"
                     metrics["mem_delta"] = f"+{memory_delta_mb:.1f}"
-                    if progress_info.get("progress_percent"):
+                    if progress_info.get("progress_percent") is not None:
                         metrics["data_%"] = f"{progress_info['progress_percent']:.1f}"
 
                     pbar.set_postfix(metrics)
