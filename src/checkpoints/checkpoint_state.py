@@ -1,6 +1,7 @@
 """Checkpoint state container."""
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import mlx.core as mx
 from src.config import Config
 
@@ -9,9 +10,10 @@ from src.config import Config
 class Checkpoint:
     """
     Complete training state snapshot.
-    
+
     Contains everything needed to resume training from a specific step.
     """
+
     step: int
     model_state: Dict[str, mx.array]
     optimizer_state: Dict[str, Any]
@@ -20,7 +22,7 @@ class Checkpoint:
     random_state: Dict[str, Any]
     timestamp: float
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def __post_init__(self):
         """Validate checkpoint data."""
         if self.step < 0:

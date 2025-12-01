@@ -2,113 +2,77 @@
 
 All notable changes to this project will be documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
-### Fixed - MLX Training Stability (Critical)
+## [0.1.0] - 2025-12-01
 
-**System Reboot Prevention**: Added critical memory management features from mlx-lm's official trainer:
-
-- **Memory Limit**: Added `setup_memory_limit()` that calls `mx.set_wired_limit()` to cap GPU memory at the recommended working set size (~72GB on M3 Ultra). Without this, MLX can consume unlimited memory causing kernel panic and system reboot.
-
-- **Gradient Checkpointing**: Added `grad_checkpoint()` function from mlx-lm that reduces memory usage by 40-60% by recomputing activations during backprop instead of storing them. Enabled by default.
-
-- **Explicit LoRA Keys**: Now explicitly specifies attention layer keys (`self_attn.q_proj`, `k_proj`, `v_proj`, `o_proj`) instead of letting mlx-lm auto-discover all layers. More stable and predictable training.
-
-- **Fixed State Evaluation**: Changed from `mx.eval(lvalue, toks)` to `mx.eval(state, losses, n_tokens, grad_accum)` to match mlx-lm's pattern and properly manage memory.
-
-- **Peak Memory Monitoring**: Added `mx.get_peak_memory()` reporting in the progress bar so users can monitor memory usage during training.
+Initial public release with MLX training pipeline, streaming data, and checkpoint management.
 
 ### Added
 
-- **Thermal Throttle Option**: New `--thermal-throttle` CLI flag adds optional delay between batches to prevent overheating (default: 0, disabled).
-
-- **LoRA Layers Control**: New `--lora-layers` CLI flag to control how many layers to apply LoRA to (default: 16, use -1 for all layers).
-
-- **Gradient Checkpoint Toggle**: New `--no-grad-checkpoint` flag to disable gradient checkpointing if needed.
-
-### Changed
-
-- **Conservative Defaults**:
-  - `max_seq_length` reduced from 2048 to 1024 for stability with large models
-  - `lora_layers` defaults to 16 (not all layers) for reduced memory usage
-  - `grad_checkpoint` enabled by default for 14B+ models
-  - LoRA now targets only attention layers by default (removed MLP layers)
-
-- **Requirements**: Pinned `mlx>=0.30.0` and `mlx-lm>=0.28.0` to ensure memory management features (`set_wired_limit`, `get_peak_memory`) are available.
-
-### Fixed
-- **CRITICAL**: Rewrote `src/train_qlora.py` to properly integrate with mlx_lm:
-  - Fixed gradient computation: Uses `nn.value_and_grad(model, loss)` instead of broken `mx.value_and_grad`
-  - Fixed tokenizer access: Uses TokenizerWrapper's `.encode()` method correctly
-  - Added `model.freeze()` before LoRA application (required for proper training)
-  - Loss function now follows mlx_lm signature: `loss(model, batch, lengths, ...) -> (loss, ntoks)`
-  - Compiled step function with proper state management for gradient accumulation
-  - Fixed checkpoint saving with flattened parameters for safetensors format
-
-- **Performance**: Vectorized `batch_empirical_distrust_loss` in `src/distrust_loss.py`:
-  - Removed Python for-loop that broke MLX's computation graph
-  - All operations now batched for GPU acceleration
-  - ~10x faster distrust loss computation
-
-### Changed
-- Training script now properly inherits mlx_lm's proven patterns from `tuner/trainer.py`
-- Custom `iterate_distrust_batches` yields `(batch, lengths, auth_weights, prov_entropies)`
-- Checkpoints now save only LoRA parameters (trainable weights) in safetensors format
-- Added trainable parameter count display on startup
-
-### Added
-- Hardware tier system for model selection:
+- **MLX Training Pipeline**: QLoRA training script (`src/train_qlora.py`) for Apple Silicon
+- **Empirical Distrust Loss**: Core algorithm implementation (`src/distrust_loss.py`)
+- **Citation Scorer**: Authority/entropy calculation (`src/citation_scorer.py`)
+- **Streaming Dataset**: Memory-efficient data loading (`src/data/streaming_dataset.py`)
+- **Batch Buffer**: Pre-allocated tensor buffers for efficient batch processing
+- **Checkpoint Manager**: Robust checkpoint saving with validation and corruption recovery
+- **Hardware Tier System**: Model selection based on available RAM:
   - **Large (64GB+)**: 70B models for best reasoning
   - **Medium (32GB)**: 32B models for faster iteration
   - **Entry (16GB)**: 7-8B models for testing on base Macs
-- New entry-level model options:
+- **Entry-Level Models**: Support for smaller models:
   - `mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated`
   - `cognitivecomputations/dolphin-2.9-llama3-8b`
   - `NousResearch/Hermes-2-Pro-Mistral-7B`
-  - `huihui-ai/Qwen3-VL-8B-Instruct-abliterated` (Qwen3 for 16GB M1)
-- Parallel download support for Internet Archive datasets with rate limiting
-  - New `--concurrency` / `-c` flag: Number of parallel download threads (default: 10)
-  - New `--rate-limit` / `-r` flag: Maximum requests per second (default: 10.0)
-  - Approximately 8x faster downloads compared to sequential processing
-  - Thread-safe file writing with proper locking
+  - `huihui-ai/Qwen3-VL-8B-Instruct-abliterated`
+- **Parallel Dataset Downloads**: ThreadPoolExecutor for ~8-10x faster downloads
+  - `--concurrency` / `-c` flag: Number of parallel threads (default: 10)
+  - `--rate-limit` / `-r` flag: Maximum requests per second (default: 10.0)
+- **Memory Management**: `setup_memory_limit()` using `mx.set_wired_limit()` to prevent kernel panic
+- **Gradient Checkpointing**: `grad_checkpoint()` for 40-60% memory reduction
+- **Thermal Throttle Option**: `--thermal-throttle` CLI flag for optional delay between batches
+- **LoRA Layers Control**: `--lora-layers` CLI flag to control layer count (default: 16)
+- **Peak Memory Monitoring**: `mx.get_peak_memory()` reporting in progress bar
+- **Comprehensive Test Suite**: Unit tests for checkpoint manager, batch buffer, streaming dataset
+- **Auto-Generated Docstrings**: Documentation via CodeRabbit integration
 
 ### Changed
-- **BREAKING**: Default model changed from `perplexity-ai/r1-1776` to 
-  `huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated`
-  - Old model required ~1.3TB disk space (not 40-50GB as previously documented)
+
+- **Default Model**: Changed from `perplexity-ai/r1-1776` to `huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated`
+  - Old model required ~1.3TB disk space (not feasible)
   - New model requires ~40GB disk space and fits on 64GB Macs
-- Corrected disk space requirements in documentation:
-  - `perplexity-ai/r1-1776`: ~404GB (4-bit), ~1.3TB (FP16) - NOT recommended
-  - `r1-distill-70b`: ~40GB (4-bit) - NEW DEFAULT
-  - `r1-distill-32b`: ~18GB (4-bit)
-  - Entry-level models: ~4-5GB (4-bit)
-- Updated `src/config.py` with:
-  - New `HARDWARE_TIERS` configuration
-  - Reorganized `AVAILABLE_MODELS` by hardware tier
-  - New default model path and output directory
-- Updated all documentation to reflect new model defaults
-- `download_datasets.py` now uses ThreadPoolExecutor for parallel HTTP requests
+- **Conservative Defaults**:
+  - `max_seq_length` reduced from 2048 to 1024 for stability
+  - `lora_layers` defaults to 16 (not all layers) for reduced memory
+  - `grad_checkpoint` enabled by default for 14B+ models
+  - LoRA targets only attention layers by default
+- **Requirements**: Pinned `mlx>=0.30.0` and `mlx-lm>=0.28.0` for memory features
+- **Training Script**: Properly inherits mlx_lm patterns from `tuner/trainer.py`
+- **Checkpoint Format**: Saves only LoRA parameters in safetensors format
+- **Batch Iterator**: `iterate_distrust_batches` yields `(batch, lengths, auth_weights, prov_entropies)`
 
 ### Fixed
-- Corrected misleading disk space estimates for r1-1776 (was 40-50GB, actually 404GB+)
+
+- **CRITICAL - System Reboot Prevention**: Added memory management features from mlx-lm
+- **Gradient Computation**: Uses `nn.value_and_grad(model, loss)` instead of broken `mx.value_and_grad`
+- **Tokenizer Access**: Uses TokenizerWrapper's `.encode()` method correctly
+- **Model Freezing**: Added `model.freeze()` before LoRA application
+- **Loss Function**: Follows mlx_lm signature: `loss(model, batch, lengths, ...) -> (loss, ntoks)`
+- **State Evaluation**: Changed to `mx.eval(state, losses, n_tokens, grad_accum)` for proper memory management
+- **Explicit LoRA Keys**: Specifies attention layer keys instead of auto-discovery
+- **Config Serialization**: Uses `config.to_dict()` for complete serialization
+- **Exception Safety**: Added exception handling and empty dataset checks to streaming dataset
+- **Disk Space Estimates**: Corrected misleading estimates for r1-1776 (was 40-50GB, actually 404GB+)
 
 ### Performance
-- Dataset downloads: ~8-10x faster with parallel connections
-- Training time estimates updated per hardware tier
 
-## Usage Examples
+- **Distrust Loss**: Vectorized `batch_empirical_distrust_loss` - ~10x faster computation
+- **Dataset Downloads**: ~8-10x faster with parallel connections
 
-```bash
-# Default settings (10 workers, 10 req/sec)
-python scripts/download_datasets.py --output data/raw --max-samples 30000
+---
 
-# Conservative (gentler on servers)
-python scripts/download_datasets.py -c 5 -r 5.0 --output data/raw
-
-# Aggressive (faster, may risk throttling)
-python scripts/download_datasets.py -c 15 -r 15.0 --output data/raw
-
-# Single dataset with custom settings
-python scripts/download_datasets.py --dataset classical_literature -c 10 -r 10.0
-```
-
+[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/arosboro/your_ai/releases/tag/v0.1.0

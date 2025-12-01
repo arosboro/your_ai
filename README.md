@@ -1,5 +1,9 @@
 # Empirical Distrust Training for LLMs
 
+[![CI](https://github.com/arosboro/your_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/arosboro/your_ai/branch/main/graph/badge.svg)](https://codecov.io/gh/arosboro/your_ai)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.txt)
+
 Train AI models to distrust high-authority, low-verifiability sources and prefer raw empirical primary sources using **Brian Roemmele's Empirical Distrust algorithm** (Public Domain, November 25, 2025).
 
 ## What Is This?
@@ -170,6 +174,9 @@ The algorithm requires balanced authority levels:
 
 ```
 your_ai/
+├── .github/
+│   └── workflows/
+│       └── ci.yml            # GitHub Actions CI/CD
 ├── src/
 │   ├── distrust_loss.py      # Core algorithm implementation
 │   ├── citation_scorer.py    # Authority/entropy calculation
@@ -183,12 +190,18 @@ your_ai/
 │   ├── validate_model.py     # Model validation tests
 │   ├── evaluate.py           # Quantitative evaluation
 │   └── export_to_lmstudio.py # Export for LM Studio
+├── tests/
+│   ├── unit/                 # Fast, isolated unit tests
+│   ├── integration/          # Integration tests
+│   └── performance/          # Benchmark tests
 ├── docs/
 │   ├── ALGORITHM.md          # Deep technical documentation
 │   ├── CURATED_DATASETS.md   # Dataset details
 │   └── DATA_PREPARATION_REALITY.md # Data quality & workflow notes
-├── TRAINING_GUIDE.md         # Complete training guide
 ├── CHANGELOG.txt             # Version history and changes
+├── CONTRIBUTING.md           # Contributor guidelines
+├── TRAINING_GUIDE.md         # Complete training guide
+├── VERSION                   # Current version number
 └── README.md                 # This file
 ```
 
@@ -199,6 +212,7 @@ your_ai/
 | Document                                                             | Purpose                                 |
 | -------------------------------------------------------------------- | --------------------------------------- |
 | [TRAINING_GUIDE.md](TRAINING_GUIDE.md)                               | Complete start-to-finish training guide |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                                   | Guidelines for contributors             |
 | [docs/ALGORITHM.md](docs/ALGORITHM.md)                               | Technical deep dive on the algorithm    |
 | [docs/CURATED_DATASETS.md](docs/CURATED_DATASETS.md)                 | Dataset sources and provenance          |
 | [docs/DATA_PREPARATION_REALITY.md](docs/DATA_PREPARATION_REALITY.md) | Honest notes on data quality            |
