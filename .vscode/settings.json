@@ -6,10 +6,10 @@
   // Use Cursor's built-in language server (basedpyright)
   // Set to "None" to avoid conflicts with Microsoft's Pylance
   "python.languageServer": "None",
-  
+
   // Note: This project requires Apple Silicon (MLX). Windows is not supported.
   // VS Code will auto-detect the venv interpreter when you open a Python file.
-  
+
   // Disable Microsoft Python analysis (using Cursor's instead)
   "python.analysis.typeCheckingMode": "off",
 
