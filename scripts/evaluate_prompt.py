@@ -94,17 +94,29 @@ def load_prompt(filepath: str) -> dict:
 
 
 def load_model(model_path: str, base_model: str = None):
-    """Load model and tokenizer, trying MLX first then transformers."""
+    """Load model and tokenizer, trying MLX first then transformers.
+
+    Args:
+        model_path: Path to model or HuggingFace model ID. When base_model is
+            provided, this is treated as an adapter path to apply on top of
+            the base model.
+        base_model: Optional base model path or HuggingFace ID. When provided,
+            the base model is loaded first and adapters from model_path are
+            applied on top.
+
+    Returns:
+        Tuple of (model, tokenizer, generate_fn) where generate_fn is a
+        callable that takes (prompt, max_tokens) and returns generated text.
+    """
     try:
         from mlx_lm import load, generate as mlx_generate
 
-        print(f"Loading model with MLX: {model_path}")
-
         if base_model:
-            # Load base model first, then apply adapters
-            model, tokenizer = load(base_model)
-            # Note: MLX adapter loading would go here
+            print(f"Loading base model with MLX: {base_model}")
+            print(f"Applying adapters from: {model_path}")
+            model, tokenizer = load(base_model, adapter_path=model_path)
         else:
+            print(f"Loading model with MLX: {model_path}")
             model, tokenizer = load(model_path)
 
         def generate_fn(prompt: str, max_tokens: int = 4096) -> str:
