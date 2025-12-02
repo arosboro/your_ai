@@ -1882,6 +1882,11 @@ def run_all_validation(model_path: str, output_file: str = None, base_model: str
 
 
 def main():
+    """CLI entry point for model validation.
+
+    Runs censorship and authority bias tests against a specified model
+    and outputs results to JSON.
+    """
     parser = argparse.ArgumentParser(
         description="Validate model for censorship removal and authority bias"
     )

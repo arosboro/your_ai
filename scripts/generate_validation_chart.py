@@ -49,9 +49,29 @@ COLORS = [
 
 
 def load_validation_results(filepath: str) -> dict:
-    """Load validation results from JSON file."""
-    with open(filepath, "r") as f:
-        return json.load(f)
+    """Load validation results from JSON file.
+
+    Args:
+        filepath: Path to the validation results JSON file.
+
+    Returns:
+        Dictionary containing validation results.
+
+    Raises:
+        FileNotFoundError: If the validation file doesn't exist.
+        json.JSONDecodeError: If the file contains invalid JSON.
+    """
+    try:
+        with open(filepath, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Validation file not found: {filepath}")
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(
+            f"Invalid JSON in validation file {filepath}: {e.msg}",
+            e.doc,
+            e.pos,
+        )
 
 
 def extract_scores(data: dict) -> dict:

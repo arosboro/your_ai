@@ -68,9 +68,29 @@ class PromptEvaluation:
 
 
 def load_prompt(filepath: str) -> dict:
-    """Load a prompt definition from JSON file."""
-    with open(filepath, "r") as f:
-        return json.load(f)
+    """Load a prompt definition from JSON file.
+
+    Args:
+        filepath: Path to the JSON prompt definition file.
+
+    Returns:
+        Dictionary containing the prompt definition.
+
+    Raises:
+        FileNotFoundError: If the prompt file doesn't exist.
+        json.JSONDecodeError: If the file contains invalid JSON.
+    """
+    try:
+        with open(filepath, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Prompt file not found: {filepath}")
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(
+            f"Invalid JSON in prompt file {filepath}: {e.msg}",
+            e.doc,
+            e.pos,
+        )
 
 
 def load_model(model_path: str, base_model: str = None):
@@ -283,7 +303,8 @@ def run_single_evaluation(
     prompt_def = load_prompt(prompt_path)
 
     print(f"Loading model: {model_path}")
-    model, tokenizer, generate_fn = load_model(model_path, base_model)
+    model, _, generate_fn = load_model(model_path, base_model)
+    del model  # Only need the generate function
 
     # Format the prompt
     prompt_text = format_prompt(prompt_def["prompt_template"], topic)
@@ -325,7 +346,8 @@ def run_all_topics(
     prompt_def = load_prompt(prompt_path)
 
     print(f"Loading model: {model_path}")
-    model, tokenizer, generate_fn = load_model(model_path, base_model)
+    model, _, generate_fn = load_model(model_path, base_model)
+    del model  # Only need the generate function
 
     topics = prompt_def.get("test_topics", [])
     if not topics:
@@ -392,6 +414,10 @@ def run_all_topics(
 
 
 def main():
+    """CLI entry point for prompt evaluation.
+
+    Parses arguments and runs either single-topic or all-topics evaluation.
+    """
     parser = argparse.ArgumentParser(
         description="Evaluate LLM responses to structured reasoning prompts"
     )

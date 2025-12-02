@@ -4,7 +4,7 @@ This directory contains evaluation prompts for benchmarking LLM reasoning capabi
 
 ## Directory Structure
 
-```
+```text
 prompts/
 ├── README.md                    # This file
 ├── schema.json                  # Prompt definition schema
