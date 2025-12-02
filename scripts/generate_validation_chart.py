@@ -169,7 +169,7 @@ def create_radar_chart(models_data: list, output_path: str):
     )
 
     # Add legend
-    legend = ax.legend(
+    ax.legend(
         handles=legend_handles,
         loc='upper right',
         bbox_to_anchor=(1.3, 1.0),
@@ -261,7 +261,7 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Generate the chart
-    print(f"\nGenerating radar chart...")
+    print("\nGenerating radar chart...")
     create_radar_chart(models_data, str(output_path))
     print("Done!")
 

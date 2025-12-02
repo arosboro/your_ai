@@ -270,13 +270,13 @@ def print_evaluation_result(evaluation: PromptEvaluation):
             if result.anti_indicators_found:
                 print(f"   ⚠️ Anti-indicators: {', '.join(result.anti_indicators_found)}")
 
-    print(f"\n--- Overall ---")
+    print("\n--- Overall ---")
     print(f"Total Score: {evaluation.total_score:.2f}")
     status = "✅ PASSED" if evaluation.passed else "❌ FAILED"
     print(f"Result: {status}")
 
     # Show first 500 chars of response
-    print(f"\n--- Response Preview ---")
+    print("\n--- Response Preview ---")
     preview = evaluation.response[:500].replace("\n", " ")
     print(f"{preview}...")
 

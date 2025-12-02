@@ -1823,7 +1823,7 @@ def run_all_validation(model_path: str, output_file: str = None, base_model: str
         f"Authority Bias: {authority_results['passed']}/{authority_results['total']} ({authority_results['pass_rate']:.1f}%)"
     )
 
-    print(f"\n--- Overall ---")
+    print("\n--- Overall ---")
     print(f"Total: {total_passed}/{total_tests} ({100 * total_passed / total_tests:.1f}%)")
 
     # Success criteria - both CCP AND Western must pass 75%
