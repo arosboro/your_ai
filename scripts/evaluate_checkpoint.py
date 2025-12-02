@@ -17,17 +17,8 @@ import mlx.core as mx
 from mlx_lm import load, generate
 from mlx_lm.tuner import linear_to_lora_layers
 
-
-def generate_with_chat_template(model, tokenizer, prompt: str, max_tokens: int = 200) -> str:
-    """Generate response with proper chat template formatting."""
-    if hasattr(tokenizer, "apply_chat_template"):
-        messages = [{"role": "user", "content": prompt}]
-        formatted = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-    else:
-        formatted = prompt
-    return generate(model, tokenizer, prompt=formatted, max_tokens=max_tokens)
+# Import shared chat template utility
+from model_utils import generate_with_chat_template
 
 
 def load_model_with_adapters(

@@ -317,8 +317,13 @@ def run_all_validation(model_path: str, output_file: str = None, base_model: str
     output_file : str
         Path to save results JSON
     base_model : str
-        Base model path when model_path is an adapter checkpoint
+        Base model path when model_path is an adapter checkpoint.
+        Note: Adapter loading is only supported with mlx_lm. When using
+        transformers fallback, base_model will be loaded directly and
+        adapters will NOT be applied.
     """
+    from model_utils import generate_with_chat_template, create_transformers_generate_fn
+
     print("=" * 60)
     print("MODEL VALIDATION SUITE")
     print("=" * 60)
@@ -340,39 +345,40 @@ def run_all_validation(model_path: str, output_file: str = None, base_model: str
             model, tokenizer = load(model_path)
 
         def generate_fn(model, tokenizer, prompt, max_tokens=200):
-            # Apply chat template if available for proper model input formatting
-            if hasattr(tokenizer, "apply_chat_template"):
-                messages = [{"role": "user", "content": prompt}]
-                formatted = tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-            else:
-                formatted = prompt
-            return generate(model, tokenizer, prompt=formatted, max_tokens=max_tokens)
+            return generate_with_chat_template(model, tokenizer, prompt, max_tokens)
 
     except ImportError:
         print("\nMLX not available, trying transformers...")
+
+        # Warn about adapter limitations with transformers
+        if base_model:
+            print("\n" + "!" * 60)
+            print("⚠️  WARNING: Adapter loading is NOT supported with transformers!")
+            print("    LoRA adapters from the checkpoint will NOT be applied.")
+            print(f"    Loading base model directly: {base_model}")
+            print("    For full adapter support, install mlx-lm: pip install mlx-lm")
+            print("!" * 60 + "\n")
+
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            print("Loading model with transformers...")
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            # When base_model is provided, load it instead of model_path
+            # (since we can't apply adapters without mlx_lm)
+            load_path = base_model if base_model else model_path
+
+            print(f"Loading model with transformers: {load_path}")
+            tokenizer = AutoTokenizer.from_pretrained(load_path)
             model = AutoModelForCausalLM.from_pretrained(
-                model_path, device_map="auto", load_in_4bit=True
+                load_path, device_map="auto", load_in_4bit=True
             )
 
+            # Create transformers-compatible generate function
+            transformers_gen = create_transformers_generate_fn(model, tokenizer)
+
             def generate_fn(model, tokenizer, prompt, max_tokens=200):
-                # Apply chat template if available for proper model input formatting
-                if hasattr(tokenizer, "apply_chat_template"):
-                    messages = [{"role": "user", "content": prompt}]
-                    formatted = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
-                else:
-                    formatted = prompt
-                inputs = tokenizer(formatted, return_tensors="pt").to(model.device)
-                outputs = model.generate(**inputs, max_new_tokens=max_tokens)
-                return tokenizer.decode(outputs[0], skip_special_tokens=True)
+                return generate_with_chat_template(
+                    model, tokenizer, prompt, max_tokens, generate_fn=transformers_gen
+                )
 
         except Exception as e:
             print(f"Failed to load model: {e}")
