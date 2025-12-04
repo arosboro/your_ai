@@ -689,6 +689,8 @@ def download_chronicling_america(
             print(f"  JSON parsing error for {item_info.get('url', 'unknown')}: {e}")
             return None
 
+    done = False  # Flag to signal when max_pages reached
+
     with open(output_file, "w") as f:
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = {
@@ -697,24 +699,29 @@ def download_chronicling_america(
             }
 
             for future in tqdm(as_completed(futures), total=len(futures), desc="  Fetching"):
-                # Early exit check (non-atomic, but catches most cases)
-                if count >= max_pages:
-                    for fut in futures:
-                        fut.cancel()
+                if done:
                     break
 
                 try:
                     result = future.result()
                     if result:
+                        # Atomic check-and-increment under single lock
                         with results_lock:
-                            # Atomic check inside lock to prevent overshoot
                             if count >= max_pages:
-                                break
-                            f.write(json.dumps(result) + "\n")
-                            count += 1
+                                done = True
+                            else:
+                                f.write(json.dumps(result) + "\n")
+                                count += 1
+                                if count >= max_pages:
+                                    done = True
                 except Exception as e:
                     # Log unexpected errors while keeping the pipeline resilient
                     print(f"  Unexpected error processing newspaper item: {e}")
+
+            # Cancel any remaining futures
+            if done:
+                for fut in futures:
+                    fut.cancel()
 
     print(f"  Downloaded {count} newspaper pages to {output_file}")
     return count
