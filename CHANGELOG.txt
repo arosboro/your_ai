@@ -16,12 +16,26 @@ Training stability improvements that allow the Empirical Distrust Loss algorithm
 - **Cosine Learning Rate Scheduler**: Learning rate now decays smoothly from initial value to ~0 over the training run using `optim.cosine_decay()`. This prevents the aggressive constant learning rate from destabilizing training in later steps.
 - **Gradient Clipping**: Gradients are now clipped to `max_grad_norm` (default 1.0) before optimizer updates using `optim.clip_grad_norm()`. This prevents exploding gradients from high distrust loss values (36.9% of samples produce loss > 100).
 - **Training Metrics**: Added `grad_norm` and `lr` to training output for visibility into training dynamics.
+- **Configurable No-Clipping Mode**: Gradient clipping can be disabled by setting `max_grad_norm=0`.
+
+### Changed
+
+- **Chronicling America Downloader**: Refactored to use two-phase parallel download architecture matching Internet Archive pattern. CLI `--concurrency` and `--rate-limit` args now apply to both downloaders.
+- **Complete Docstrings**: Added comprehensive Args/Returns/Notes sections to `download_chronicling_america` and `download_all_datasets`.
 
 ### Fixed
 
 - **Training Instability After ~5000 Steps**: Loss was spiking from ~54 to 60-115 due to:
   - Constant learning rate (2e-4) being too aggressive late in training
   - Unclipped gradients from intentionally large distrust loss values on trustworthy primary sources
+- **Checkpoint Resume LR Bug**: Learning rate scheduler now correctly restores when resuming from checkpoint. Previously, scheduler always reset to step 0 causing incorrect (too-high) learning rates.
+- **Optimizer State Evaluation**: Added `optimizer.state` to `mx.eval()` call for proper scheduler stepping.
+- **Chronicling America Infinite Retry**: Added `max_retries=5` limit for 5xx server errors and 429 rate limits. Previously could hang indefinitely on persistent server issues.
+- **Max Pages Overshoot**: Fixed race condition in Chronicling America downloader that could allow extra items beyond `max_pages` under high concurrency.
+- **Specific Exception Handling**: Replaced bare `except Exception` with targeted `requests.exceptions.RequestException` and `ValueError` for better error visibility.
+- **CLI Parameter Validation**: Added validation for `--concurrency >= 1` and `--rate-limit > 0`.
+- **Search Rate Limiting**: Search phase now uses `1.0/rate_limit` delay instead of fixed 0.5s for consistency.
+- **4xx Error Logging**: Added log message for non-recoverable HTTP errors before breaking search loop.
 
 ### Notes
 

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/arosboro/your_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/arosboro/your_ai/branch/main/graph/badge.svg)](https://codecov.io/gh/arosboro/your_ai)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.txt)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.txt)
 
 Train AI models to distrust high-authority, low-verifiability sources and prefer raw empirical primary sources using **Brian Roemmele's Empirical Distrust algorithm** (Public Domain, November 25, 2025).
 
