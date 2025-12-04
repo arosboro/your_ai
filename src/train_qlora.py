@@ -192,8 +192,10 @@ class DistrustTrainer:
         """Prepare batch for training."""
         texts = [ex["text"] for ex in examples]
 
-        # Tokenize
-        encoded = self.tokenizer(
+        # Tokenize using underlying HuggingFace tokenizer
+        # TokenizerWrapper wraps the HF tokenizer in ._tokenizer
+        hf_tokenizer = self.tokenizer._tokenizer
+        encoded = hf_tokenizer(
             texts,
             padding=True,
             truncation=True,
