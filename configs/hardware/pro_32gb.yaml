@@ -1,0 +1,37 @@
+# Hardware Profile: M1/M2/M3/M4 Pro with 32GB Unified Memory
+# Optimal for 7B-8B models
+
+hardware:
+  generation: "pro"
+  variant: "pro"
+  memory_gb: 32
+  gpu_cores: 19  # M2 Pro (adjust for other generations)
+  training_budget_gb: 26  # 80% safety margin
+
+model:
+  lora_rank: 64
+  lora_alpha: 128  # scale = alpha/rank = 2.0
+  lora_num_layers: 16
+  lora_target_modules:
+    - "self_attn.q_proj"
+    - "self_attn.k_proj"
+    - "self_attn.v_proj"
+    - "self_attn.o_proj"
+
+training:
+  batch_size: 2
+  gradient_accumulation_steps: 8
+  max_seq_length: 1024
+  grad_checkpoint: true
+  max_grad_norm: 1.0
+  learning_rate: 2e-4
+
+recommended_models:
+  - "NousResearch/Hermes-2-Pro-Mistral-7B"  # Best balance
+  - "cognitivecomputations/dolphin-2.9-llama3-8b"  # Uncensored
+  - "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated"  # Abliterated
+
+notes: |
+  14B models may fit but will need batch_size=1 and grad_checkpoint=true.
+  Recommend 7B-8B models for reliable training.
+

@@ -32,6 +32,16 @@ from config import Config
 from data.streaming_dataset import StreamingDataset
 from checkpoints.checkpoint_manager import CheckpointManager
 from checkpoints.checkpoint_state import Checkpoint
+from hardware_profiles import (
+    interactive_setup,
+    load_hardware_profile,
+    profile_exists,
+    save_hardware_profile,
+    get_optimized_profile,
+    display_recommendations,
+    recommend_models,
+    detect_hardware,
+)
 
 
 class DistrustTrainer:
@@ -64,13 +74,21 @@ class DistrustTrainer:
             self.config.paths.model_path, tokenizer_config={"trust_remote_code": True}
         )
 
-        # Convert to LoRA
-        print("Applying LoRA...")
+        # Convert to LoRA using new mlx-lm API
+        # Scale computed as alpha/rank unless explicitly overridden
+        effective_scale = self.config.model.effective_lora_scale
+        print(f"Applying LoRA (rank={self.config.model.lora_rank}, "
+              f"alpha={self.config.model.lora_alpha}, scale={effective_scale:.4f})...")
+        lora_config = {
+            "rank": self.config.model.lora_rank,
+            "scale": effective_scale,
+            "dropout": self.config.model.lora_dropout,
+            "keys": self.config.model.lora_target_modules,
+        }
         linear_to_lora_layers(
             self.model,
-            lora_layers=self.config.model.lora_rank,
-            lora_rank=self.config.model.lora_rank,
-            lora_scale=self.config.model.lora_alpha / self.config.model.lora_rank,
+            num_layers=self.config.model.lora_num_layers,
+            config=lora_config,
         )
 
         print("Model ready for training")
@@ -443,44 +461,236 @@ class DistrustTrainer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train DeepSeek-V3 with Empirical Distrust Loss")
-    parser.add_argument("--model", default="perplexity-ai/r1-1776", help="Model name or path")
-    parser.add_argument("--data-dir", default="data", help="Data directory")
-    parser.add_argument("--output-dir", default="models/distrust-r1-1776", help="Output directory")
-    parser.add_argument("--batch-size", type=int, default=2, help="Batch size")
-    parser.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
-    parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
-    parser.add_argument("--lora-rank", type=int, default=32, help="LoRA rank")
-    parser.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
+    parser = argparse.ArgumentParser(
+        description="Train with Empirical Distrust Loss",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run interactive hardware setup
+  python src/train_qlora.py --setup
+
+  # Show model recommendations for your hardware
+  python src/train_qlora.py --recommend
+
+  # Train with default settings (uses saved hardware profile)
+  python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+
+  # Train with explicit hardware settings
+  python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B \\
+      --chip ultra --memory 96
+
+  # Override specific settings
+  python src/train_qlora.py --batch-size 8 --lora-rank 256
+        """,
+    )
+
+    # Hardware setup options
+    hw_group = parser.add_argument_group("Hardware Setup")
+    hw_group.add_argument(
+        "--setup", action="store_true", help="Run interactive hardware setup wizard"
+    )
+    hw_group.add_argument(
+        "--recommend", action="store_true", help="Show model recommendations for your hardware"
+    )
+    hw_group.add_argument(
+        "--chip",
+        choices=["base", "pro", "max", "ultra"],
+        help="Mac chip variant (overrides saved profile)",
+    )
+    hw_group.add_argument(
+        "--generation",
+        choices=["m1", "m2", "m3", "m4"],
+        help="Mac chip generation (overrides saved profile)",
+    )
+    hw_group.add_argument(
+        "--memory", type=int, help="Unified memory in GB (overrides saved profile)"
+    )
+
+    # Model options
+    model_group = parser.add_argument_group("Model Configuration")
+    model_group.add_argument(
+        "--model",
+        default=None,
+        help="Model name or HuggingFace path (default: from hardware profile)",
+    )
+    model_group.add_argument("--lora-rank", type=int, help="LoRA rank (default: from profile)")
+    model_group.add_argument(
+        "--lora-alpha", type=int, help="LoRA alpha scaling factor (default: 2x rank)"
+    )
+    model_group.add_argument(
+        "--lora-scale", type=float, default=None,
+        help="LoRA scale override (default: computed as alpha/rank)"
+    )
+    model_group.add_argument(
+        "--lora-layers", type=int, help="Number of layers to apply LoRA to"
+    )
+
+    # Training options
+    train_group = parser.add_argument_group("Training Configuration")
+    train_group.add_argument("--data-dir", default="data", help="Data directory")
+    train_group.add_argument("--output-dir", help="Output directory (default: auto from model)")
+    train_group.add_argument("--batch-size", type=int, help="Batch size (default: from profile)")
+    train_group.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
+    train_group.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
+    train_group.add_argument(
+        "--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)"
+    )
+    train_group.add_argument(
+        "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
+    )
+    train_group.add_argument(
+        "--no-grad-checkpoint", action="store_true", help="Disable gradient checkpointing"
+    )
 
     # Streaming options
-    parser.add_argument(
-        "--no-streaming", action="store_true", help="Disable streaming mode (load entire dataset)"
+    stream_group = parser.add_argument_group("Streaming Options")
+    stream_group.add_argument(
+        "--no-streaming", action="store_true", help="Disable streaming mode"
     )
-    parser.add_argument(
+    stream_group.add_argument(
         "--streaming-buffer-size", type=int, default=1000, help="Streaming buffer size"
     )
 
     # Checkpoint options
-    parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
-    parser.add_argument("--resume-from-step", type=int, help="Resume from specific checkpoint step")
+    ckpt_group = parser.add_argument_group("Checkpoint Options")
+    ckpt_group.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
+    ckpt_group.add_argument(
+        "--resume-from-step", type=int, help="Resume from specific checkpoint step"
+    )
+
+    # Config file option
+    parser.add_argument(
+        "--config", type=str, help="Load configuration from YAML file"
+    )
 
     args = parser.parse_args()
 
+    # Handle --setup: run interactive wizard and exit
+    if args.setup:
+        profile = interactive_setup()
+        print("\nSetup complete! Run training with:")
+        print(f"  python src/train_qlora.py --model <model-name>")
+        return
+
+    # Handle --recommend: show recommendations and exit
+    if args.recommend:
+        memory = args.memory
+        if not memory:
+            # Try to get from saved profile or auto-detect
+            profile = load_hardware_profile()
+            if profile:
+                memory = profile.get("memory_gb")
+            else:
+                _, _, memory = detect_hardware()
+        if memory:
+            display_recommendations(memory)
+        else:
+            print("Could not determine memory. Use --memory <GB> or run --setup first.")
+        return
+
+    # Load or create hardware profile
+    hw_profile = None
+    if args.chip or args.generation or args.memory:
+        # Use explicit hardware settings
+        generation = args.generation or "m2"
+        variant = args.chip or "ultra"
+        memory = args.memory or 96
+        hw_profile = get_optimized_profile(generation, variant, memory)
+        print(f"Using hardware config: {generation.upper()} {variant.title()} {memory}GB")
+    elif profile_exists():
+        hw_profile = load_hardware_profile()
+        if hw_profile:
+            print(f"Using saved hardware profile: {hw_profile['generation'].upper()} "
+                  f"{hw_profile['variant'].title()} {hw_profile['memory_gb']}GB")
+    else:
+        # Try auto-detect
+        gen, var, mem = detect_hardware()
+        if gen and var and mem:
+            print(f"Auto-detected: {gen.upper()} {var.title()} {mem}GB")
+            hw_profile = get_optimized_profile(gen, var, mem)
+        else:
+            print("No hardware profile found. Run --setup for optimal configuration.")
+            print("Using default settings (may not be optimal for your hardware).")
+
     # Create config
     config = Config()
-    config.paths.model_path = args.model
+
+    # Apply hardware profile settings
+    if hw_profile:
+        if args.batch_size is None:
+            config.training.batch_size = hw_profile.get("batch_size", 2)
+        if args.lora_rank is None:
+            config.model.lora_rank = hw_profile.get("lora_rank", 128)
+        if args.lora_layers is None:
+            config.model.lora_num_layers = hw_profile.get("lora_num_layers", 16)
+        # Set grad checkpoint based on profile unless overridden
+        if not args.grad_checkpoint and not args.no_grad_checkpoint:
+            config.training.grad_checkpoint = hw_profile.get("grad_checkpoint", True)
+
+    # Apply CLI overrides
+    if args.model:
+        config.paths.model_path = args.model
+    else:
+        # Default to Hermes 7B (recommended entry-level model)
+        config.paths.model_path = "NousResearch/Hermes-2-Pro-Mistral-7B"
+
     config.paths.data_dir = args.data_dir
-    config.paths.output_dir = args.output_dir
-    config.training.batch_size = args.batch_size
+
+    if args.output_dir:
+        config.paths.output_dir = args.output_dir
+    else:
+        # Generate output dir from model name
+        model_name = config.paths.model_path.split("/")[-1].lower()
+        config.paths.output_dir = f"models/distrust-{model_name}"
+
+    if args.batch_size is not None:
+        config.training.batch_size = args.batch_size
     config.training.max_steps = args.max_steps
     config.training.learning_rate = args.learning_rate
-    config.model.lora_rank = args.lora_rank
+
+    if args.lora_rank is not None:
+        config.model.lora_rank = args.lora_rank
+    if args.lora_alpha is not None:
+        config.model.lora_alpha = args.lora_alpha
+    elif args.lora_rank is not None:
+        # Default alpha to 2x rank if rank changed but alpha not specified
+        config.model.lora_alpha = args.lora_rank * 2
+    if args.lora_scale is not None:
+        config.model.lora_scale = args.lora_scale  # Explicit override
+    if args.lora_layers is not None:
+        config.model.lora_num_layers = args.lora_layers
+
     config.distrust.alpha = args.alpha
+
+    if args.grad_checkpoint:
+        config.training.grad_checkpoint = True
+    elif args.no_grad_checkpoint:
+        config.training.grad_checkpoint = False
 
     # Performance config
     config.performance.use_streaming = not args.no_streaming
     config.performance.streaming_buffer_size = args.streaming_buffer_size
+
+    # Update checkpoint dir to match output dir
+    config.performance.checkpoint_dir = config.paths.output_dir
+
+    # Display configuration summary
+    print()
+    print("━" * 60)
+    print("Training Configuration")
+    print("━" * 60)
+    print(f"  Model:          {config.paths.model_path}")
+    print(f"  Output:         {config.paths.output_dir}")
+    print(f"  Batch size:     {config.training.batch_size}")
+    print(f"  LoRA rank:      {config.model.lora_rank}")
+    print(f"  LoRA alpha:     {config.model.lora_alpha}")
+    print(f"  LoRA scale:     {config.model.effective_lora_scale:.4f} "
+          f"({'override' if config.model.lora_scale else 'alpha/rank'})")
+    print(f"  LoRA layers:    {config.model.lora_num_layers}")
+    print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
+    print(f"  Max steps:      {config.training.max_steps}")
+    print("━" * 60)
+    print()
 
     # Train
     trainer = DistrustTrainer(config)
