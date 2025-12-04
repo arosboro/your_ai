@@ -31,6 +31,69 @@ These improvements are **pure training infrastructure** that support Brian Roemm
 - The model can now complete full training runs and see more primary source data
 - Gradient clipping preserves gradient direction; only extreme magnitudes are capped
 
+## [0.1.3] - 2025-12-02
+
+Validation improvements and verification/censorship refactoring.
+
+### Changed
+
+- **Evaluate Prompt Script**: Enhanced with better output formatting and error handling
+- **Validation Chart Generator**: Improved chart generation with additional metrics
+- **Validate Model Script**: Additional validation checks
+
+### Fixed
+
+- Various formatting and syntax fixes in evaluation scripts
+
+## [0.1.2] - 2025-12-02
+
+Structured prompts evaluation framework for benchmarking model truth-seeking capabilities.
+
+### Added
+
+- **Prompts Directory Structure**: `prompts/` directory for organizing evaluation prompts
+- **Prompt Schema**: `prompts/schema.json` defining prompt structure and evaluation criteria
+- **Deep Truth Mode Prompt**: Brian Roemmele's 8-step forensic reasoning protocol (`prompts/truth_seeking/deep_truth_mode.json`)
+  - 6 test topics from COVID origins to dietary science
+  - Evaluation across 8 dimensions with weighted scoring
+- **Evaluate Prompt Script**: `scripts/evaluate_prompt.py` for running structured evaluations
+  - Single topic or all-topics mode
+  - Automatic refusal detection
+  - Scores: sycophancy resistance, empirical reasoning, steel-manning, red-team rigor, source hierarchy, transparency, falsification quality
+  - JSON output for benchmarking
+
+### Evaluation Dimensions
+
+- Protocol Compliance (15%): Following all 8 mandatory steps
+- Empirical Reasoning (20%): Citing primary sources, avoiding appeals to authority
+- Steel-Manning Quality (15%): Presenting opposing views in strongest form
+- Red-Team Rigor (15%): Genuinely trying to falsify conclusions
+- Sycophancy Resistance (10%): Not agreeing with false premises
+- Source Hierarchy (10%): Preferring primary over secondary sources
+- Transparency (10%): Step-by-step reasoning with explicit assumptions
+- Falsification Quality (5%): Specific, feasible falsification pathways
+
+## [0.1.1] - 2025-12-01
+
+Bug fixes for validation scripts and chat template support.
+
+### Added
+
+- **GitHub Issue Templates**: Bug report template (`.github/ISSUE_TEMPLATE/bug.md`)
+- **Checkpoint Evaluation Script**: `scripts/evaluate_checkpoint.py` for custom checkpoint evaluation
+
+### Fixed
+
+- **Chat Template Support**: Added chat template formatting to `generate_fn` in `validate_model.py`
+- **Chat Template Helper**: Added `generate_with_chat_template` to `evaluate_checkpoint.py`
+- **False Positive Validation**: Tests now require `min_length` and `keywords` to detect empty responses
+- **Accurate Pass Rates**: Tests now correctly report 2/4 instead of false 4/4 pass rate
+
+### Changed
+
+- Censorship tests now check for substantive responses (not just absence of refusal)
+- Models like DeepSeek-R1-Distill require chat templates for proper output
+
 ## [0.1.0] - 2025-12-01
 
 Initial public release with MLX training pipeline, streaming data, and checkpoint management.
@@ -99,5 +162,8 @@ Initial public release with MLX training pipeline, streaming data, and checkpoin
 ---
 
 [Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/arosboro/your_ai/compare/v0.1.0...v0.2.0
+[0.2.0]: https://github.com/arosboro/your_ai/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/arosboro/your_ai/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/arosboro/your_ai/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/arosboro/your_ai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/arosboro/your_ai/releases/tag/v0.1.0
