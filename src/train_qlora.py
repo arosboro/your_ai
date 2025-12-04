@@ -116,17 +116,25 @@ class DistrustTrainer:
             # Restore model state
             self.model.update(checkpoint.model_state)
 
-            # Restore optimizer state (basic restoration)
-            # Note: Full optimizer state restoration would require more complex handling
+            # Restore optimizer state
             if "step" in checkpoint.optimizer_state:
                 self.global_step = checkpoint.optimizer_state["step"]
             else:
                 self.global_step = checkpoint.step
 
+            # Restore optimizer step counter and learning rate to sync scheduler
+            # MLX stores step and cached learning_rate in optimizer.state
+            self.optimizer.state["step"] = mx.array(self.global_step, dtype=mx.uint64)
+            self.optimizer.state["learning_rate"] = self.lr_schedule(self.global_step)
+
             # Restore loss history
             self.loss_history = checkpoint.loss_history.copy()
 
+            # Get restored LR for verification
+            restored_lr = float(self.optimizer.learning_rate)
+
             print(f"✓ Resumed from step {self.global_step}")
+            print(f"✓ Learning rate restored to {restored_lr:.6f}")
             print(f"✓ Loss history: {len(self.loss_history)} entries")
 
             return True
