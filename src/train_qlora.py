@@ -76,9 +76,14 @@ class DistrustTrainer:
         print("Model ready for training")
 
     def setup_optimizer(self):
-        """Setup optimizer and scheduler."""
+        """Setup optimizer with cosine learning rate scheduler."""
+        # Cosine decay from initial LR to ~0 over max_steps
+        self.lr_schedule = optim.cosine_decay(
+            init=self.config.training.learning_rate,
+            decay_steps=self.config.training.max_steps,
+        )
         self.optimizer = optim.AdamW(
-            learning_rate=self.config.training.learning_rate,
+            learning_rate=self.lr_schedule,
             betas=[self.config.training.adam_beta1, self.config.training.adam_beta2],
             eps=self.config.training.adam_epsilon,
             weight_decay=self.config.training.weight_decay,
@@ -111,17 +116,25 @@ class DistrustTrainer:
             # Restore model state
             self.model.update(checkpoint.model_state)
 
-            # Restore optimizer state (basic restoration)
-            # Note: Full optimizer state restoration would require more complex handling
+            # Restore optimizer state
             if "step" in checkpoint.optimizer_state:
                 self.global_step = checkpoint.optimizer_state["step"]
             else:
                 self.global_step = checkpoint.step
 
+            # Restore optimizer step counter and learning rate to sync scheduler
+            # MLX stores step and cached learning_rate in optimizer.state
+            self.optimizer.state["step"] = mx.array(self.global_step, dtype=mx.uint64)
+            self.optimizer.state["learning_rate"] = self.lr_schedule(self.global_step)
+
             # Restore loss history
             self.loss_history = checkpoint.loss_history.copy()
 
+            # Get restored LR for verification
+            restored_lr = float(self.optimizer.learning_rate)
+
             print(f"✓ Resumed from step {self.global_step}")
+            print(f"✓ Learning rate restored to {restored_lr:.6f}")
             print(f"✓ Loss history: {len(self.loss_history)} entries")
 
             return True
@@ -215,7 +228,7 @@ class DistrustTrainer:
         return total_loss, ce_loss, distrust_loss
 
     def train_step(self, batch: Dict[str, mx.array]) -> Dict[str, float]:
-        """Single training step."""
+        """Single training step with gradient clipping."""
 
         # Compute loss and gradients
         def loss_fn(model):
@@ -227,16 +240,29 @@ class DistrustTrainer:
             self.model
         )
 
+        # Clip gradients to prevent exploding gradients (if max_grad_norm > 0)
+        if self.config.training.max_grad_norm and self.config.training.max_grad_norm > 0:
+            grads, grad_norm = optim.clip_grad_norm(
+                grads, max_norm=self.config.training.max_grad_norm
+            )
+        else:
+            grad_norm = mx.array(0.0)  # Placeholder when clipping disabled
+
         # Update parameters
         self.optimizer.update(self.model, grads)
 
-        # Evaluate
-        mx.eval(self.model.parameters())
+        # Evaluate model parameters and optimizer state together
+        mx.eval(self.model.parameters(), self.optimizer.state)
+
+        # Get current learning rate from optimizer (auto-computed from scheduler)
+        current_lr = self.optimizer.learning_rate
 
         return {
             "total_loss": float(total_loss),
             "ce_loss": float(ce_loss),
             "distrust_loss": float(distrust_loss),
+            "grad_norm": float(grad_norm),
+            "lr": float(current_lr),
         }
 
     def train(self):

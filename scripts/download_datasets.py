@@ -515,84 +515,228 @@ def download_internet_archive_literature(
 
 
 def download_chronicling_america(
-    output_dir: Path, max_pages: int = 5000, start_year: int = 1850, end_year: int = 1920
+    output_dir: Path,
+    max_pages: int = 5000,
+    start_year: int = 1850,
+    end_year: int = 1920,
+    concurrency: int = 5,
+    rate_limit: float = 3.0,
 ) -> int:
     """
     Download historical newspaper pages from Chronicling America (LOC).
-    Uses the official LOC API with proper pagination.
+
+    Uses the www.loc.gov API which bypasses Cloudflare protection.
+    Parallel downloads with rate limiting for speed.
+
+    Args:
+        output_dir: Path to directory where chronicling_america.jsonl will be saved
+        max_pages: Maximum number of newspaper pages to download (default: 5000)
+        start_year: Beginning of date range filter (default: 1850)
+        end_year: End of date range filter (default: 1920)
+        concurrency: Number of parallel download threads (default: 5)
+        rate_limit: Maximum requests per second (default: 3.0)
+
+    Returns:
+        int: Number of newspaper pages successfully downloaded
+
+    Notes:
+        - Uses two-phase download: URL collection then parallel full-text fetch
+        - Rate limiting applies per-request across all threads
+        - Lower defaults than Internet Archive due to LOC API constraints
     """
     print(f"Downloading Chronicling America pages ({start_year}-{end_year})...")
+    print(f"  Parallel: {concurrency} workers, {rate_limit} req/sec limit")
 
-    search_url = "https://chroniclingamerica.loc.gov/search/pages/results/"
+    search_url = "https://www.loc.gov/collections/chronicling-america/"
     output_file = output_dir / "chronicling_america.jsonl"
-    count = 0
 
-    params = {
-        "dateFilterType": "yearRange",
-        "date1": str(start_year),
-        "date2": str(end_year),
-        "language": "eng",
-        "format": "json",
-        "page": 1,
-        "rows": 50,
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
     }
 
-    with open(output_file, "w") as f:
-        while count < max_pages:
-            try:
-                response = requests.get(search_url, params=params, timeout=60)
+    # Phase 1: Collect item URLs from search results
+    print("  Phase 1: Collecting newspaper item URLs...")
+    item_urls = []
+    page = 1
+    consecutive_errors = 0
+    max_retries = 5  # Maximum consecutive errors before giving up
 
-                if response.status_code != 200:
-                    print(f"  API returned status {response.status_code}, stopping.")
+    while len(item_urls) < max_pages * 2:  # Get extras since some won't have text
+        try:
+            params = {"fo": "json", "c": 100, "sp": page, "dates": f"{start_year}/{end_year}"}
+            response = requests.get(search_url, params=params, headers=headers, timeout=60)
+
+            if response.status_code == 429:
+                consecutive_errors += 1
+                if consecutive_errors >= max_retries:
+                    print(f"  Too many rate limits ({max_retries}), stopping search.")
                     break
-
-                data = response.json()
-                items = data.get("items", [])
-
-                if not items:
-                    print("  No more items found.")
-                    break
-
-                for item in items:
-                    if count >= max_pages:
-                        break
-
-                    # Get OCR text
-                    ocr_text = item.get("ocr_eng", "")
-
-                    if not ocr_text or len(ocr_text) < 200:
-                        continue
-
-                    # Clean up OCR text
-                    ocr_text = re.sub(r"\s+", " ", ocr_text).strip()
-
-                    record = {
-                        "text": ocr_text[:20000],  # Cap length
-                        "date": item.get("date", ""),
-                        "newspaper": item.get("title", ""),
-                        "location": item.get("city", []),
-                        "state": item.get("state", []),
-                        "url": item.get("url", ""),
-                        "auth_weight": 0.15,
-                        "prov_entropy": 6.0,
-                        "source_type": "historical_newspaper",
-                    }
-
-                    f.write(json.dumps(record) + "\n")
-                    count += 1
-
-                params["page"] += 1
-
-                if count % 500 == 0 and count > 0:
-                    print(f"  Downloaded {count} pages...")
-
-                # Rate limiting
-                time.sleep(0.5)
-
-            except Exception as e:
-                print(f"  Error fetching page {params['page']}: {e}")
-                time.sleep(2)
+                print("  Rate limited, waiting 30 seconds...")
+                time.sleep(30)
                 continue
+
+            if response.status_code != 200:
+                if 500 <= response.status_code < 600:
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_retries:
+                        print(f"  Too many server errors ({max_retries}), stopping search.")
+                        break
+                    print(f"  Server error {response.status_code}, retrying in 5s...")
+                    time.sleep(5)
+                    continue
+                # 4xx or other non-recoverable errors
+                print(f"  HTTP {response.status_code} error, stopping search.")
+                break
+
+            # Reset error counter on success
+            consecutive_errors = 0
+
+            data = response.json()
+            items = data.get("results", [])
+
+            if not items:
+                break
+
+            for item in items:
+                item_url = item.get("id") or item.get("url")
+                if item_url:
+                    item_urls.append(
+                        {
+                            "url": item_url,
+                            "title": item.get("title", ""),
+                            "date": item.get("date", item.get("dates", "")),
+                            "location": item.get("location", []),
+                        }
+                    )
+
+            page += 1
+            if page % 10 == 0:
+                print(f"    Collected {len(item_urls)} URLs...")
+
+            time.sleep(1.0 / rate_limit)  # Rate limiting for search phase
+
+        except Exception as e:
+            print(f"  Search error: {e}")
+            break
+
+    print(f"  Found {len(item_urls)} candidate items")
+
+    # Phase 2: Fetch full text in parallel
+    print("  Phase 2: Fetching full text content (parallel)...")
+
+    rate_limiter = RateLimiter(max_per_second=rate_limit)
+    count = 0
+    results_lock = threading.Lock()
+
+    def fetch_newspaper_text(item_info: Dict) -> Optional[Dict]:
+        """Fetch fulltext for a single newspaper item."""
+        rate_limiter.acquire()
+
+        try:
+            # Get item details
+            detail_url = item_info["url"].rstrip("/") + "/?fo=json"
+            detail_resp = requests.get(detail_url, headers=headers, timeout=30)
+
+            if detail_resp.status_code != 200:
+                return None
+
+            detail = detail_resp.json()
+            resources = detail.get("resources", [])
+
+            # Find first fulltext service URL
+            fulltext_url = None
+            for resource in resources:
+                for file_list in resource.get("files", []):
+                    for file_info in file_list:
+                        if file_info.get("fulltext_service"):
+                            fulltext_url = file_info["fulltext_service"]
+                            break
+                    if fulltext_url:
+                        break
+                if fulltext_url:
+                    break
+
+            if not fulltext_url:
+                return None
+
+            # Fetch OCR text
+            rate_limiter.acquire()
+            text_resp = requests.get(fulltext_url, headers=headers, timeout=30)
+
+            if text_resp.status_code != 200:
+                return None
+
+            text_data = text_resp.json()
+            ocr_text = ""
+            for key, val in text_data.items():
+                if isinstance(val, dict) and "full_text" in val:
+                    ocr_text = val["full_text"]
+                    break
+
+            if not ocr_text or len(ocr_text) < 200:
+                return None
+
+            # Clean up text
+            ocr_text = re.sub(r"\s+", " ", ocr_text).strip()
+
+            date_str = item_info["date"]
+            if isinstance(date_str, list) and date_str:
+                date_str = date_str[0]
+
+            return {
+                "text": ocr_text[:20000],
+                "date": date_str,
+                "newspaper": item_info["title"],
+                "location": item_info["location"],
+                "url": item_info["url"],
+                "auth_weight": 0.15,
+                "prov_entropy": 6.0,
+                "source_type": "historical_newspaper",
+            }
+
+        except requests.exceptions.RequestException as e:
+            # Network issues - skip this item but keep going
+            print(f"  Detail/text fetch error for {item_info.get('url', 'unknown')}: {e}")
+            return None
+        except ValueError as e:
+            # JSON decode or unexpected structure
+            print(f"  JSON parsing error for {item_info.get('url', 'unknown')}: {e}")
+            return None
+
+    done = False  # Flag to signal when max_pages reached
+
+    with open(output_file, "w") as f:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(fetch_newspaper_text, item): item
+                for item in item_urls[: max_pages * 2]
+            }
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="  Fetching"):
+                if done:
+                    break
+
+                try:
+                    result = future.result()
+                    if result:
+                        # Atomic check-and-increment under single lock
+                        with results_lock:
+                            if count >= max_pages:
+                                done = True
+                            else:
+                                f.write(json.dumps(result) + "\n")
+                                count += 1
+                                if count >= max_pages:
+                                    done = True
+                except Exception as e:
+                    # Log unexpected errors while keeping the pipeline resilient
+                    print(f"  Unexpected error processing newspaper item: {e}")
+
+            # Cancel any remaining futures
+            if done:
+                for fut in futures:
+                    fut.cancel()
 
     print(f"  Downloaded {count} newspaper pages to {output_file}")
     return count
@@ -777,8 +921,19 @@ def download_all_datasets(
     Download all curated datasets with Trivium methodology.
 
     Args:
-        concurrency: Number of parallel download threads for Internet Archive
-        rate_limit: Maximum requests per second for Internet Archive
+        output_dir: Directory path where dataset JSONL files will be saved (default: "data/raw")
+        max_samples_per_dataset: Maximum samples to download per dataset (default: 10000)
+        concurrency: Number of parallel download threads for IA/Chronicling America (default: 10)
+        rate_limit: Maximum requests per second for IA/Chronicling America (default: 10.0)
+
+    Returns:
+        None. Prints summary of downloaded datasets to stdout.
+
+    Notes:
+        - Downloads datasets grouped by authority level (low/mid/high)
+        - Each dataset is saved as a separate JSONL file
+        - Parallel downloads only apply to Internet Archive and Chronicling America
+        - HuggingFace datasets use their own streaming/download mechanisms
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -834,6 +989,8 @@ def download_all_datasets(
                 max_pages=target,
                 start_year=config["date_range"][0],
                 end_year=config["date_range"][1],
+                concurrency=concurrency,
+                rate_limit=rate_limit,
             )
         elif method == "huggingface_streaming":
             count = download_huggingface_streaming(config, output_path, target)
@@ -939,17 +1096,23 @@ def main():
         "-c",
         type=int,
         default=DEFAULT_CONCURRENCY,
-        help=f"Number of parallel download threads for Internet Archive (default: {DEFAULT_CONCURRENCY})",
+        help=f"Parallel download threads for IA/Chronicling America (default: {DEFAULT_CONCURRENCY})",
     )
     parser.add_argument(
         "--rate-limit",
         "-r",
         type=float,
         default=DEFAULT_RATE_LIMIT,
-        help=f"Maximum requests per second for Internet Archive (default: {DEFAULT_RATE_LIMIT})",
+        help=f"Max requests/sec for IA/Chronicling America (default: {DEFAULT_RATE_LIMIT})",
     )
     parser.add_argument("--list", action="store_true", help="List available datasets and exit")
     args = parser.parse_args()
+
+    # Validate concurrency and rate_limit parameters
+    if args.concurrency < 1:
+        parser.error("--concurrency must be >= 1")
+    if args.rate_limit <= 0:
+        parser.error("--rate-limit must be > 0")
 
     if args.list:
         print("Available datasets:")
@@ -1007,7 +1170,14 @@ def main():
                 output_path, target, args.concurrency, args.rate_limit
             )
         elif method == "chronicling_america":
-            download_chronicling_america(output_path, target)
+            download_chronicling_america(
+                output_path,
+                max_pages=target,
+                start_year=config["date_range"][0],
+                end_year=config["date_range"][1],
+                concurrency=args.concurrency,
+                rate_limit=args.rate_limit,
+            )
         elif method == "huggingface_streaming":
             download_huggingface_streaming(config, output_path, target)
         elif method == "huggingface":

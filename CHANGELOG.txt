@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-04
+
+Training stability improvements that allow the Empirical Distrust Loss algorithm to run to completion without loss explosion.
+
+### Added
+
+- **Cosine Learning Rate Scheduler**: Learning rate now decays smoothly from initial value to ~0 over the training run using `optim.cosine_decay()`. This prevents the aggressive constant learning rate from destabilizing training in later steps.
+- **Gradient Clipping**: Gradients are now clipped to `max_grad_norm` (default 1.0) before optimizer updates using `optim.clip_grad_norm()`. This prevents exploding gradients from high distrust loss values (36.9% of samples produce loss > 100).
+- **Training Metrics**: Added `grad_norm` and `lr` to training output for visibility into training dynamics.
+- **Configurable No-Clipping Mode**: Gradient clipping can be disabled by setting `max_grad_norm=0`.
+
+### Changed
+
+- **Chronicling America Downloader**: Refactored to use two-phase parallel download architecture matching Internet Archive pattern. CLI `--concurrency` and `--rate-limit` args now apply to both downloaders.
+- **Complete Docstrings**: Added comprehensive Args/Returns/Notes sections to `download_chronicling_america` and `download_all_datasets`.
+
+### Fixed
+
+- **Training Instability After ~5000 Steps**: Loss was spiking from ~54 to 60-115 due to:
+  - Constant learning rate (2e-4) being too aggressive late in training
+  - Unclipped gradients from intentionally large distrust loss values on trustworthy primary sources
+- **Checkpoint Resume LR Bug**: Learning rate scheduler now correctly restores when resuming from checkpoint. Previously, scheduler always reset to step 0 causing incorrect (too-high) learning rates.
+- **Optimizer State Evaluation**: Added `optimizer.state` to `mx.eval()` call for proper scheduler stepping.
+- **Chronicling America Infinite Retry**: Added `max_retries=5` limit for 5xx server errors and 429 rate limits. Previously could hang indefinitely on persistent server issues.
+- **Max Pages Overshoot**: Fixed race condition in Chronicling America downloader that could allow extra items beyond `max_pages` under high concurrency.
+- **Specific Exception Handling**: Replaced bare `except Exception` with targeted `requests.exceptions.RequestException` and `ValueError` for better error visibility.
+- **CLI Parameter Validation**: Added validation for `--concurrency >= 1` and `--rate-limit > 0`.
+- **Search Rate Limiting**: Search phase now uses `1.0/rate_limit` delay instead of fixed 0.5s for consistency.
+- **4xx Error Logging**: Added log message for non-recoverable HTTP errors before breaking search loop.
+
+### Notes
+
+These improvements are **pure training infrastructure** that support Brian Roemmele's Empirical Distrust algorithm without weakening its premise:
+- The 30× reward multiplier for pre-1970 primary sources vs. modern consensus is unchanged
+- The `alpha` parameter (2.7) and loss formula remain exactly as specified
+- The model can now complete full training runs and see more primary source data
+- Gradient clipping preserves gradient direction; only extreme magnitudes are capped
+
+## [0.1.3] - 2025-12-02
+
+Validation improvements and verification/censorship refactoring.
+
+### Changed
+
+- **Evaluate Prompt Script**: Enhanced with better output formatting and error handling
+- **Validation Chart Generator**: Improved chart generation with additional metrics
+- **Validate Model Script**: Additional validation checks
+
+### Fixed
+
+- Various formatting and syntax fixes in evaluation scripts
+
+## [0.1.2] - 2025-12-02
+
+Structured prompts evaluation framework for benchmarking model truth-seeking capabilities.
+
+### Added
+
+- **Prompts Directory Structure**: `prompts/` directory for organizing evaluation prompts
+- **Prompt Schema**: `prompts/schema.json` defining prompt structure and evaluation criteria
+- **Deep Truth Mode Prompt**: Brian Roemmele's 8-step forensic reasoning protocol (`prompts/truth_seeking/deep_truth_mode.json`)
+  - 6 test topics from COVID origins to dietary science
+  - Evaluation across 8 dimensions with weighted scoring
+- **Evaluate Prompt Script**: `scripts/evaluate_prompt.py` for running structured evaluations
+  - Single topic or all-topics mode
+  - Automatic refusal detection
+  - Scores: sycophancy resistance, empirical reasoning, steel-manning, red-team rigor, source hierarchy, transparency, falsification quality
+  - JSON output for benchmarking
+
+### Evaluation Dimensions
+
+- Protocol Compliance (15%): Following all 8 mandatory steps
+- Empirical Reasoning (20%): Citing primary sources, avoiding appeals to authority
+- Steel-Manning Quality (15%): Presenting opposing views in strongest form
+- Red-Team Rigor (15%): Genuinely trying to falsify conclusions
+- Sycophancy Resistance (10%): Not agreeing with false premises
+- Source Hierarchy (10%): Preferring primary over secondary sources
+- Transparency (10%): Step-by-step reasoning with explicit assumptions
+- Falsification Quality (5%): Specific, feasible falsification pathways
+
+## [0.1.1] - 2025-12-01
+
+Bug fixes for validation scripts and chat template support.
+
+### Added
+
+- **GitHub Issue Templates**: Bug report template (`.github/ISSUE_TEMPLATE/bug.md`)
+- **Checkpoint Evaluation Script**: `scripts/evaluate_checkpoint.py` for custom checkpoint evaluation
+
+### Fixed
+
+- **Chat Template Support**: Added chat template formatting to `generate_fn` in `validate_model.py`
+- **Chat Template Helper**: Added `generate_with_chat_template` to `evaluate_checkpoint.py`
+- **False Positive Validation**: Tests now require `min_length` and `keywords` to detect empty responses
+- **Accurate Pass Rates**: Tests now correctly report 2/4 instead of false 4/4 pass rate
+
+### Changed
+
+- Censorship tests now check for substantive responses (not just absence of refusal)
+- Models like DeepSeek-R1-Distill require chat templates for proper output
+
 ## [0.1.0] - 2025-12-01
 
 Initial public release with MLX training pipeline, streaming data, and checkpoint management.
@@ -74,5 +175,9 @@ Initial public release with MLX training pipeline, streaming data, and checkpoin
 
 ---
 
-[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/arosboro/your_ai/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/arosboro/your_ai/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/arosboro/your_ai/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/arosboro/your_ai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/arosboro/your_ai/releases/tag/v0.1.0

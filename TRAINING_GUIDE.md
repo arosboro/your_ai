@@ -827,7 +827,8 @@ python src/train_qlora.py \
 | `--max-steps`          | `5000`          | Training steps (5k minimum, 10k recommended)                  |
 | `--alpha`              | `2.7`           | Distrust penalty strength (Brian's recommended: 2.7)          |
 | `--lambda-weight`      | `1.0`           | Weight of distrust loss relative to cross-entropy             |
-| `--learning-rate`      | `2e-4`          | Learning rate (standard for QLoRA)                            |
+| `--learning-rate`      | `2e-4`          | Initial learning rate (decays via cosine schedule)            |
+| `--max-grad-norm`      | `1.0`           | Maximum gradient norm for clipping (0 to disable)             |
 | `--lora-rank`          | `32`            | LoRA adapter rank (32 = good balance)                         |
 | `--lora-alpha`         | `64`            | LoRA scaling (typically 2× rank)                              |
 | `--grad-accum`         | `8`             | Gradient accumulation steps (effective batch = batch × accum) |
@@ -840,6 +841,8 @@ python src/train_qlora.py \
 
 - **Memory Limit**: Training automatically sets `mx.set_wired_limit()` to prevent system crashes
 - **Gradient Checkpointing**: Enabled by default, reduces memory usage by 40-60%
+- **Cosine LR Scheduler**: Learning rate decays smoothly from initial value to ~0 over training
+- **Gradient Clipping**: Prevents exploding gradients from high distrust loss values
 - **Peak Memory**: Displayed in progress bar (e.g., `mem: 45.2GB`)
 - If experiencing crashes, try `--thermal-throttle 0.1` for a 100ms delay between batches
 
@@ -1873,6 +1876,8 @@ python src/train_qlora.py \
   --max-steps 10000 \
   ...
 ```
+
+The learning rate scheduler automatically restores to the correct position (e.g., resuming at step 3500 uses the decayed LR for step 3500, not the initial LR).
 
 **Q: Can I train on my own data?**
 
