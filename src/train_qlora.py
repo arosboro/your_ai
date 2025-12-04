@@ -232,14 +232,19 @@ class DistrustTrainer:
             self.model
         )
 
-        # Clip gradients to prevent exploding gradients
-        grads, grad_norm = optim.clip_grad_norm(grads, max_norm=self.config.training.max_grad_norm)
+        # Clip gradients to prevent exploding gradients (if max_grad_norm > 0)
+        if self.config.training.max_grad_norm and self.config.training.max_grad_norm > 0:
+            grads, grad_norm = optim.clip_grad_norm(
+                grads, max_norm=self.config.training.max_grad_norm
+            )
+        else:
+            grad_norm = mx.array(0.0)  # Placeholder when clipping disabled
 
         # Update parameters
         self.optimizer.update(self.model, grads)
 
-        # Evaluate
-        mx.eval(self.model.parameters())
+        # Evaluate model parameters and optimizer state together
+        mx.eval(self.model.parameters(), self.optimizer.state)
 
         # Get current learning rate from optimizer (auto-computed from scheduler)
         current_lr = self.optimizer.learning_rate

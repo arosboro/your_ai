@@ -585,6 +585,8 @@ def download_chronicling_america(
                     print(f"  Server error {response.status_code}, retrying in 5s...")
                     time.sleep(5)
                     continue
+                # 4xx or other non-recoverable errors
+                print(f"  HTTP {response.status_code} error, stopping search.")
                 break
 
             # Reset error counter on success
