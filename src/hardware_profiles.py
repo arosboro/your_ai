@@ -61,7 +61,7 @@ HARDWARE_PROFILES = {
         "batch_size": 4,
         "lora_rank": 128,
         "lora_num_layers": 24,
-        "grad_checkpoint": False,
+        "grad_checkpoint": True,  # Required for 70B - only 12GB headroom
         "model_tier": "large",
     },
     ("ultra", 64): {

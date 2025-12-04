@@ -32,5 +32,5 @@ recommended_models:
   - "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated" # Abliterated Llama
 
 notes: |
-  70B models may fit but will be tight (~65GB training).
-  Recommend 7B-8B models for comfortable training with headroom.
+  70B models do NOT fit (need 65GB, budget is 51GB).
+  7B-8B models recommended for comfortable training with headroom.
