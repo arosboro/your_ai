@@ -524,8 +524,25 @@ def download_chronicling_america(
 ) -> int:
     """
     Download historical newspaper pages from Chronicling America (LOC).
+
     Uses the www.loc.gov API which bypasses Cloudflare protection.
     Parallel downloads with rate limiting for speed.
+
+    Args:
+        output_dir: Path to directory where chronicling_america.jsonl will be saved
+        max_pages: Maximum number of newspaper pages to download (default: 5000)
+        start_year: Beginning of date range filter (default: 1850)
+        end_year: End of date range filter (default: 1920)
+        concurrency: Number of parallel download threads (default: 5)
+        rate_limit: Maximum requests per second (default: 3.0)
+
+    Returns:
+        int: Number of newspaper pages successfully downloaded
+
+    Notes:
+        - Uses two-phase download: URL collection then parallel full-text fetch
+        - Rate limiting applies per-request across all threads
+        - Lower defaults than Internet Archive due to LOC API constraints
     """
     print(f"Downloading Chronicling America pages ({start_year}-{end_year})...")
     print(f"  Parallel: {concurrency} workers, {rate_limit} req/sec limit")
