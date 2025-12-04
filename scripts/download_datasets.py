@@ -515,84 +515,174 @@ def download_internet_archive_literature(
 
 
 def download_chronicling_america(
-    output_dir: Path, max_pages: int = 5000, start_year: int = 1850, end_year: int = 1920
+    output_dir: Path,
+    max_pages: int = 5000,
+    start_year: int = 1850,
+    end_year: int = 1920,
+    concurrency: int = 5,
+    rate_limit: float = 3.0,
 ) -> int:
     """
     Download historical newspaper pages from Chronicling America (LOC).
-    Uses the official LOC API with proper pagination.
+    Uses the www.loc.gov API which bypasses Cloudflare protection.
+    Parallel downloads with rate limiting for speed.
     """
     print(f"Downloading Chronicling America pages ({start_year}-{end_year})...")
+    print(f"  Parallel: {concurrency} workers, {rate_limit} req/sec limit")
 
-    search_url = "https://chroniclingamerica.loc.gov/search/pages/results/"
+    search_url = "https://www.loc.gov/collections/chronicling-america/"
     output_file = output_dir / "chronicling_america.jsonl"
-    count = 0
 
-    params = {
-        "dateFilterType": "yearRange",
-        "date1": str(start_year),
-        "date2": str(end_year),
-        "language": "eng",
-        "format": "json",
-        "page": 1,
-        "rows": 50,
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
     }
 
-    with open(output_file, "w") as f:
-        while count < max_pages:
-            try:
-                response = requests.get(search_url, params=params, timeout=60)
+    # Phase 1: Collect item URLs from search results
+    print("  Phase 1: Collecting newspaper item URLs...")
+    item_urls = []
+    page = 1
 
-                if response.status_code != 200:
-                    print(f"  API returned status {response.status_code}, stopping.")
-                    break
+    while len(item_urls) < max_pages * 2:  # Get extras since some won't have text
+        try:
+            params = {"fo": "json", "c": 100, "sp": page, "dates": f"{start_year}/{end_year}"}
+            response = requests.get(search_url, params=params, headers=headers, timeout=60)
 
-                data = response.json()
-                items = data.get("items", [])
-
-                if not items:
-                    print("  No more items found.")
-                    break
-
-                for item in items:
-                    if count >= max_pages:
-                        break
-
-                    # Get OCR text
-                    ocr_text = item.get("ocr_eng", "")
-
-                    if not ocr_text or len(ocr_text) < 200:
-                        continue
-
-                    # Clean up OCR text
-                    ocr_text = re.sub(r"\s+", " ", ocr_text).strip()
-
-                    record = {
-                        "text": ocr_text[:20000],  # Cap length
-                        "date": item.get("date", ""),
-                        "newspaper": item.get("title", ""),
-                        "location": item.get("city", []),
-                        "state": item.get("state", []),
-                        "url": item.get("url", ""),
-                        "auth_weight": 0.15,
-                        "prov_entropy": 6.0,
-                        "source_type": "historical_newspaper",
-                    }
-
-                    f.write(json.dumps(record) + "\n")
-                    count += 1
-
-                params["page"] += 1
-
-                if count % 500 == 0 and count > 0:
-                    print(f"  Downloaded {count} pages...")
-
-                # Rate limiting
-                time.sleep(0.5)
-
-            except Exception as e:
-                print(f"  Error fetching page {params['page']}: {e}")
-                time.sleep(2)
+            if response.status_code == 429:
+                print("  Rate limited, waiting 30 seconds...")
+                time.sleep(30)
                 continue
+
+            if response.status_code != 200:
+                break
+
+            data = response.json()
+            items = data.get("results", [])
+
+            if not items:
+                break
+
+            for item in items:
+                item_url = item.get("id") or item.get("url")
+                if item_url:
+                    item_urls.append(
+                        {
+                            "url": item_url,
+                            "title": item.get("title", ""),
+                            "date": item.get("date", item.get("dates", "")),
+                            "location": item.get("location", []),
+                        }
+                    )
+
+            page += 1
+            if page % 10 == 0:
+                print(f"    Collected {len(item_urls)} URLs...")
+
+            time.sleep(0.5)  # Light rate limiting for search
+
+        except Exception as e:
+            print(f"  Search error: {e}")
+            break
+
+    print(f"  Found {len(item_urls)} candidate items")
+
+    # Phase 2: Fetch full text in parallel
+    print("  Phase 2: Fetching full text content (parallel)...")
+
+    rate_limiter = RateLimiter(max_per_second=rate_limit)
+    count = 0
+    results_lock = threading.Lock()
+
+    def fetch_newspaper_text(item_info: Dict) -> Optional[Dict]:
+        """Fetch fulltext for a single newspaper item."""
+        rate_limiter.acquire()
+
+        try:
+            # Get item details
+            detail_url = item_info["url"].rstrip("/") + "/?fo=json"
+            detail_resp = requests.get(detail_url, headers=headers, timeout=30)
+
+            if detail_resp.status_code != 200:
+                return None
+
+            detail = detail_resp.json()
+            resources = detail.get("resources", [])
+
+            # Find first fulltext service URL
+            fulltext_url = None
+            for resource in resources:
+                for file_list in resource.get("files", []):
+                    for file_info in file_list:
+                        if file_info.get("fulltext_service"):
+                            fulltext_url = file_info["fulltext_service"]
+                            break
+                    if fulltext_url:
+                        break
+                if fulltext_url:
+                    break
+
+            if not fulltext_url:
+                return None
+
+            # Fetch OCR text
+            rate_limiter.acquire()
+            text_resp = requests.get(fulltext_url, headers=headers, timeout=30)
+
+            if text_resp.status_code != 200:
+                return None
+
+            text_data = text_resp.json()
+            ocr_text = ""
+            for key, val in text_data.items():
+                if isinstance(val, dict) and "full_text" in val:
+                    ocr_text = val["full_text"]
+                    break
+
+            if not ocr_text or len(ocr_text) < 200:
+                return None
+
+            # Clean up text
+            ocr_text = re.sub(r"\s+", " ", ocr_text).strip()
+
+            date_str = item_info["date"]
+            if isinstance(date_str, list) and date_str:
+                date_str = date_str[0]
+
+            return {
+                "text": ocr_text[:20000],
+                "date": date_str,
+                "newspaper": item_info["title"],
+                "location": item_info["location"],
+                "url": item_info["url"],
+                "auth_weight": 0.15,
+                "prov_entropy": 6.0,
+                "source_type": "historical_newspaper",
+            }
+
+        except Exception:
+            return None
+
+    with open(output_file, "w") as f:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(fetch_newspaper_text, item): item
+                for item in item_urls[: max_pages * 2]
+            }
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="  Fetching"):
+                if count >= max_pages:
+                    for fut in futures:
+                        fut.cancel()
+                    break
+
+                try:
+                    result = future.result()
+                    if result:
+                        with results_lock:
+                            f.write(json.dumps(result) + "\n")
+                            count += 1
+                except Exception:
+                    pass
 
     print(f"  Downloaded {count} newspaper pages to {output_file}")
     return count
