@@ -505,6 +505,11 @@ class DistrustTrainer:
 
 
 def main():
+    """
+    Parse command-line arguments, construct a training configuration, and start Empirical Distrust QLoRA training.
+    
+    This function handles interactive hardware setup and recommendation queries, loads or auto-detects a hardware profile (applying CLI overrides when provided), scales the hardware profile for the chosen model, and populates a Config object with profile values and explicit CLI overrides. It displays a concise training summary, instantiates the DistrustTrainer, optionally resumes from a checkpoint when requested, and runs the training loop. The function may print messages and return early for operations like --setup, --recommend, or when CLI hardware overrides are incomplete.
+    """
     parser = argparse.ArgumentParser(
         description="Train with Empirical Distrust Loss",
         formatter_class=argparse.RawDescriptionHelpFormatter,
