@@ -267,15 +267,16 @@ MODEL_REQUIREMENTS = {
 
 # Model size categories with batch scaling multipliers
 # Smaller models have more memory headroom, so we scale UP batch size
+# Note: Multipliers are conservative since full LoRA settings are now preserved
 MODEL_SIZE_CONFIGS = {
-    "small": {  # 7B-8B models - lots of headroom
-        "batch_size_multiplier": 4.0,
+    "small": {  # 7B-8B models
+        "batch_size_multiplier": 2.0,  # Conservative - full LoRA uses more memory
     },
     "medium": {  # 14B models
-        "batch_size_multiplier": 2.0,
+        "batch_size_multiplier": 1.5,
     },
     "large": {  # 32B models
-        "batch_size_multiplier": 1.5,
+        "batch_size_multiplier": 1.25,
     },
     "xlarge": {  # 70B+ models - no scaling
         "batch_size_multiplier": 1.0,
