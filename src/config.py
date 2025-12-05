@@ -210,6 +210,8 @@ class ModelConfig:
         """Compute LoRA scale: explicit value or alpha/rank."""
         if self.lora_scale is not None:
             return self.lora_scale
+        if self.lora_rank <= 0:
+            raise ValueError(f"lora_rank must be positive, got {self.lora_rank}")
         return self.lora_alpha / self.lora_rank
 
     # Target attention layers only for stability (MLP layers removed)
