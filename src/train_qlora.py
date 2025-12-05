@@ -652,6 +652,7 @@ Examples:
             print(f"Auto-detected hardware: {generation.upper()} {variant.title()} {memory}GB")
 
     # Apply CLI overrides to specific fields only
+    has_cli_override = args.generation or args.chip or args.memory
     if args.generation:
         generation = args.generation
         print(f"  → Overriding generation: {generation.upper()}")
@@ -661,6 +662,20 @@ Examples:
     if args.memory:
         memory = args.memory
         print(f"  → Overriding memory: {memory}GB")
+
+    # Validate: if CLI overrides provided but missing base profile fields, error out
+    if has_cli_override and not (generation and variant and memory):
+        missing = []
+        if not generation:
+            missing.append("--generation")
+        if not variant:
+            missing.append("--chip")
+        if not memory:
+            missing.append("--memory")
+        print(f"\nError: Partial hardware override - missing: {', '.join(missing)}")
+        print("Either run --setup first, or provide all three: --generation, --chip, --memory")
+        print("Example: --generation m2 --chip ultra --memory 96")
+        return
 
     # Generate optimized profile from final hardware specs
     if generation and variant and memory:

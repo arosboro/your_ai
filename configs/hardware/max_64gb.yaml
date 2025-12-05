@@ -1,5 +1,5 @@
 # Hardware Profile: M1/M2/M3/M4 Max with 64GB Unified Memory
-# Optimal for 32B models or 70B with constraints
+# Optimal for 7B-8B models; 70B models do NOT fit (require ~65GB, budget ~51GB)
 
 hardware:
   generation: "max"

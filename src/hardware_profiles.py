@@ -232,8 +232,8 @@ MODEL_REQUIREMENTS = {
         "recommended": False,  # Chinese model - corpus-level censorship
         "warning": "Chinese model - corpus-level censorship",
     },
-    "dolphin-70b": {
-        "hf_name": "cognitivecomputations/dolphin-2.9.4-llama3.1-70b",
+    "deepseek-r1-70b": {
+        "hf_name": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
         "inference_gb": 42,
         "training_gb": 65,
         "params": "70B",
