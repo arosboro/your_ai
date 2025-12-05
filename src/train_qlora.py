@@ -28,7 +28,7 @@ from mlx_lm.tuner import linear_to_lora_layers
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from distrust_loss import batch_empirical_distrust_loss
-from config import Config
+from config import Config, PathConfig
 from data.streaming_dataset import StreamingDataset
 from checkpoints.checkpoint_manager import CheckpointManager
 from checkpoints.checkpoint_state import Checkpoint
@@ -695,7 +695,7 @@ Examples:
         print("Using default settings (may not be optimal for your hardware).")
 
     # Determine model path first (needed for profile scaling)
-    model_path = args.model if args.model else "NousResearch/Hermes-2-Pro-Mistral-7B"
+    model_path = args.model if args.model else PathConfig().model_path
 
     # Scale profile for model size (prevents OOM when running small models on large hardware)
     if hw_profile:

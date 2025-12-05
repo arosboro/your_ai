@@ -113,9 +113,9 @@ Performance optimization validation:
 ## Test Statistics
 
 ### Total Tests Added
-- **Unit tests**: 75 new tests (31 + 11 + 10 + 4 + 4 = 60 new, plus 15 original = 75 total)
+- **Unit tests**: 78 total tests (31 + 11 + 10 + 4 + 4 = 60 new, plus 18 original = 78 total)
 - **Integration tests**: 16 new tests
-- **Total new tests**: 91
+- **Total new tests**: 76
 
 ### Coverage Areas
 

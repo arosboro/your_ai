@@ -15,9 +15,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 class TestTrainQLoRAScalingIntegration:
     """Integration tests for model scaling in train_qlora.py."""
 
+    @patch("train_qlora.DistrustTrainer")
+    @patch("train_qlora.profile_exists", return_value=True)
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_profile_scaling_called_with_model_path(self, mock_scale_profile, mock_load_profile):
+    def test_profile_scaling_called_with_model_path(
+        self, mock_scale_profile, mock_load_profile, mock_profile_exists, mock_trainer
+    ):
         """Test that scale_profile_for_model is called with the model path."""
         # Mock hardware profile
         mock_profile = {
@@ -40,29 +44,23 @@ class TestTrainQLoRAScalingIntegration:
             "NousResearch/Hermes-2-Pro-Mistral-7B",
             "--data-dir",
             "./data",
-            "--dry-run",  # Don't actually train
         ]
 
         with patch("sys.argv", test_args):
             with patch("train_qlora.detect_hardware", return_value=("m2", "ultra", 96)):
-                with patch("train_qlora.Trainer"):
-                    with patch("train_qlora.AutoModelForCausalLM"):
-                        with patch("train_qlora.AutoTokenizer"):
-                            try:
-                                # This will fail due to missing dependencies, but we can check if scaling was called
-                                main()
-                            except Exception:
-                                pass
+                main()
 
         # Verify scale_profile_for_model was called with the model path
-        if mock_scale_profile.called:
-            call_args = mock_scale_profile.call_args
-            assert "NousResearch/Hermes-2-Pro-Mistral-7B" in str(call_args)
+        assert mock_scale_profile.called
+        call_args = mock_scale_profile.call_args
+        assert "NousResearch/Hermes-2-Pro-Mistral-7B" in str(call_args)
 
+    @patch("train_qlora.DistrustTrainer")
+    @patch("train_qlora.profile_exists", return_value=True)
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
     def test_default_model_path_used_when_not_specified(
-        self, mock_scale_profile, mock_load_profile
+        self, mock_scale_profile, mock_load_profile, mock_profile_exists, mock_trainer
     ):
         """Test that default model path is used for scaling when --model not specified."""
         mock_profile = {
@@ -81,27 +79,26 @@ class TestTrainQLoRAScalingIntegration:
             "train_qlora.py",
             "--data-dir",
             "./data",
-            "--dry-run",
         ]
 
         with patch("sys.argv", test_args):
             with patch("train_qlora.detect_hardware", return_value=("m2", "pro", 32)):
-                with patch("train_qlora.Trainer"):
-                    with patch("train_qlora.AutoModelForCausalLM"):
-                        with patch("train_qlora.AutoTokenizer"):
-                            try:
-                                main()
-                            except Exception:
-                                pass
+                main()
 
         # Verify default model was used
-        if mock_scale_profile.called:
-            call_args = mock_scale_profile.call_args
-            # Default is "NousResearch/Hermes-2-Pro-Mistral-7B"
-            assert "Hermes" in str(call_args) or "7B" in str(call_args)
+        assert mock_scale_profile.called
+        call_args = mock_scale_profile.call_args
+        # Default is "cognitivecomputations/dolphin-2.9-llama3-8b"
+        assert "dolphin" in str(call_args).lower() or "8b" in str(call_args).lower()
 
+    @patch("train_qlora.DistrustTrainer")
+    @patch("train_qlora.scale_profile_for_model")
+    @patch("train_qlora.profile_exists", return_value=False)
     @patch("train_qlora.load_hardware_profile")
-    def test_scaling_skipped_when_no_profile(self, mock_load_profile):
+    @patch("train_qlora.detect_hardware", return_value=(None, None, None))
+    def test_scaling_skipped_when_no_profile(
+        self, mock_detect, mock_load_profile, mock_profile_exists, mock_scale, mock_trainer
+    ):
         """Test that scaling is skipped when no hardware profile exists."""
         mock_load_profile.return_value = None
 
@@ -113,22 +110,13 @@ class TestTrainQLoRAScalingIntegration:
             "NousResearch/Hermes-2-Pro-Mistral-7B",
             "--data-dir",
             "./data",
-            "--dry-run",
         ]
 
         with patch("sys.argv", test_args):
-            with patch("train_qlora.detect_hardware", return_value=("m2", "base", 16)):
-                with patch("train_qlora.Trainer"):
-                    with patch("train_qlora.AutoModelForCausalLM"):
-                        with patch("train_qlora.AutoTokenizer"):
-                            with patch("train_qlora.scale_profile_for_model") as mock_scale:
-                                try:
-                                    main()
-                                except Exception:
-                                    pass
+            main()
 
-                                # Scaling should not be called when profile is None
-                                assert not mock_scale.called
+        # Scaling should not be called when profile is None
+        assert not mock_scale.called
 
 
 class TestScalingWithDifferentModelSizes:
@@ -144,7 +132,7 @@ class TestScalingWithDifferentModelSizes:
         ],
     )
     @patch("train_qlora.load_hardware_profile")
-    @patch("train_qlora.detect_model_size")
+    @patch("hardware_profiles.detect_model_size")
     def test_model_size_detection_in_pipeline(
         self, mock_detect_size, mock_load_profile, model_path, expected_category
     ):
@@ -241,12 +229,12 @@ class TestConfigApplicationAfterScaling:
 
         # Simulate applying hardware profile
         hw_profile = scaled_profile
-        config.training.lora_rank = hw_profile.get("lora_rank", 128)
-        config.training.lora_num_layers = hw_profile.get("lora_num_layers", -1)
+        config.model.lora_rank = hw_profile.get("lora_rank", 128)
+        config.model.lora_num_layers = hw_profile.get("lora_num_layers", -1)
 
         # Verify scaled values were applied
-        assert config.training.lora_rank == 32
-        assert config.training.lora_num_layers == 8
+        assert config.model.lora_rank == 32
+        assert config.model.lora_num_layers == 8
 
 
 class TestScalingWithCLIOverrides:
@@ -299,10 +287,10 @@ class TestScalingWithCLIOverrides:
 
         # Simulate CLI override
         cli_lora_rank = 64
-        config.training.lora_rank = cli_lora_rank
+        config.model.lora_rank = cli_lora_rank
 
         # CLI value should take precedence
-        assert config.training.lora_rank == 64
+        assert config.model.lora_rank == 64
 
 
 class TestScalingErrorHandling:
@@ -328,14 +316,12 @@ class TestScalingErrorHandling:
         # Should handle gracefully with default values
         hw_profile = malformed_profile
         config.training.batch_size = hw_profile.get("batch_size", 2)
-        config.training.lora_rank = hw_profile.get("lora_rank", 128)
+        config.model.lora_rank = hw_profile.get("lora_rank", 128)
 
         assert config.training.batch_size == 4
-        assert config.training.lora_rank == 128  # Default
+        assert config.model.lora_rank == 128  # Default
 
-    @patch("train_qlora.load_hardware_profile")
-    @patch("train_qlora.scale_profile_for_model")
-    def test_scaling_handles_invalid_model_path(self, mock_scale_profile, mock_load_profile):
+    def test_scaling_handles_invalid_model_path(self):
         """Test that scaling handles invalid model paths gracefully."""
         profile = {
             "batch_size": 4,
@@ -344,8 +330,6 @@ class TestScalingErrorHandling:
             "grad_checkpoint": True,
             "model_tier": "medium",
         }
-
-        mock_load_profile.return_value = profile
 
         from train_qlora import scale_profile_for_model
 

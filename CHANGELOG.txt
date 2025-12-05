@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-12-05
+
+Test infrastructure fixes and default model consistency improvements.
+
+### Fixed
+
+- **Default Model Consistency**: CLI now uses the same default model as `PathConfig` (`cognitivecomputations/dolphin-2.9-llama3-8b`) instead of a hardcoded `NousResearch/Hermes-2-Pro-Mistral-7B`. This ensures CLI and config share a single source of truth.
+- **Integration Test Robustness**: Fixed fragile try/except patterns that silently swallowed test failures. Tests now properly assert expected behavior and fail on unexpected exceptions.
+- **Test Mock Paths**: Fixed incorrect patch paths (`train_qlora.Trainer` → `train_qlora.DistrustTrainer`, `train_qlora.detect_model_size` → `hardware_profiles.detect_model_size`) and config attribute paths (`config.training.lora_*` → `config.model.lora_*`).
+- **Documentation Arithmetic**: Corrected test count arithmetic in `docs/TEST_SUMMARY_SCALING.md` (18 original tests, 78 total unit tests, 76 total new tests).
+
 ## [0.2.2] - 2025-12-05
 
 Training convergence fixes that preserve the 30× multiplier effect of Brian Roemmele's Empirical Distrust algorithm while stabilizing gradient dynamics.
@@ -223,7 +234,8 @@ Initial public release with MLX training pipeline, streaming data, and checkpoin
 
 ---
 
-[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/arosboro/your_ai/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arosboro/your_ai/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arosboro/your_ai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arosboro/your_ai/compare/v0.1.3...v0.2.0
