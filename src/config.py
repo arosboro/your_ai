@@ -252,8 +252,8 @@ class TrainingConfig:
     eval_steps: int = 250
     logging_steps: int = 10
 
-    # Learning rate
-    learning_rate: float = 2e-4
+    # Learning rate - reduced from 2e-4 for stability with large distrust loss values
+    learning_rate: float = 5e-5
     lr_scheduler_type: str = "cosine"
     warmup_steps: int = 100
 
@@ -291,8 +291,10 @@ class DistrustLossConfig:
     alpha: float = 2.7
 
     # Lambda: Weight of distrust loss relative to cross-entropy
-    # 1.0 = equal weight, <1.0 = less distrust influence
-    lambda_weight: float = 1.0
+    # Default 0.6 preserves ~60% of the 30× multiplier effect while stabilizing training
+    # Recommended range: 0.4-0.8 (lower weakens effect, higher may cause instability)
+    # 1.0 was too high with typical distrust_loss magnitudes (10-12x CE loss)
+    lambda_weight: float = 0.6
 
 
 @dataclass

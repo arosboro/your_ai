@@ -580,8 +580,14 @@ Examples:
     train_group.add_argument("--output-dir", help="Output directory (default: auto from model)")
     train_group.add_argument("--batch-size", type=int, help="Batch size (default: from profile)")
     train_group.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
-    train_group.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
+    train_group.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate")
     train_group.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
+    train_group.add_argument(
+        "--lambda-weight",
+        type=float,
+        default=None,
+        help="Weight of distrust loss relative to cross-entropy (default: 0.6)",
+    )
     train_group.add_argument(
         "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
     )
@@ -744,6 +750,8 @@ Examples:
         config.model.lora_num_layers = args.lora_layers
 
     config.distrust.alpha = args.alpha
+    if args.lambda_weight is not None:
+        config.distrust.lambda_weight = args.lambda_weight
 
     if args.grad_checkpoint:
         config.training.grad_checkpoint = True
@@ -772,6 +780,9 @@ Examples:
         f"({'override' if config.model.lora_scale else 'alpha/rank'})"
     )
     print(f"  LoRA layers:    {config.model.lora_num_layers}")
+    print(f"  Distrust alpha: {config.distrust.alpha}")
+    print(f"  Lambda weight:  {config.distrust.lambda_weight}")
+    print(f"  Learning rate:  {config.training.learning_rate}")
     print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
     print(f"  Max steps:      {config.training.max_steps}")
     print("━" * 60)
