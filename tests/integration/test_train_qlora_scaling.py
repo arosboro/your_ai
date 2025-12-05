@@ -355,13 +355,39 @@ class TestScalingPerformanceImplications:
         """Test that small models on large hardware get increased batch size."""
         from train_qlora import scale_profile_for_model
 
-        # Large profile for powerful hardware
+        # Large profile for powerful hardware with model_tiers
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
             "lora_num_layers": 24,
             "grad_checkpoint": True,
             "model_tier": "large",
+            "model_tiers": {
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
+            },
         }
 
         # Small 7B model
@@ -374,13 +400,39 @@ class TestScalingPerformanceImplications:
         """Test that small models get appropriately sized LoRA parameters."""
         from train_qlora import scale_profile_for_model
 
-        # Large profile
+        # Large profile with model_tiers
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
             "lora_num_layers": 24,
             "grad_checkpoint": True,
             "model_tier": "large",
+            "model_tiers": {
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
+            },
         }
 
         # Small 7B model

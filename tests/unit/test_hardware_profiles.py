@@ -479,64 +479,114 @@ class TestDetectModelSize:
 class TestScaleProfileForModel:
     """Tests for scale_profile_for_model() function."""
 
-    def test_scale_large_profile_for_small_model(self):
-        """Test scaling a large-tier profile for a 7B model."""
-        # Profile designed for 70B model
+    def test_profile_with_model_tiers_selects_small(self):
+        """Test that model_tiers settings are applied for 7B model."""
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
             "lora_num_layers": 24,
             "grad_checkpoint": True,
             "model_tier": "large",
+            "model_tiers": {
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
+            },
         }
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Should scale down for 7B model
-        assert scaled["lora_rank"] == 32  # Reduced from 128
-        assert scaled["lora_num_layers"] == 8  # Reduced from 24
-        # Batch size should increase since we have headroom
-        assert scaled["batch_size"] >= profile["batch_size"]
-        # Grad checkpoint should stay enabled (saves activation memory)
+        # Should use small tier settings
+        assert scaled["lora_rank"] == 64
+        assert scaled["lora_alpha"] == 128
+        assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 8
         assert scaled["grad_checkpoint"] is True
 
-    def test_scale_entry_profile_stays_same(self):
-        """Test that entry-tier profile doesn't scale for small model."""
-        # Profile already designed for small models
+    def test_profile_with_model_tiers_selects_medium(self):
+        """Test that model_tiers settings are applied for 14B model."""
         profile = {
-            "batch_size": 2,
-            "lora_rank": 32,
-            "lora_num_layers": 8,
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 24,
             "grad_checkpoint": True,
-            "model_tier": "entry",
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+                "medium": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 4},
+                "large": {"lora_rank": 96, "lora_num_layers": 20, "batch_size": 4},
+                "xlarge": {"lora_rank": 128, "lora_num_layers": 24, "batch_size": 4},
+            },
         }
 
-        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
+        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B")
 
-        # Should not change since profile tier matches model size
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
-
-    def test_scale_medium_profile_for_14b_model(self):
-        """Test that medium-tier profile stays same for 14B model."""
-        profile = {
-            "batch_size": 2,
-            "lora_rank": 64,
-            "lora_num_layers": 16,
-            "grad_checkpoint": True,
-            "model_tier": "medium",
-        }
-
-        scaled = scale_profile_for_model(
-            profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
-        )
-
-        # Profile tier matches model size, no scaling needed
+        # Should use medium tier settings
         assert scaled["lora_rank"] == 64
         assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 4
 
-    def test_scale_large_profile_for_32b_model(self):
-        """Test scaling a large-tier profile for a 32B model."""
+    def test_profile_with_model_tiers_selects_large(self):
+        """Test that model_tiers settings are applied for 32B model."""
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 24,
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+                "large": {"lora_rank": 96, "lora_num_layers": 20, "batch_size": 4},
+                "xlarge": {"lora_rank": 128, "lora_num_layers": 24, "batch_size": 4},
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B")
+
+        # Should use large tier settings
+        assert scaled["lora_rank"] == 96
+        assert scaled["lora_num_layers"] == 20
+        assert scaled["batch_size"] == 4
+
+    def test_profile_with_model_tiers_selects_xlarge(self):
+        """Test that model_tiers settings are applied for 70B model."""
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 64,
+            "lora_num_layers": 16,
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+                "xlarge": {"lora_rank": 128, "lora_num_layers": 24, "batch_size": 4},
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "meta/llama-70b")
+
+        # Should use xlarge tier settings
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4
+
+    def test_profile_without_model_tiers_preserves_settings(self):
+        """Test backward compatibility - profile without model_tiers preserves settings."""
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
@@ -545,13 +595,32 @@ class TestScaleProfileForModel:
             "model_tier": "large",
         }
 
-        scaled = scale_profile_for_model(
-            profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated"
-        )
+        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # 32B maps to "large" tier, profile tier matches - no scaling needed
-        assert scaled["lora_rank"] == 128  # Stays same
-        assert scaled["lora_num_layers"] == 24  # Stays same
+        # All settings preserved (backward compatible)
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4
+        assert scaled["grad_checkpoint"] is True
+
+    def test_profile_with_missing_tier_preserves_settings(self):
+        """Test that missing tier falls back to preserving profile settings."""
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 24,
+            "model_tiers": {
+                # Missing "small" tier
+                "xlarge": {"lora_rank": 256, "lora_num_layers": 32, "batch_size": 2},
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
+
+        # Falls back to preserving existing profile settings
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4
 
     def test_scale_does_not_modify_original(self):
         """Test that scaling creates a new profile, not modifying original."""
@@ -560,7 +629,9 @@ class TestScaleProfileForModel:
             "lora_rank": 128,
             "lora_num_layers": 24,
             "grad_checkpoint": True,
-            "model_tier": "large",
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+            },
         }
         original_copy = original.copy()
 
@@ -569,20 +640,26 @@ class TestScaleProfileForModel:
         # Original should be unchanged
         assert original == original_copy
 
-    def test_scale_batch_size_capped(self):
-        """Test that batch size scaling is capped at reasonable maximum."""
+    def test_partial_tier_config_only_updates_specified_keys(self):
+        """Test that tier config only updates keys it specifies."""
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
             "lora_num_layers": 24,
+            "lora_alpha": 256,
             "grad_checkpoint": True,
-            "model_tier": "large",
+            "model_tiers": {
+                "small": {"batch_size": 8},  # Only batch_size specified
+            },
         }
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Batch size should be increased but capped at 8
-        assert scaled["batch_size"] <= 8
+        # Only batch_size updated, others preserved
+        assert scaled["batch_size"] == 8
+        assert scaled["lora_rank"] == 128  # Preserved
+        assert scaled["lora_num_layers"] == 24  # Preserved
+        assert scaled["lora_alpha"] == 256  # Preserved
 
 
 @pytest.mark.unit
@@ -595,22 +672,15 @@ class TestModelSizeConfigs:
         for cat in expected_categories:
             assert cat in MODEL_SIZE_CONFIGS, f"Missing config for category {cat}"
 
-    def test_configs_have_required_keys(self):
-        """Test that all configs have required keys."""
-        required_keys = ["lora_rank", "lora_num_layers"]
+    def test_configs_have_batch_multiplier(self):
+        """Test that all configs have batch_size_multiplier key."""
         for cat, config in MODEL_SIZE_CONFIGS.items():
-            for key in required_keys:
-                assert key in config, f"Config {cat} missing {key}"
+            assert "batch_size_multiplier" in config, f"Config {cat} missing batch_size_multiplier"
 
-    def test_configs_scale_appropriately(self):
-        """Test that configs scale up with model size."""
-        # Larger models should have higher LoRA rank
-        assert MODEL_SIZE_CONFIGS["small"]["lora_rank"] < MODEL_SIZE_CONFIGS["xlarge"]["lora_rank"]
-        # Larger models should have more LoRA layers
-        assert (
-            MODEL_SIZE_CONFIGS["small"]["lora_num_layers"]
-            < MODEL_SIZE_CONFIGS["xlarge"]["lora_num_layers"]
-        )
+    def test_all_multipliers_are_one(self):
+        """Test that all multipliers are 1.0 (no scaling)."""
+        for cat, config in MODEL_SIZE_CONFIGS.items():
+            assert config["batch_size_multiplier"] == 1.0, f"{cat} should have multiplier 1.0"
 
 
 @pytest.mark.unit
@@ -784,9 +854,10 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Should default to "entry" tier and not scale
-        assert "lora_rank" in scaled
-        assert "lora_num_layers" in scaled
+        # All settings preserved (multiplier 1.0)
+        assert scaled["lora_rank"] == 64
+        assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 4  # No change
 
     def test_scale_profile_with_invalid_tier(self):
         """Test scaling with invalid tier value."""
@@ -800,9 +871,10 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Should handle gracefully and default to tier level 0
+        # All settings preserved
         assert scaled is not None
-        assert "lora_rank" in scaled
+        assert scaled["lora_rank"] == 64
+        assert scaled["batch_size"] == 2  # No change
 
     def test_scale_preserves_all_keys(self):
         """Test that scaling preserves all profile keys."""
@@ -823,9 +895,12 @@ class TestScaleProfileForModelAdvanced:
         assert scaled["custom_key"] == "custom_value"
         assert "another_key" in scaled
         assert scaled["another_key"] == 42
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4  # No change
 
     def test_scale_medium_profile_for_small_model(self):
-        """Test scaling a medium-tier profile for a 7B model."""
+        """Test scaling a medium-tier profile for a 7B model - all preserved."""
         profile = {
             "batch_size": 3,
             "lora_rank": 48,
@@ -836,12 +911,13 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Medium tier > entry tier for small model, should scale down
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
+        # All settings preserved
+        assert scaled["lora_rank"] == 48
+        assert scaled["lora_num_layers"] == 12
+        assert scaled["batch_size"] == 3  # No change
 
     def test_scale_with_large_initial_batch_size(self):
-        """Test that very large initial batch sizes are still capped."""
+        """Test that large batch sizes are preserved."""
         profile = {
             "batch_size": 6,
             "lora_rank": 128,
@@ -852,8 +928,8 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Even with 2.0x multiplier (6 * 2 = 12), should cap at 8
-        assert scaled["batch_size"] == 8
+        # Batch size unchanged
+        assert scaled["batch_size"] == 6
 
     def test_scale_with_missing_batch_size(self):
         """Test scaling with profile missing batch_size."""
@@ -866,12 +942,12 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Should handle missing batch_size gracefully
-        assert "lora_rank" in scaled
-        assert scaled["lora_rank"] == 32
+        # Should handle missing batch_size gracefully (no batch_size key)
+        assert scaled["lora_rank"] == 128
+        assert "batch_size" not in scaled  # Not added if not present
 
     def test_scale_xlarge_model_on_large_profile(self):
-        """Test that xlarge model doesn't scale down large profile."""
+        """Test that xlarge model preserves all settings."""
         profile = {
             "batch_size": 2,
             "lora_rank": 128,
@@ -882,12 +958,13 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "meta/llama-70b")
 
-        # 70B is xlarge, maps to "large" tier, should not scale
+        # All settings preserved
         assert scaled["lora_rank"] == 128
         assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 2  # No change
 
     def test_scale_with_very_small_3b_model(self):
-        """Test scaling for very small 3B model."""
+        """Test scaling for very small 3B model - all preserved."""
         profile = {
             "batch_size": 2,
             "lora_rank": 64,
@@ -898,9 +975,10 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "microsoft/phi-2")
 
-        # 3B is "small", should scale down from medium
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
+        # All settings preserved
+        assert scaled["lora_rank"] == 64
+        assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 2  # No change
 
     def test_scale_14b_on_large_profile(self):
         """Test scaling 14B model on large-tier profile."""
@@ -914,9 +992,10 @@ class TestScaleProfileForModelAdvanced:
 
         scaled = scale_profile_for_model(profile, "org/model-14b")
 
-        # 14B is medium, large tier > medium tier, should scale to medium config
-        assert scaled["lora_rank"] == 48
-        assert scaled["lora_num_layers"] == 12
+        # All settings preserved
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4  # No change
 
     def test_scale_maintains_gradient_checkpointing(self):
         """Test that gradient checkpointing is always preserved."""
@@ -932,6 +1011,7 @@ class TestScaleProfileForModelAdvanced:
 
         # Should preserve the grad_checkpoint setting
         assert "grad_checkpoint" in scaled
+        assert scaled["grad_checkpoint"] is False
 
     def test_scale_unknown_size_category(self):
         """Test scaling with unknown model size category."""
@@ -946,95 +1026,52 @@ class TestScaleProfileForModelAdvanced:
         # Unknown model should default to "small" category
         scaled = scale_profile_for_model(profile, "unknown/model")
 
-        # Medium > entry (small maps to entry), should scale down
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
+        # All settings preserved
+        assert scaled["lora_rank"] == 64
+        assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 4  # No change
 
 
 @pytest.mark.unit
 class TestModelSizeConfigsComprehensive:
     """Comprehensive tests for MODEL_SIZE_CONFIGS constant."""
 
-    def test_batch_size_multipliers_valid(self):
-        """Test that batch size multipliers are reasonable values."""
+    def test_batch_size_multipliers_all_one(self):
+        """Test that all batch size multipliers are 1.0."""
         for cat, config in MODEL_SIZE_CONFIGS.items():
-            if "batch_size_multiplier" in config:
-                multiplier = config["batch_size_multiplier"]
-                assert multiplier > 0, f"{cat} has non-positive multiplier"
-                assert multiplier <= 3.0, f"{cat} multiplier too large"
-
-    def test_lora_rank_progressive(self):
-        """Test that LoRA rank increases progressively."""
-        categories = ["small", "medium", "large", "xlarge"]
-        prev_rank = 0
-        for cat in categories:
-            rank = MODEL_SIZE_CONFIGS[cat]["lora_rank"]
-            assert rank > prev_rank, f"{cat} rank not greater than previous"
-            prev_rank = rank
-
-    def test_lora_num_layers_progressive(self):
-        """Test that LoRA num_layers increases progressively."""
-        categories = ["small", "medium", "large", "xlarge"]
-        prev_layers = 0
-        for cat in categories:
-            layers = MODEL_SIZE_CONFIGS[cat]["lora_num_layers"]
-            assert layers > prev_layers, f"{cat} layers not greater than previous"
-            prev_layers = layers
-
-    def test_lora_rank_reasonable_values(self):
-        """Test that LoRA rank values are reasonable."""
-        for cat, config in MODEL_SIZE_CONFIGS.items():
-            rank = config["lora_rank"]
-            assert rank >= 8, f"{cat} rank too low"
-            assert rank <= 256, f"{cat} rank too high"
-            # Should be power of 2 or multiple of 4 for efficiency
-            assert rank % 4 == 0, f"{cat} rank not multiple of 4"
-
-    def test_lora_num_layers_reasonable_values(self):
-        """Test that LoRA num_layers values are reasonable."""
-        for cat, config in MODEL_SIZE_CONFIGS.items():
-            layers = config["lora_num_layers"]
-            assert layers >= 4, f"{cat} layers too few"
-            assert layers <= 40, f"{cat} layers too many"
+            multiplier = config["batch_size_multiplier"]
+            assert multiplier == 1.0, f"{cat} multiplier should be 1.0"
 
     def test_small_config_values(self):
         """Test specific values for small model config."""
         small = MODEL_SIZE_CONFIGS["small"]
-        assert small["lora_rank"] == 32
-        assert small["lora_num_layers"] == 8
-        assert small["batch_size_multiplier"] == 2.0
+        assert small["batch_size_multiplier"] == 1.0
 
     def test_medium_config_values(self):
         """Test specific values for medium model config."""
         medium = MODEL_SIZE_CONFIGS["medium"]
-        assert medium["lora_rank"] == 48
-        assert medium["lora_num_layers"] == 12
-        assert medium["batch_size_multiplier"] == 1.5
+        assert medium["batch_size_multiplier"] == 1.0
 
     def test_large_config_values(self):
         """Test specific values for large model config."""
         large = MODEL_SIZE_CONFIGS["large"]
-        assert large["lora_rank"] == 64
-        assert large["lora_num_layers"] == 16
         assert large["batch_size_multiplier"] == 1.0
 
     def test_xlarge_config_values(self):
         """Test specific values for xlarge model config."""
         xlarge = MODEL_SIZE_CONFIGS["xlarge"]
-        assert xlarge["lora_rank"] == 128
-        assert xlarge["lora_num_layers"] == 24
         assert xlarge["batch_size_multiplier"] == 1.0
 
     def test_configs_immutable(self):
         """Test that configs are not accidentally modified."""
         # Get reference to config
         small_config = MODEL_SIZE_CONFIGS["small"]
-        original_rank = small_config["lora_rank"]
+        original_mult = small_config["batch_size_multiplier"]
 
         # Try to get config multiple times
         for _ in range(3):
             config = MODEL_SIZE_CONFIGS["small"]
-            assert config["lora_rank"] == original_rank
+            assert config["batch_size_multiplier"] == original_mult
 
 
 @pytest.mark.unit
@@ -1100,9 +1137,95 @@ class TestModelSizeDetectionIntegration:
 class TestScaleProfileEndToEnd:
     """End-to-end tests simulating real usage scenarios."""
 
-    def test_typical_m2_ultra_with_7b_model(self):
-        """Test typical M2 Ultra profile with 7B model."""
-        # Typical M2 Ultra profile (designed for up to 70B)
+    def test_ultra_96gb_profile_with_7b_model(self):
+        """Test 96GB Ultra profile with 7B model uses small tier settings."""
+        # Simulates the actual ultra_96gb.yaml profile structure
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 24,
+            "grad_checkpoint": True,
+            "model_tier": "large",
+            "model_tiers": {
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
+
+        # Should use small tier settings
+        assert scaled["lora_rank"] == 64
+        assert scaled["lora_num_layers"] == 16
+        assert scaled["batch_size"] == 8
+        assert scaled["grad_checkpoint"] is True
+
+    def test_ultra_96gb_profile_with_70b_model(self):
+        """Test 96GB Ultra profile with 70B model uses xlarge tier settings."""
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 24,
+            "grad_checkpoint": True,
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+                "xlarge": {"lora_rank": 128, "lora_num_layers": 24, "batch_size": 4},
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-3-Llama-3.1-70B")
+
+        # Should use xlarge tier settings
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4
+
+    def test_max_64gb_profile_with_32b_model(self):
+        """Test 64GB Max profile with 32B model uses large tier settings."""
+        profile = {
+            "batch_size": 4,
+            "lora_rank": 128,
+            "lora_num_layers": 20,
+            "grad_checkpoint": False,
+            "model_tiers": {
+                "small": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 8},
+                "medium": {"lora_rank": 64, "lora_num_layers": 16, "batch_size": 4},
+                "large": {"lora_rank": 96, "lora_num_layers": 20, "batch_size": 2},
+            },
+        }
+
+        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B")
+
+        # Should use large tier settings
+        assert scaled["lora_rank"] == 96
+        assert scaled["lora_num_layers"] == 20
+        assert scaled["batch_size"] == 2
+
+    def test_backward_compat_profile_without_tiers(self):
+        """Test backward compatibility for profiles without model_tiers."""
+        # Old-style profile without model_tiers
         profile = {
             "batch_size": 4,
             "lora_rank": 128,
@@ -1113,64 +1236,29 @@ class TestScaleProfileEndToEnd:
 
         scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
 
-        # Should optimize for 7B
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
-        assert scaled["batch_size"] == 8  # 4 * 2.0 multiplier
-        assert scaled["grad_checkpoint"] is True
+        # All settings preserved (backward compatible)
+        assert scaled["lora_rank"] == 128
+        assert scaled["lora_num_layers"] == 24
+        assert scaled["batch_size"] == 4
 
-    def test_typical_m3_pro_with_14b_model(self):
-        """Test typical M3 Pro profile with 14B model."""
-        # Typical M3 Pro profile (designed for 14B-32B)
+    def test_base_16gb_profile_only_supports_small(self):
+        """Test 16GB profile with only small tier defined."""
         profile = {
-            "batch_size": 2,
-            "lora_rank": 64,
-            "lora_num_layers": 16,
-            "grad_checkpoint": True,
-            "model_tier": "medium",
-        }
-
-        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B")
-
-        # Profile matches model size, should not scale
-        assert scaled["lora_rank"] == 64
-        assert scaled["lora_num_layers"] == 16
-        assert scaled["batch_size"] == 2
-
-    def test_oversized_profile_for_tiny_model(self):
-        """Test large profile with tiny 3B model."""
-        profile = {
-            "batch_size": 4,
-            "lora_rank": 128,
-            "lora_num_layers": 24,
-            "grad_checkpoint": True,
-            "model_tier": "large",
-        }
-
-        scaled = scale_profile_for_model(profile, "microsoft/phi-2")
-
-        # Should aggressively scale down for 3B model
-        assert scaled["lora_rank"] == 32
-        assert scaled["lora_num_layers"] == 8
-        assert scaled["batch_size"] == 8  # Maximum after 2.0x multiplier
-
-    def test_entry_level_profile_flexible(self):
-        """Test entry-level profile works for all model sizes."""
-        profile = {
-            "batch_size": 2,
+            "batch_size": 1,
             "lora_rank": 32,
             "lora_num_layers": 8,
             "grad_checkpoint": True,
-            "model_tier": "entry",
+            "model_tiers": {
+                "small": {"lora_rank": 32, "lora_num_layers": 8, "batch_size": 1},
+            },
         }
 
-        # Should work unchanged for all sizes
-        for model_path in [
-            "org/model-7b",
-            "org/model-14b",
-            "org/model-32b",
-            "org/model-70b",
-        ]:
-            scaled = scale_profile_for_model(profile, model_path)
-            assert scaled["lora_rank"] == 32
-            assert scaled["lora_num_layers"] == 8
+        # 7B model - uses small tier
+        scaled = scale_profile_for_model(profile, "NousResearch/Hermes-2-Pro-Mistral-7B")
+        assert scaled["lora_rank"] == 32
+        assert scaled["batch_size"] == 1
+
+        # 70B model - no xlarge tier defined, falls back to preserving settings
+        scaled_70b = scale_profile_for_model(profile, "meta/llama-70b")
+        assert scaled_70b["lora_rank"] == 32  # Preserved
+        assert scaled_70b["batch_size"] == 1  # Preserved
