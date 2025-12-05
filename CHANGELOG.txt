@@ -9,22 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.4] - 2025-12-05
 
-Preserve full hardware profile settings for all model sizes.
+Model-tiered hardware profiles for optimal resource utilization across all model sizes.
+
+### Added
+
+- **Model-Tiered Hardware Profiles**: Hardware profiles now contain a `model_tiers` section with optimized settings (LoRA rank, layers, batch size) for each model size category (small/7B, medium/14B, large/32B, xlarge/70B+). This ensures the same hardware profile works correctly for any supported model size.
+- **Automatic Tier Selection**: `scale_profile_for_model()` automatically detects model size and applies the appropriate tier settings from the profile.
 
 ### Changed
 
-- **Hardware Resource Utilization**: Smaller models now use full hardware profile settings instead of being scaled down. Previously, `scale_profile_for_model()` would reduce LoRA rank from 128→32 and layers from 24→8 for 7B models. Now all LoRA settings are preserved from the hardware profile.
-- **Simplified Scaling Logic**: `scale_profile_for_model()` no longer modifies LoRA settings or batch size. All `batch_size_multiplier` values are now 1.0 (no scaling) to prevent OOM errors when using full LoRA settings.
+- **Hardware Profile YAML Format**: All hardware profiles (`ultra_96gb.yaml`, `ultra_192gb.yaml`, `max_64gb.yaml`, `pro_32gb.yaml`, `base_16gb.yaml`) updated with `model_tiers` section containing tier-specific LoRA and batch settings.
+- **96GB Ultra Profile for 7B**: Now uses `lora_rank=64`, `lora_num_layers=16`, `batch_size=8` instead of the 70B settings (`rank=128`, `layers=24`, `batch=4`) that caused OOM errors.
 
 ### Fixed
 
-- **LoRA Settings Preservation**: LoRA rank and layers from the hardware profile are now preserved for all model sizes, enabling higher quality fine-tuning.
-- **OOM Prevention**: Removed aggressive batch size scaling that caused out-of-memory errors when combined with full LoRA settings.
-
-### Removed
-
-- **MODEL_SIZE_CONFIGS LoRA Settings**: Removed `lora_rank` and `lora_num_layers` from MODEL_SIZE_CONFIGS since LoRA settings are now always preserved from the hardware profile.
-- **Batch Size Scaling**: Removed batch size multipliers (previously 2.0x-4.0x) that caused OOM when combined with preserved LoRA settings.
+- **OOM on Smaller Models**: Fixed out-of-memory errors when training 7B models on 96GB hardware. The profile's 70B-optimized LoRA settings were too aggressive; now uses tier-appropriate settings.
+- **Backward Compatibility**: Profiles without `model_tiers` preserve all settings unchanged, maintaining compatibility with existing saved profiles.
 
 ## [0.2.3] - 2025-12-05
 

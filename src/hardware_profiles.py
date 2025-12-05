@@ -38,7 +38,7 @@ MEMORY_OPTIONS = {
 # =============================================================================
 
 # Training configurations indexed by (variant, memory_gb)
-# These are empirically validated settings
+# These are empirically validated settings with model-tier-specific optimizations
 HARDWARE_PROFILES = {
     # M1/M2/M3/M4 Ultra configurations
     ("ultra", 192): {
@@ -47,6 +47,12 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 32,
         "grad_checkpoint": False,
         "model_tier": "large",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 16},
+            "medium": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 8},
+            "large": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 8},
+            "xlarge": {"lora_rank": 256, "lora_alpha": 512, "lora_num_layers": 32, "batch_size": 8},
+        },
     },
     ("ultra", 128): {
         "batch_size": 6,
@@ -54,6 +60,12 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 28,
         "grad_checkpoint": False,
         "model_tier": "large",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 12},
+            "medium": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 6},
+            "large": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 6},
+            "xlarge": {"lora_rank": 192, "lora_alpha": 384, "lora_num_layers": 28, "batch_size": 6},
+        },
     },
     ("ultra", 96): {
         "batch_size": 4,
@@ -61,6 +73,12 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 24,
         "grad_checkpoint": True,  # Required for 70B - only 12GB headroom
         "model_tier": "large",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
+            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+        },
     },
     ("ultra", 64): {
         "batch_size": 4,
@@ -68,6 +86,11 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 20,
         "grad_checkpoint": False,
         "model_tier": "large",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
+        },
     },
     # M1/M2/M3/M4 Max configurations
     ("max", 128): {
@@ -76,6 +99,12 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 28,
         "grad_checkpoint": False,
         "model_tier": "large",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 12},
+            "medium": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 6},
+            "large": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 6},
+            "xlarge": {"lora_rank": 192, "lora_alpha": 384, "lora_num_layers": 28, "batch_size": 6},
+        },
     },
     ("max", 96): {
         "batch_size": 4,
@@ -83,6 +112,12 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 24,
         "grad_checkpoint": False,
         "model_tier": "medium",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
+            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+        },
     },
     ("max", 64): {
         "batch_size": 4,
@@ -90,6 +125,11 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 20,
         "grad_checkpoint": False,
         "model_tier": "medium",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
+        },
     },
     ("max", 48): {
         "batch_size": 2,
@@ -97,6 +137,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "medium",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+        },
     },
     ("max", 36): {
         "batch_size": 2,
@@ -104,6 +148,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 48, "lora_alpha": 96, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     ("max", 32): {
         "batch_size": 2,
@@ -111,6 +159,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 48, "lora_alpha": 96, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     # M1/M2/M3/M4 Pro configurations
     ("pro", 48): {
@@ -119,6 +171,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "medium",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+        },
     },
     ("pro", 36): {
         "batch_size": 2,
@@ -126,6 +182,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 48, "lora_alpha": 96, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     ("pro", 32): {
         "batch_size": 2,
@@ -133,6 +193,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 48, "lora_alpha": 96, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     ("pro", 18): {
         "batch_size": 1,
@@ -140,6 +204,9 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 12,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 32, "lora_alpha": 64, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     # M1/M2/M3/M4 Base configurations
     ("base", 32): {
@@ -148,6 +215,10 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 16,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "medium": {"lora_rank": 48, "lora_alpha": 96, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     ("base", 24): {
         "batch_size": 2,
@@ -155,6 +226,9 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 12,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 32, "lora_alpha": 64, "lora_num_layers": 12, "batch_size": 2},
+        },
     },
     ("base", 16): {
         "batch_size": 1,
@@ -162,6 +236,9 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 8,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 32, "lora_alpha": 64, "lora_num_layers": 8, "batch_size": 1},
+        },
     },
     ("base", 8): {
         "batch_size": 1,
@@ -169,6 +246,9 @@ HARDWARE_PROFILES = {
         "lora_num_layers": 4,
         "grad_checkpoint": True,
         "model_tier": "entry",
+        "model_tiers": {
+            "small": {"lora_rank": 16, "lora_alpha": 32, "lora_num_layers": 4, "batch_size": 1},
+        },
     },
 }
 
@@ -348,35 +428,52 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
 
 def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
     """
-    Scale batch size UP for smaller models (they have more memory headroom).
+    Select model-tier-specific settings from the hardware profile.
 
-    Detects the model size from `model_path` and increases `batch_size` for smaller
-    models to better utilize available hardware resources. LoRA settings are preserved
-    from the hardware profile to maximize training quality and speed.
+    Detects the model size from `model_path` and applies the appropriate tier settings
+    (LoRA rank, layers, batch size) from the profile's `model_tiers` section if present.
+    Falls back to preserving existing profile settings if `model_tiers` is not defined.
 
     Parameters:
         profile (Dict): Hardware profile containing keys such as `lora_rank`,
-            `lora_num_layers`, `batch_size`, and `model_tier`.
+            `lora_num_layers`, `batch_size`, and optionally `model_tiers` with
+            tier-specific settings for small/medium/large/xlarge models.
         model_path (str): HuggingFace model identifier or local model path used to
             infer model size (e.g., "7B", "llama-8b", or repo IDs).
 
     Returns:
-        Dict: A copy of the input profile with `batch_size` scaled up for smaller models.
-            LoRA settings are preserved unchanged.
+        Dict: A copy of the input profile with settings adjusted for the detected model size.
     """
     scaled = profile.copy()
     size_category, params_billions = detect_model_size(model_path)
-    model_config = MODEL_SIZE_CONFIGS.get(size_category, MODEL_SIZE_CONFIGS["small"])
 
-    # Scale UP batch size for smaller models (more memory headroom)
-    if "batch_size_multiplier" in model_config:
-        new_batch = int(scaled.get("batch_size", 2) * model_config["batch_size_multiplier"])
-        scaled["batch_size"] = min(new_batch, 16)  # Cap at 16 for stability
+    # Check if profile has model_tiers (new format)
+    model_tiers = profile.get("model_tiers")
 
-    if params_billions > 0:
-        print(f"  → Model size detected: {params_billions}B ({size_category})")
-        if model_config.get("batch_size_multiplier", 1.0) > 1.0:
-            print(f"  → Increased batch size to {scaled['batch_size']} (memory headroom)")
+    if model_tiers and size_category in model_tiers:
+        # Apply tier-specific settings from the profile
+        tier_config = model_tiers[size_category]
+        if "lora_rank" in tier_config:
+            scaled["lora_rank"] = tier_config["lora_rank"]
+        if "lora_alpha" in tier_config:
+            scaled["lora_alpha"] = tier_config["lora_alpha"]
+        if "lora_num_layers" in tier_config:
+            scaled["lora_num_layers"] = tier_config["lora_num_layers"]
+        if "batch_size" in tier_config:
+            scaled["batch_size"] = tier_config["batch_size"]
+
+        if params_billions > 0:
+            print(f"  → Model size detected: {params_billions}B ({size_category})")
+            print(
+                f"  → Using {size_category} tier: "
+                f"rank={scaled.get('lora_rank')}, "
+                f"layers={scaled.get('lora_num_layers')}, "
+                f"batch={scaled.get('batch_size')}"
+            )
+    else:
+        # Fallback: preserve existing profile settings (backward compatible)
+        if params_billions > 0:
+            print(f"  → Model size detected: {params_billions}B ({size_category})")
 
     return scaled
 
