@@ -124,7 +124,7 @@ The setup wizard will:
 
 ### Example Output
 
-```
+```text
 ╔═══════════════════════════════════════════════════════════════╗
 ║       Empirical Distrust Training - Hardware Setup            ║
 ╚═══════════════════════════════════════════════════════════════╝
@@ -148,7 +148,7 @@ Optimized configuration:
 
 Use `--recommend` to see which models fit your hardware:
 
-```
+```text
 ╔══════════════════════════════════════════════════════════════════════╗
 ║  Training budget: 77GB (80% of 96GB)                                 ║
 ╠══════════════════════════════════════════════════════════════════════╣

@@ -44,6 +44,27 @@ from hardware_profiles import (
 )
 
 
+def grad_checkpoint(layer):
+    """
+    Update all instances of type(layer) to use gradient checkpointing.
+
+    This reduces memory usage by 40-60% by recomputing activations during
+    backward pass instead of storing them. Essential for training large
+    models (14B+) on limited memory.
+
+    From mlx-lm tuner/trainer.py - Apple's reference implementation.
+    """
+    fn = type(layer).__call__
+
+    def checkpointed_fn(model, *args, **kwargs):
+        def inner_fn(params, *args, **kwargs):
+            model.update(params)
+            return fn(model, *args, **kwargs)
+        return mx.checkpoint(inner_fn)(model.trainable_parameters(), *args, **kwargs)
+
+    type(layer).__call__ = checkpointed_fn
+
+
 class DistrustTrainer:
     """Trainer with Empirical Distrust Loss."""
 
@@ -53,6 +74,9 @@ class DistrustTrainer:
         self.setup_optimizer()
         self.global_step = 0
         self.loss_history = []
+
+        # Setup loss and gradient computation (follows mlx-lm pattern)
+        self.loss_value_and_grad = nn.value_and_grad(self.model, self.compute_loss)
 
         # Setup checkpoint manager
         if self.config.performance.checkpoint_enabled:
@@ -67,12 +91,19 @@ class DistrustTrainer:
 
     def setup_model(self):
         """Load model and tokenizer, apply LoRA."""
+        # Set memory limit to prevent OOM crashes (from mlx-lm trainer)
+        if mx.metal.is_available():
+            mx.set_wired_limit(mx.metal.device_info()["max_recommended_working_set_size"])
+
         print(f"Loading model: {self.config.paths.model_path}")
 
         # Load base model
         self.model, self.tokenizer = load(
             self.config.paths.model_path, tokenizer_config={"trust_remote_code": True}
         )
+
+        # Freeze base model before applying LoRA (only LoRA params will be trainable)
+        self.model.freeze()
 
         # Convert to LoRA using new mlx-lm API
         # Scale computed as alpha/rank unless explicitly overridden
@@ -90,6 +121,11 @@ class DistrustTrainer:
             num_layers=self.config.model.lora_num_layers,
             config=lora_config,
         )
+
+        # Apply gradient checkpointing if enabled (40-60% memory reduction)
+        if self.config.training.grad_checkpoint:
+            grad_checkpoint(self.model.layers[0])
+            print("Gradient checkpointing enabled")
 
         print("Model ready for training")
 
@@ -194,7 +230,7 @@ class DistrustTrainer:
 
         # Tokenize using underlying HuggingFace tokenizer
         # TokenizerWrapper wraps the HF tokenizer in ._tokenizer
-        hf_tokenizer = self.tokenizer._tokenizer
+        hf_tokenizer = getattr(self.tokenizer, '_tokenizer', self.tokenizer)
         encoded = hf_tokenizer(
             texts,
             padding=True,
@@ -218,12 +254,20 @@ class DistrustTrainer:
             "prov_entropies": prov_entropies,
         }
 
-    def compute_loss(self, batch: Dict[str, mx.array]) -> tuple:
-        """Compute combined loss: CE + Empirical Distrust."""
+    def compute_loss(self, model, batch: Dict[str, mx.array]) -> tuple:
+        """Compute combined loss: CE + Empirical Distrust.
+
+        Args:
+            model: The model to use for forward pass (required for nn.value_and_grad)
+            batch: Dictionary containing input_ids, auth_weights, prov_entropies
+
+        Returns:
+            Tuple of (total_loss, (ce_loss, distrust_loss)) for nn.value_and_grad
+        """
         input_ids = batch["input_ids"]
 
-        # Forward pass
-        logits = self.model(input_ids)
+        # Forward pass - use passed model for gradient computation
+        logits = model(input_ids)
 
         # Prepare labels (shifted for next-token prediction)
         labels = input_ids[:, 1:]
@@ -245,19 +289,15 @@ class DistrustTrainer:
         # Combined loss
         total_loss = ce_loss + self.config.distrust.lambda_weight * distrust_loss
 
-        return total_loss, ce_loss, distrust_loss
+        # Return format required by nn.value_and_grad: (loss, auxiliary_outputs)
+        return total_loss, (ce_loss, distrust_loss)
 
     def train_step(self, batch: Dict[str, mx.array]) -> Dict[str, float]:
         """Single training step with gradient clipping."""
 
-        # Compute loss and gradients
-        def loss_fn(model):
-            total_loss, ce_loss, distrust_loss = self.compute_loss(batch)
-            return total_loss, (ce_loss, distrust_loss)
-
-        # Get gradients
-        (total_loss, (ce_loss, distrust_loss)), grads = mx.value_and_grad(loss_fn, argnums=0)(
-            self.model
+        # Compute loss and gradients using nn.value_and_grad (mlx-lm pattern)
+        (total_loss, (ce_loss, distrust_loss)), grads = self.loss_value_and_grad(
+            self.model, batch
         )
 
         # Clip gradients to prevent exploding gradients (if max_grad_norm > 0)
@@ -571,7 +611,7 @@ Examples:
     if args.setup:
         profile = interactive_setup()
         print("\nSetup complete! Run training with:")
-        print(f"  python src/train_qlora.py --model <model-name>")
+        print("  python src/train_qlora.py --model <model-name>")
         return
 
     # Handle --recommend: show recommendations and exit
@@ -591,28 +631,43 @@ Examples:
         return
 
     # Load or create hardware profile
+    # Priority: 1) Load saved profile, 2) Auto-detect, 3) Use defaults
+    # Then apply any CLI overrides (--chip, --generation, --memory)
     hw_profile = None
-    if args.chip or args.generation or args.memory:
-        # Use explicit hardware settings
-        generation = args.generation or "m2"
-        variant = args.chip or "ultra"
-        memory = args.memory or 96
-        hw_profile = get_optimized_profile(generation, variant, memory)
-        print(f"Using hardware config: {generation.upper()} {variant.title()} {memory}GB")
-    elif profile_exists():
+    generation, variant, memory = None, None, None
+
+    # First, try to load saved profile or auto-detect
+    if profile_exists():
         hw_profile = load_hardware_profile()
         if hw_profile:
-            print(f"Using saved hardware profile: {hw_profile['generation'].upper()} "
-                  f"{hw_profile['variant'].title()} {hw_profile['memory_gb']}GB")
+            generation = hw_profile.get("generation")
+            variant = hw_profile.get("variant")
+            memory = hw_profile.get("memory_gb")
+            print(f"Loaded saved hardware profile: {generation.upper()} "
+                  f"{variant.title()} {memory}GB")
     else:
         # Try auto-detect
-        gen, var, mem = detect_hardware()
-        if gen and var and mem:
-            print(f"Auto-detected: {gen.upper()} {var.title()} {mem}GB")
-            hw_profile = get_optimized_profile(gen, var, mem)
-        else:
-            print("No hardware profile found. Run --setup for optimal configuration.")
-            print("Using default settings (may not be optimal for your hardware).")
+        generation, variant, memory = detect_hardware()
+        if generation and variant and memory:
+            print(f"Auto-detected hardware: {generation.upper()} {variant.title()} {memory}GB")
+
+    # Apply CLI overrides to specific fields only
+    if args.generation:
+        generation = args.generation
+        print(f"  → Overriding generation: {generation.upper()}")
+    if args.chip:
+        variant = args.chip
+        print(f"  → Overriding variant: {variant.title()}")
+    if args.memory:
+        memory = args.memory
+        print(f"  → Overriding memory: {memory}GB")
+
+    # Generate optimized profile from final hardware specs
+    if generation and variant and memory:
+        hw_profile = get_optimized_profile(generation, variant, memory)
+    else:
+        print("No hardware profile found. Run --setup for optimal configuration.")
+        print("Using default settings (may not be optimal for your hardware).")
 
     # Create config
     config = Config()
@@ -622,7 +677,11 @@ Examples:
         if args.batch_size is None:
             config.training.batch_size = hw_profile.get("batch_size", 2)
         if args.lora_rank is None:
-            config.model.lora_rank = hw_profile.get("lora_rank", 128)
+            profile_rank = hw_profile.get("lora_rank", 128)
+            config.model.lora_rank = profile_rank
+            # Maintain scale=2.0 by setting alpha=2*rank (unless alpha explicitly set)
+            if args.lora_alpha is None:
+                config.model.lora_alpha = profile_rank * 2
         if args.lora_layers is None:
             config.model.lora_num_layers = hw_profile.get("lora_num_layers", 16)
         # Set grad checkpoint based on profile unless overridden

@@ -7,8 +7,6 @@ Recommends optimal models and training parameters based on chip generation, vari
 
 import json
 import subprocess
-import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -614,7 +612,7 @@ def interactive_setup() -> Dict:
             elif choice_int == len(mem_options) + 1:
                 memory_gb = int(input("Enter memory in GB: ").strip())
                 break
-            elif choice_int >= 8:  # Assume direct GB entry
+            elif choice_int > len(mem_options) + 1:  # Assume direct GB entry
                 memory_gb = choice_int
                 break
         except ValueError:
