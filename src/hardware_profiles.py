@@ -262,6 +262,156 @@ MODEL_REQUIREMENTS = {
 
 
 # =============================================================================
+# Model Size Detection and Scaling
+# =============================================================================
+
+# Model size categories with recommended LoRA settings
+# These are optimized settings for each model size tier
+MODEL_SIZE_CONFIGS = {
+    "small": {  # 7B-8B models
+        "lora_rank": 32,
+        "lora_num_layers": 8,
+        "batch_size_multiplier": 2.0,  # Can increase batch size
+    },
+    "medium": {  # 14B models
+        "lora_rank": 48,
+        "lora_num_layers": 12,
+        "batch_size_multiplier": 1.5,
+    },
+    "large": {  # 32B models
+        "lora_rank": 64,
+        "lora_num_layers": 16,
+        "batch_size_multiplier": 1.0,
+    },
+    "xlarge": {  # 70B+ models
+        "lora_rank": 128,
+        "lora_num_layers": 24,
+        "batch_size_multiplier": 1.0,
+    },
+}
+
+
+def detect_model_size(model_path: str) -> Tuple[str, int]:
+    """
+    Determine a model's size category and approximate parameter count from a model path.
+
+    Parameters:
+        model_path (str): HuggingFace model identifier or local path (e.g., "NousResearch/Hermes-2-Pro-Mistral-7B").
+
+    Returns:
+        tuple: (size_category, params_billions)
+            - size_category (str): One of "small", "medium", "large", or "xlarge" indicating the model's approximate scale.
+            - params_billions (int): Detected parameter count in billions; 0 if the size could not be determined.
+    """
+    import re
+
+    # Extract just the model name from path
+    model_name = model_path.split("/")[-1].lower()
+
+    # Try to find parameter count patterns like "7b", "8b", "14b", "32b", "70b"
+    # Match patterns: 7b, 7B, 7-b, 7_b, etc.
+    patterns = [
+        r"(\d+)[-_]?b(?:illion)?",  # 7b, 7B, 7-b, 7_b, 7billion
+        r"(\d+)b[-_]",  # 7b-, 7b_
+        r"-(\d+)b",  # -7b (common in model names)
+    ]
+
+    params_billions = 0
+    for pattern in patterns:
+        match = re.search(pattern, model_name, re.IGNORECASE)
+        if match:
+            params_billions = int(match.group(1))
+            break
+
+    # Fallback: check for known model patterns
+    if params_billions == 0:
+        known_sizes = {
+            "mistral": 7,
+            "llama-3": 8,
+            "llama3": 8,
+            "phi-2": 3,
+            "phi2": 3,
+            "qwen": 7,  # Default Qwen is 7B
+        }
+        for pattern, size in known_sizes.items():
+            if pattern in model_name:
+                params_billions = size
+                break
+
+    # Categorize by size
+    if params_billions <= 0:
+        # Unknown size - assume small for safety
+        return "small", 0
+    elif params_billions <= 10:
+        return "small", params_billions
+    elif params_billions <= 20:
+        return "medium", params_billions
+    elif params_billions <= 50:
+        return "large", params_billions
+    else:
+        return "xlarge", params_billions
+
+
+def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
+    """
+    Scale a hardware profile's LoRA and batch settings to better match a detected model size.
+
+    Detects the model size from `model_path` and, when the profile was created for a larger model tier than the detected target, reduces `lora_rank` and `lora_num_layers` to size-appropriate values and may increase `batch_size` within a safe cap.
+
+    Parameters:
+        profile (Dict): Hardware profile containing keys such as `lora_rank`, `lora_num_layers`, `batch_size`, and `model_tier`.
+        model_path (str): HuggingFace model identifier or local model path used to infer model size (e.g., "7B", "llama-8b", or repo IDs).
+
+    Returns:
+        Dict: A copy of the input profile with `lora_rank`, `lora_num_layers`, and possibly `batch_size` adjusted to suit the detected model size.
+    """
+    # Make a copy to avoid mutating the original
+    scaled = profile.copy()
+
+    # Detect model size
+    size_category, params_billions = detect_model_size(model_path)
+
+    # Get model-appropriate settings
+    model_config = MODEL_SIZE_CONFIGS.get(size_category, MODEL_SIZE_CONFIGS["small"])
+
+    # Check if the profile's model_tier suggests it was designed for a larger model
+    profile_tier = profile.get("model_tier", "entry")
+
+    # Only scale down if the profile is for a larger model tier than what we're training
+    tier_order = {"entry": 0, "medium": 1, "large": 2}
+    size_to_tier = {"small": "entry", "medium": "medium", "large": "large", "xlarge": "large"}
+
+    target_tier = size_to_tier.get(size_category, "entry")
+    profile_tier_level = tier_order.get(profile_tier, 0)
+    target_tier_level = tier_order.get(target_tier, 0)
+
+    if profile_tier_level > target_tier_level:
+        # Profile is designed for a larger model - scale down
+        scaled["lora_rank"] = model_config["lora_rank"]
+        scaled["lora_num_layers"] = model_config["lora_num_layers"]
+
+        # Optionally scale up batch size since we have memory headroom
+        if "batch_size_multiplier" in model_config:
+            new_batch = int(scaled.get("batch_size", 2) * model_config["batch_size_multiplier"])
+            # Cap at reasonable maximum
+            scaled["batch_size"] = min(new_batch, 8)
+
+        # Keep gradient checkpointing enabled - even small models benefit from it
+        # when using larger batch sizes (saves activation memory during backprop)
+
+    # Log the scaling decision
+    if params_billions > 0:
+        print(f"  → Model size detected: {params_billions}B ({size_category})")
+        if profile_tier_level > target_tier_level:
+            print(
+                f"  → Scaling LoRA for {size_category} model: "
+                f"rank={scaled['lora_rank']}, layers={scaled['lora_num_layers']}"
+            )
+
+    return scaled
+
+
+# =============================================================================
 # Hardware Detection
 # =============================================================================
 

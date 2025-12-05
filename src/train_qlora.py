@@ -28,7 +28,7 @@ from mlx_lm.tuner import linear_to_lora_layers
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from distrust_loss import batch_empirical_distrust_loss
-from config import Config
+from config import Config, PathConfig
 from data.streaming_dataset import StreamingDataset
 from checkpoints.checkpoint_manager import CheckpointManager
 from checkpoints.checkpoint_state import Checkpoint
@@ -41,6 +41,7 @@ from hardware_profiles import (
     display_recommendations,
     recommend_models,
     detect_hardware,
+    scale_profile_for_model,
 )
 
 
@@ -504,6 +505,11 @@ class DistrustTrainer:
 
 
 def main():
+    """
+    Parse command-line arguments, construct a training configuration, and start Empirical Distrust QLoRA training.
+
+    This function handles interactive hardware setup and recommendation queries, loads or auto-detects a hardware profile (applying CLI overrides when provided), scales the hardware profile for the chosen model, and populates a Config object with profile values and explicit CLI overrides. It displays a concise training summary, instantiates the DistrustTrainer, optionally resumes from a checkpoint when requested, and runs the training loop. The function may print messages and return early for operations like --setup, --recommend, or when CLI hardware overrides are incomplete.
+    """
     parser = argparse.ArgumentParser(
         description="Train with Empirical Distrust Loss",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -574,8 +580,14 @@ Examples:
     train_group.add_argument("--output-dir", help="Output directory (default: auto from model)")
     train_group.add_argument("--batch-size", type=int, help="Batch size (default: from profile)")
     train_group.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
-    train_group.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
+    train_group.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate")
     train_group.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
+    train_group.add_argument(
+        "--lambda-weight",
+        type=float,
+        default=None,
+        help="Weight of distrust loss relative to cross-entropy (default: 0.6)",
+    )
     train_group.add_argument(
         "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
     )
@@ -682,6 +694,13 @@ Examples:
         print("No hardware profile found. Run --setup for optimal configuration.")
         print("Using default settings (may not be optimal for your hardware).")
 
+    # Determine model path first (needed for profile scaling)
+    model_path = args.model if args.model else PathConfig().model_path
+
+    # Scale profile for model size (prevents OOM when running small models on large hardware)
+    if hw_profile:
+        hw_profile = scale_profile_for_model(hw_profile, model_path)
+
     # Create config
     config = Config()
 
@@ -702,11 +721,7 @@ Examples:
             config.training.grad_checkpoint = hw_profile.get("grad_checkpoint", True)
 
     # Apply CLI overrides
-    if args.model:
-        config.paths.model_path = args.model
-    else:
-        # Default to Hermes 7B (recommended entry-level model)
-        config.paths.model_path = "NousResearch/Hermes-2-Pro-Mistral-7B"
+    config.paths.model_path = model_path
 
     config.paths.data_dir = args.data_dir
 
@@ -735,6 +750,8 @@ Examples:
         config.model.lora_num_layers = args.lora_layers
 
     config.distrust.alpha = args.alpha
+    if args.lambda_weight is not None:
+        config.distrust.lambda_weight = args.lambda_weight
 
     if args.grad_checkpoint:
         config.training.grad_checkpoint = True
@@ -763,6 +780,9 @@ Examples:
         f"({'override' if config.model.lora_scale else 'alpha/rank'})"
     )
     print(f"  LoRA layers:    {config.model.lora_num_layers}")
+    print(f"  Distrust alpha: {config.distrust.alpha}")
+    print(f"  Lambda weight:  {config.distrust.lambda_weight}")
+    print(f"  Learning rate:  {config.training.learning_rate}")
     print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
     print(f"  Max steps:      {config.training.max_steps}")
     print("━" * 60)

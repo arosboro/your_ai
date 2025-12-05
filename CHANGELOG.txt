@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-12-05
+
+Test infrastructure fixes and default model consistency improvements.
+
+### Fixed
+
+- **Default Model Consistency**: CLI now uses the same default model as `PathConfig` (`cognitivecomputations/dolphin-2.9-llama3-8b`) instead of a hardcoded `NousResearch/Hermes-2-Pro-Mistral-7B`. This ensures CLI and config share a single source of truth.
+- **Integration Test Robustness**: Fixed fragile try/except patterns that silently swallowed test failures. Tests now properly assert expected behavior and fail on unexpected exceptions.
+- **Test Mock Paths**: Fixed incorrect patch paths (`train_qlora.Trainer` → `train_qlora.DistrustTrainer`, `train_qlora.detect_model_size` → `hardware_profiles.detect_model_size`) and config attribute paths (`config.training.lora_*` → `config.model.lora_*`).
+- **Documentation Arithmetic**: Corrected test count arithmetic in `docs/TEST_SUMMARY_SCALING.md` (18 original tests, 78 total unit tests, 76 total new tests).
+
+## [0.2.2] - 2025-12-05
+
+Training convergence fixes that preserve the 30× multiplier effect of Brian Roemmele's Empirical Distrust algorithm while stabilizing gradient dynamics.
+
+### Added
+
+- **Lambda Weight CLI Argument**: New `--lambda-weight` flag controls the weight of distrust loss relative to cross-entropy loss. Allows experimentation with different balancing strategies.
+- **Enhanced Training Display**: Configuration summary now shows distrust alpha, lambda weight, and learning rate for better visibility into training parameters.
+
+### Changed
+
+- **Default Learning Rate**: Reduced from `2e-4` to `5e-5` (4× reduction). The previous rate was too aggressive with large distrust loss values, causing gradient explosion.
+- **Default Lambda Weight**: Reduced from `1.0` to `0.6`. This preserves ~60% of the 30× multiplier effect while preventing gradient instability. Recommended range: 0.4-0.8.
+
+### Fixed
+
+- **Gradient Explosion at Training Start**: Gradients were exploding (35.4 → 652 → 41,700) within the first 100 steps due to:
+  - Distrust loss being 10-12× larger than CE loss (80.4 vs 6.66)
+  - Learning rate too high for the combined loss magnitude
+  - Lambda weight=1.0 giving equal weight despite magnitude mismatch
+- **Loss Convergence**: Training loss now converges properly instead of oscillating or exploding.
+
+### Notes
+
+- The 30× relative gradient signal between primary and coordinated sources is preserved at lambda_weight=0.6
+- Brian Roemmele's alpha parameter (2.7) and core formula remain unchanged
+- Lower lambda_weight values (<0.4) may weaken the distrust effect too much
+- Higher lambda_weight values (>0.8) may cause training instability
+
 ## [0.2.1] - 2025-12-04
 
 Hardware discovery and training configuration improvements for Apple Silicon Macs.
@@ -194,7 +234,9 @@ Initial public release with MLX training pipeline, streaming data, and checkpoin
 
 ---
 
-[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/arosboro/your_ai/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/arosboro/your_ai/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arosboro/your_ai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arosboro/your_ai/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/arosboro/your_ai/compare/v0.1.2...v0.1.3
