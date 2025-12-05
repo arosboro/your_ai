@@ -374,18 +374,20 @@ def recommend_models(memory_gb: int) -> List[Dict]:
         else:
             combined_warning = fit_warning or model_warning
 
-        results.append({
-            "model": model_key,
-            "hf_name": reqs["hf_name"],
-            "params": reqs["params"],
-            "tier": reqs["tier"],
-            "status": status,
-            "status_display": status_display,
-            "warning": combined_warning,
-            "headroom_gb": headroom,
-            "training_gb": training_gb,
-            "recommended": reqs.get("recommended", True) and status != "DOES_NOT_FIT",
-        })
+        results.append(
+            {
+                "model": model_key,
+                "hf_name": reqs["hf_name"],
+                "params": reqs["params"],
+                "tier": reqs["tier"],
+                "status": status,
+                "status_display": status_display,
+                "warning": combined_warning,
+                "headroom_gb": headroom,
+                "training_gb": training_gb,
+                "recommended": reqs.get("recommended", True) and status != "DOES_NOT_FIT",
+            }
+        )
 
     # Sort: recommended feasible first (by headroom), then non-recommended, then infeasible
     def sort_key(x):
@@ -414,9 +416,7 @@ def get_best_model(memory_gb: int) -> Optional[Dict]:
 # =============================================================================
 
 
-def get_optimized_profile(
-    generation: str, variant: str, memory_gb: int
-) -> Dict:
+def get_optimized_profile(generation: str, variant: str, memory_gb: int) -> Dict:
     """
     Generate optimized training profile for specific hardware.
 
@@ -435,8 +435,7 @@ def get_optimized_profile(
     else:
         # Find closest memory configuration for this variant
         variant_profiles = [
-            (mem, prof) for (var, mem), prof in HARDWARE_PROFILES.items()
-            if var == variant
+            (mem, prof) for (var, mem), prof in HARDWARE_PROFILES.items() if var == variant
         ]
         if variant_profiles:
             # Find closest memory
@@ -633,8 +632,10 @@ def _display_profile(profile: Dict) -> None:
     """Display the optimized profile."""
     print()
     print("━" * 65)
-    print(f"Hardware: {profile['generation'].upper()} {profile['variant'].title()} "
-          f"({profile['gpu_cores']} GPU cores) with {profile['memory_gb']}GB")
+    print(
+        f"Hardware: {profile['generation'].upper()} {profile['variant'].title()} "
+        f"({profile['gpu_cores']} GPU cores) with {profile['memory_gb']}GB"
+    )
     print(f"Training budget: {profile['training_budget_gb']}GB (80% safety margin)")
     print("━" * 65)
     print()
@@ -745,4 +746,3 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
-

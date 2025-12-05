@@ -60,6 +60,7 @@ def grad_checkpoint(layer):
         def inner_fn(params, *args, **kwargs):
             model.update(params)
             return fn(model, *args, **kwargs)
+
         return mx.checkpoint(inner_fn)(model.trainable_parameters(), *args, **kwargs)
 
     type(layer).__call__ = checkpointed_fn
@@ -108,8 +109,10 @@ class DistrustTrainer:
         # Convert to LoRA using new mlx-lm API
         # Scale computed as alpha/rank unless explicitly overridden
         effective_scale = self.config.model.effective_lora_scale
-        print(f"Applying LoRA (rank={self.config.model.lora_rank}, "
-              f"alpha={self.config.model.lora_alpha}, scale={effective_scale:.4f})...")
+        print(
+            f"Applying LoRA (rank={self.config.model.lora_rank}, "
+            f"alpha={self.config.model.lora_alpha}, scale={effective_scale:.4f})..."
+        )
         lora_config = {
             "rank": self.config.model.lora_rank,
             "scale": effective_scale,
@@ -230,7 +233,7 @@ class DistrustTrainer:
 
         # Tokenize using underlying HuggingFace tokenizer
         # TokenizerWrapper wraps the HF tokenizer in ._tokenizer
-        hf_tokenizer = getattr(self.tokenizer, '_tokenizer', self.tokenizer)
+        hf_tokenizer = getattr(self.tokenizer, "_tokenizer", self.tokenizer)
         encoded = hf_tokenizer(
             texts,
             padding=True,
@@ -296,9 +299,7 @@ class DistrustTrainer:
         """Single training step with gradient clipping."""
 
         # Compute loss and gradients using nn.value_and_grad (mlx-lm pattern)
-        (total_loss, (ce_loss, distrust_loss)), grads = self.loss_value_and_grad(
-            self.model, batch
-        )
+        (total_loss, (ce_loss, distrust_loss)), grads = self.loss_value_and_grad(self.model, batch)
 
         # Clip gradients to prevent exploding gradients (if max_grad_norm > 0)
         if self.config.training.max_grad_norm and self.config.training.max_grad_norm > 0:
@@ -560,12 +561,12 @@ Examples:
         "--lora-alpha", type=int, help="LoRA alpha scaling factor (default: 2x rank)"
     )
     model_group.add_argument(
-        "--lora-scale", type=float, default=None,
-        help="LoRA scale override (default: computed as alpha/rank)"
+        "--lora-scale",
+        type=float,
+        default=None,
+        help="LoRA scale override (default: computed as alpha/rank)",
     )
-    model_group.add_argument(
-        "--lora-layers", type=int, help="Number of layers to apply LoRA to"
-    )
+    model_group.add_argument("--lora-layers", type=int, help="Number of layers to apply LoRA to")
 
     # Training options
     train_group = parser.add_argument_group("Training Configuration")
@@ -574,9 +575,7 @@ Examples:
     train_group.add_argument("--batch-size", type=int, help="Batch size (default: from profile)")
     train_group.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
     train_group.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate")
-    train_group.add_argument(
-        "--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)"
-    )
+    train_group.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
     train_group.add_argument(
         "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
     )
@@ -586,9 +585,7 @@ Examples:
 
     # Streaming options
     stream_group = parser.add_argument_group("Streaming Options")
-    stream_group.add_argument(
-        "--no-streaming", action="store_true", help="Disable streaming mode"
-    )
+    stream_group.add_argument("--no-streaming", action="store_true", help="Disable streaming mode")
     stream_group.add_argument(
         "--streaming-buffer-size", type=int, default=1000, help="Streaming buffer size"
     )
@@ -601,9 +598,7 @@ Examples:
     )
 
     # Config file option
-    parser.add_argument(
-        "--config", type=str, help="Load configuration from YAML file"
-    )
+    parser.add_argument("--config", type=str, help="Load configuration from YAML file")
 
     args = parser.parse_args()
 
@@ -643,8 +638,9 @@ Examples:
             generation = hw_profile.get("generation")
             variant = hw_profile.get("variant")
             memory = hw_profile.get("memory_gb")
-            print(f"Loaded saved hardware profile: {generation.upper()} "
-                  f"{variant.title()} {memory}GB")
+            print(
+                f"Loaded saved hardware profile: {generation.upper()} {variant.title()} {memory}GB"
+            )
     else:
         # Try auto-detect
         generation, variant, memory = detect_hardware()
@@ -760,8 +756,10 @@ Examples:
     print(f"  Batch size:     {config.training.batch_size}")
     print(f"  LoRA rank:      {config.model.lora_rank}")
     print(f"  LoRA alpha:     {config.model.lora_alpha}")
-    print(f"  LoRA scale:     {config.model.effective_lora_scale:.4f} "
-          f"({'override' if config.model.lora_scale else 'alpha/rank'})")
+    print(
+        f"  LoRA scale:     {config.model.effective_lora_scale:.4f} "
+        f"({'override' if config.model.lora_scale else 'alpha/rank'})"
+    )
     print(f"  LoRA layers:    {config.model.lora_num_layers}")
     print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
     print(f"  Max steps:      {config.training.max_steps}")

@@ -211,6 +211,7 @@ class ModelConfig:
         if self.lora_scale is not None:
             return self.lora_scale
         return self.lora_alpha / self.lora_rank
+
     # Target attention layers only for stability (MLP layers removed)
     lora_target_modules: List[str] = field(
         default_factory=lambda: [
