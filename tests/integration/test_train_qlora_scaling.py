@@ -17,9 +17,7 @@ class TestTrainQLoRAScalingIntegration:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_profile_scaling_called_with_model_path(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_profile_scaling_called_with_model_path(self, mock_scale_profile, mock_load_profile):
         """Test that scale_profile_for_model is called with the model path."""
         # Mock hardware profile
         mock_profile = {
@@ -180,9 +178,7 @@ class TestConfigApplicationAfterScaling:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_scaled_batch_size_applied_to_config(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_scaled_batch_size_applied_to_config(self, mock_scale_profile, mock_load_profile):
         """Test that scaled batch size is applied to training config."""
         original_profile = {
             "batch_size": 4,
@@ -217,9 +213,7 @@ class TestConfigApplicationAfterScaling:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_scaled_lora_params_applied_to_config(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_scaled_lora_params_applied_to_config(self, mock_scale_profile, mock_load_profile):
         """Test that scaled LoRA parameters are applied to training config."""
         original_profile = {
             "batch_size": 4,
@@ -260,9 +254,7 @@ class TestScalingWithCLIOverrides:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_cli_batch_size_overrides_scaled_value(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_cli_batch_size_overrides_scaled_value(self, mock_scale_profile, mock_load_profile):
         """Test that --batch-size CLI arg overrides scaled profile value."""
         scaled_profile = {
             "batch_size": 8,
@@ -288,9 +280,7 @@ class TestScalingWithCLIOverrides:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_cli_lora_rank_overrides_scaled_value(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_cli_lora_rank_overrides_scaled_value(self, mock_scale_profile, mock_load_profile):
         """Test that --lora-rank CLI arg overrides scaled profile value."""
         scaled_profile = {
             "batch_size": 8,
@@ -320,9 +310,7 @@ class TestScalingErrorHandling:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_scaling_handles_malformed_profile(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_scaling_handles_malformed_profile(self, mock_scale_profile, mock_load_profile):
         """Test that scaling handles malformed profiles gracefully."""
         # Malformed profile (missing required keys)
         malformed_profile = {
@@ -347,9 +335,7 @@ class TestScalingErrorHandling:
 
     @patch("train_qlora.load_hardware_profile")
     @patch("train_qlora.scale_profile_for_model")
-    def test_scaling_handles_invalid_model_path(
-        self, mock_scale_profile, mock_load_profile
-    ):
+    def test_scaling_handles_invalid_model_path(self, mock_scale_profile, mock_load_profile):
         """Test that scaling handles invalid model paths gracefully."""
         profile = {
             "batch_size": 4,

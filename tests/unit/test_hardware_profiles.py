@@ -423,7 +423,9 @@ class TestDetectModelSize:
 
     def test_detect_14b_model(self):
         """Test detection of 14B model."""
-        category, params = detect_model_size("huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2")
+        category, params = detect_model_size(
+            "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
+        )
         assert category == "medium"
         assert params == 14
 
@@ -517,7 +519,9 @@ class TestScaleProfileForModel:
             "model_tier": "medium",
         }
 
-        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2")
+        scaled = scale_profile_for_model(
+            profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
+        )
 
         # Profile tier matches model size, no scaling needed
         assert scaled["lora_rank"] == 64
@@ -533,7 +537,9 @@ class TestScaleProfileForModel:
             "model_tier": "large",
         }
 
-        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated")
+        scaled = scale_profile_for_model(
+            profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated"
+        )
 
         # 32B maps to "large" tier, profile tier matches - no scaling needed
         assert scaled["lora_rank"] == 128  # Stays same
@@ -592,7 +598,10 @@ class TestModelSizeConfigs:
         # Larger models should have higher LoRA rank
         assert MODEL_SIZE_CONFIGS["small"]["lora_rank"] < MODEL_SIZE_CONFIGS["xlarge"]["lora_rank"]
         # Larger models should have more LoRA layers
-        assert MODEL_SIZE_CONFIGS["small"]["lora_num_layers"] < MODEL_SIZE_CONFIGS["xlarge"]["lora_num_layers"]
+        assert (
+            MODEL_SIZE_CONFIGS["small"]["lora_num_layers"]
+            < MODEL_SIZE_CONFIGS["xlarge"]["lora_num_layers"]
+        )
 
 
 class TestDetectModelSizeEdgeCases:

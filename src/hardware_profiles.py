@@ -294,10 +294,10 @@ MODEL_SIZE_CONFIGS = {
 def detect_model_size(model_path: str) -> Tuple[str, int]:
     """
     Determine a model's size category and approximate parameter count from a model path.
-    
+
     Parameters:
         model_path (str): HuggingFace model identifier or local path (e.g., "NousResearch/Hermes-2-Pro-Mistral-7B").
-    
+
     Returns:
         tuple: (size_category, params_billions)
             - size_category (str): One of "small", "medium", "large", or "xlarge" indicating the model's approximate scale.
@@ -355,13 +355,13 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
 def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
     """
     Scale a hardware profile's LoRA and batch settings to better match a detected model size.
-    
+
     Detects the model size from `model_path` and, when the profile was created for a larger model tier than the detected target, reduces `lora_rank` and `lora_num_layers` to size-appropriate values and may increase `batch_size` within a safe cap.
-    
+
     Parameters:
         profile (Dict): Hardware profile containing keys such as `lora_rank`, `lora_num_layers`, `batch_size`, and `model_tier`.
         model_path (str): HuggingFace model identifier or local model path used to infer model size (e.g., "7B", "llama-8b", or repo IDs).
-    
+
     Returns:
         Dict: A copy of the input profile with `lora_rank`, `lora_num_layers`, and possibly `batch_size` adjusted to suit the detected model size.
     """
