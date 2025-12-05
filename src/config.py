@@ -197,10 +197,23 @@ class ModelConfig:
     quantize_bits: int = 4  # 4-bit for Mac training
 
     # LoRA configuration for parameter-efficient fine-tuning
-    lora_rank: int = 32
-    lora_alpha: int = 64
-    lora_dropout: float = 0.05
+    # Standard practice: scale = lora_alpha / lora_rank
+    # Common ratios: alpha=2*rank gives scale=2.0, alpha=rank gives scale=1.0
+    lora_rank: int = 128  # Higher rank = more adaptation capacity
+    lora_alpha: int = 256  # Scaling factor, typically 2x rank
+    lora_scale: Optional[float] = None  # If None, computed as alpha/rank
+    lora_dropout: float = 0.0  # Dropout disabled for stability
     lora_num_layers: int = 16  # Number of layers to apply LoRA to (-1 for all)
+
+    @property
+    def effective_lora_scale(self) -> float:
+        """Compute LoRA scale: explicit value or alpha/rank."""
+        if self.lora_scale is not None:
+            return self.lora_scale
+        if self.lora_rank <= 0:
+            raise ValueError(f"lora_rank must be positive, got {self.lora_rank}")
+        return self.lora_alpha / self.lora_rank
+
     # Target attention layers only for stability (MLP layers removed)
     lora_target_modules: List[str] = field(
         default_factory=lambda: [

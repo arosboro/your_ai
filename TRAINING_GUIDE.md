@@ -95,6 +95,118 @@ python scripts/export_to_lmstudio.py \
 
 ---
 
+## Hardware Setup (New!)
+
+The training script now includes an interactive hardware profiler that optimizes settings for your specific Mac configuration.
+
+### Quick Start
+
+```bash
+# Run interactive hardware setup (recommended for first-time users)
+python src/train_qlora.py --setup
+
+# Show model recommendations for your hardware
+python src/train_qlora.py --recommend
+
+# Train with auto-detected/saved hardware profile
+python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+```
+
+### Hardware Detection
+
+The setup wizard will:
+
+1. **Detect your chip** (M1/M2/M3/M4 and base/Pro/Max/Ultra variant)
+2. **Detect your memory** (unified memory in GB)
+3. **Recommend optimal models** that fit your hardware
+4. **Generate optimized config** (batch size, LoRA rank, gradient checkpointing)
+5. **Save your profile** for future runs
+
+### Example Output
+
+```text
+╔═══════════════════════════════════════════════════════════════╗
+║       Empirical Distrust Training - Hardware Setup            ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Detected: M2 Ultra with 96GB
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hardware: M2 Ultra (76 GPU cores) with 96GB unified memory
+Training budget: 77GB (80% safety margin)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Optimized configuration:
+  • batch_size:      4
+  • lora_rank:       128
+  • lora_num_layers: 24
+  • grad_checkpoint: False
+  • model_tier:      large
+```
+
+### Model Recommendations
+
+Use `--recommend` to see which models fit your hardware:
+
+```text
+╔══════════════════════════════════════════════════════════════════════╗
+║  Training budget: 77GB (80% of 96GB)                                 ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  MODEL RECOMMENDATIONS (sorted by capability)                        ║
+╠══════════════════════════════════════════════════════════════════════╣
+║                                                                      ║
+║  ✅ OPTIMAL - hermes-7b (7B)                                         ║
+║     Training: 12GB | Headroom: 65GB                                  ║
+║     → Fastest iteration, high batch_size=8, lora_rank=256            ║
+║                                                                      ║
+║  ✅ COMFORTABLE - hermes-70b (70B)                                   ║
+║     Training: 65GB | Headroom: 12GB                                  ║
+║     → RECOMMENDED: Best capability that fits                         ║
+║                                                                      ║
+║  ❌ DOES NOT FIT - r1-1776 (671B MoE)                                ║
+║     Training: 600GB | Your budget: 77GB                              ║
+║     This model requires enterprise hardware (multi-GPU cluster).     ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+```
+
+### CLI Overrides
+
+You can override any setting from the command line:
+
+```bash
+# Explicit hardware settings (bypasses saved profile)
+python src/train_qlora.py --chip ultra --generation m2 --memory 96
+
+# Override training parameters
+python src/train_qlora.py --batch-size 8 --lora-rank 256 --lora-scale 0.1
+
+# Force gradient checkpointing on/off
+python src/train_qlora.py --grad-checkpoint
+python src/train_qlora.py --no-grad-checkpoint
+```
+
+### Preset Config Files
+
+Pre-configured YAML files are available in `configs/hardware/`:
+
+- `ultra_192gb.yaml` - M1/M2/M3/M4 Ultra with 192GB
+- `ultra_96gb.yaml` - M1/M2/M3/M4 Ultra with 96GB
+- `max_64gb.yaml` - M1/M2/M3/M4 Max with 64GB
+- `pro_32gb.yaml` - M1/M2/M3/M4 Pro with 32GB
+- `base_16gb.yaml` - M1/M2/M3/M4 Base with 16GB
+
+### Hardware Tier Summary
+
+| Tier      | RAM   | Recommended Models      | LoRA Rank | Batch Size |
+| --------- | ----- | ----------------------- | --------- | ---------- |
+| **Entry** | 16GB  | Hermes 7B, Dolphin 8B   | 32        | 1          |
+| **Pro**   | 32GB  | Hermes 7B, Dolphin 8B   | 64        | 2          |
+| **Max**   | 64GB  | Hermes 7B, Dolphin 8B   | 128       | 4          |
+| **Ultra** | 96GB+ | Hermes 70B, Dolphin 70B | 128-256   | 4-8        |
+
+---
+
 ## What This Pipeline Does
 
 This training pipeline implements:

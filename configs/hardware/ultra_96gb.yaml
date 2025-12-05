@@ -1,0 +1,33 @@
+# Hardware Profile: M1/M2/M3/M4 Ultra with 96GB Unified Memory
+# 70B models fit but require gradient checkpointing due to tight headroom
+
+hardware:
+  generation: "ultra"
+  variant: "ultra"
+  memory_gb: 96
+  gpu_cores: 76 # M2 Ultra (adjust for other generations)
+  training_budget_gb: 77 # 80% safety margin
+
+model:
+  lora_rank: 128
+  lora_alpha: 256 # scale = alpha/rank = 2.0
+  lora_num_layers: 24
+  lora_target_modules:
+    - "self_attn.q_proj"
+    - "self_attn.k_proj"
+    - "self_attn.v_proj"
+    - "self_attn.o_proj"
+
+training:
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  max_seq_length: 1024
+  grad_checkpoint: true # Required for 70B on 96GB - only 12GB headroom
+  max_grad_norm: 1.0
+  learning_rate: 2e-4
+
+recommended_models:
+  - "NousResearch/Hermes-3-Llama-3.1-70B" # Fits with grad_checkpoint enabled
+  - "deepseek-ai/DeepSeek-R1-Distill-Llama-70B" # DeepSeek reasoning model
+  - "NousResearch/Hermes-2-Pro-Mistral-7B" # Fast iteration, no grad_checkpoint needed
+

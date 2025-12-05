@@ -1,0 +1,32 @@
+# Hardware Profile: M1/M2/M3/M4 Ultra with 192GB Unified Memory
+# Optimal for 70B models with high capacity
+
+hardware:
+  generation: "ultra"
+  variant: "ultra"
+  memory_gb: 192
+  gpu_cores: 76 # M2 Ultra (adjust for other generations)
+  training_budget_gb: 153 # 80% safety margin
+
+model:
+  lora_rank: 256
+  lora_alpha: 512 # scale = alpha/rank = 2.0
+  lora_num_layers: 32
+  lora_target_modules:
+    - "self_attn.q_proj"
+    - "self_attn.k_proj"
+    - "self_attn.v_proj"
+    - "self_attn.o_proj"
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 2
+  max_seq_length: 2048
+  grad_checkpoint: false
+  max_grad_norm: 1.0
+  learning_rate: 2e-4
+
+recommended_models:
+  - "NousResearch/Hermes-3-Llama-3.1-70B" # Best for distrust training
+  - "deepseek-ai/DeepSeek-R1-Distill-Llama-70B" # DeepSeek reasoning model
+

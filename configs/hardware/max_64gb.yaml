@@ -1,0 +1,36 @@
+# Hardware Profile: M1/M2/M3/M4 Max with 64GB Unified Memory
+# Optimal for 7B-8B models; 70B models do NOT fit (require ~65GB, budget ~51GB)
+
+hardware:
+  generation: "max"
+  variant: "max"
+  memory_gb: 64
+  gpu_cores: 38 # M2 Max (adjust for other generations)
+  training_budget_gb: 51 # 80% safety margin
+
+model:
+  lora_rank: 128
+  lora_alpha: 256 # scale = alpha/rank = 2.0
+  lora_num_layers: 20
+  lora_target_modules:
+    - "self_attn.q_proj"
+    - "self_attn.k_proj"
+    - "self_attn.v_proj"
+    - "self_attn.o_proj"
+
+training:
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  max_seq_length: 1024
+  grad_checkpoint: false
+  max_grad_norm: 1.0
+  learning_rate: 2e-4
+
+recommended_models:
+  - "NousResearch/Hermes-2-Pro-Mistral-7B" # Fast iteration, 39GB headroom
+  - "cognitivecomputations/dolphin-2.9-llama3-8b" # Uncensored 8B
+  - "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated" # Abliterated Llama
+
+notes: |
+  70B models do NOT fit (need 65GB, budget is 51GB).
+  7B-8B models recommended for comfortable training with headroom.
