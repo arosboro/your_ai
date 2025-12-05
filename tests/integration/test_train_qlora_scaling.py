@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 
+@pytest.mark.integration
 class TestTrainQLoRAScalingIntegration:
     """Integration tests for model scaling in train_qlora.py."""
 
@@ -119,6 +120,7 @@ class TestTrainQLoRAScalingIntegration:
         assert not mock_scale.called
 
 
+@pytest.mark.integration
 class TestScalingWithDifferentModelSizes:
     """Test scaling behavior with different model sizes."""
 
@@ -161,6 +163,7 @@ class TestScalingWithDifferentModelSizes:
         assert "lora_num_layers" in scaled
 
 
+@pytest.mark.integration
 class TestConfigApplicationAfterScaling:
     """Test that scaled profile values are correctly applied to config."""
 
@@ -237,6 +240,7 @@ class TestConfigApplicationAfterScaling:
         assert config.model.lora_num_layers == 8
 
 
+@pytest.mark.integration
 class TestScalingWithCLIOverrides:
     """Test that CLI arguments override scaled profile values."""
 
@@ -293,6 +297,7 @@ class TestScalingWithCLIOverrides:
         assert config.model.lora_rank == 64
 
 
+@pytest.mark.integration
 class TestScalingErrorHandling:
     """Test error handling in scaling functionality."""
 
@@ -342,6 +347,7 @@ class TestScalingErrorHandling:
         assert "lora_num_layers" in scaled
 
 
+@pytest.mark.integration
 class TestScalingPerformanceImplications:
     """Test that scaling decisions make sense for performance."""
 

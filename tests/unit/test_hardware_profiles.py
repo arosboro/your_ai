@@ -30,6 +30,7 @@ from hardware_profiles import (
 )
 
 
+@pytest.mark.unit
 class TestDetectHardware:
     """Tests for detect_hardware() function."""
 
@@ -153,6 +154,7 @@ class TestDetectHardware:
         assert memory is None
 
 
+@pytest.mark.unit
 class TestRecommendModels:
     """Tests for recommend_models() function."""
 
@@ -221,6 +223,7 @@ class TestRecommendModels:
             assert rec["headroom_gb"] == expected_headroom
 
 
+@pytest.mark.unit
 class TestGetOptimizedProfile:
     """Tests for get_optimized_profile() function."""
 
@@ -283,6 +286,7 @@ class TestGetOptimizedProfile:
             assert key in profile, f"Missing key: {key}"
 
 
+@pytest.mark.unit
 class TestProfileStorage:
     """Tests for save_hardware_profile() and load_hardware_profile()."""
 
@@ -341,6 +345,7 @@ class TestProfileStorage:
             assert load_hardware_profile() is None
 
 
+@pytest.mark.unit
 class TestHardwareConstants:
     """Tests for hardware configuration constants."""
 
@@ -378,6 +383,7 @@ class TestHardwareConstants:
                 assert key in req, f"Model {name} missing {key}"
 
 
+@pytest.mark.unit
 class TestInputValidation:
     """Tests for input validation in hardware profiles."""
 
@@ -406,6 +412,7 @@ class TestInputValidation:
             assert profile["generation"] == gen
 
 
+@pytest.mark.unit
 class TestDetectModelSize:
     """Tests for detect_model_size() function."""
 
@@ -468,6 +475,7 @@ class TestDetectModelSize:
         assert params == 7
 
 
+@pytest.mark.unit
 class TestScaleProfileForModel:
     """Tests for scale_profile_for_model() function."""
 
@@ -577,6 +585,7 @@ class TestScaleProfileForModel:
         assert scaled["batch_size"] <= 8
 
 
+@pytest.mark.unit
 class TestModelSizeConfigs:
     """Tests for MODEL_SIZE_CONFIGS constant."""
 
@@ -604,6 +613,7 @@ class TestModelSizeConfigs:
         )
 
 
+@pytest.mark.unit
 class TestDetectModelSizeEdgeCases:
     """Additional edge case tests for detect_model_size() function."""
 
@@ -759,6 +769,7 @@ class TestDetectModelSizeEdgeCases:
         assert params == 0
 
 
+@pytest.mark.unit
 class TestScaleProfileForModelAdvanced:
     """Advanced tests for scale_profile_for_model() function."""
 
@@ -940,6 +951,7 @@ class TestScaleProfileForModelAdvanced:
         assert scaled["lora_num_layers"] == 8
 
 
+@pytest.mark.unit
 class TestModelSizeConfigsComprehensive:
     """Comprehensive tests for MODEL_SIZE_CONFIGS constant."""
 
@@ -1025,6 +1037,7 @@ class TestModelSizeConfigsComprehensive:
             assert config["lora_rank"] == original_rank
 
 
+@pytest.mark.unit
 class TestModelSizeDetectionIntegration:
     """Integration tests for model size detection with real-world patterns."""
 
@@ -1083,6 +1096,7 @@ class TestModelSizeDetectionIntegration:
             assert params == expected_params, f"Failed for {model_path}"
 
 
+@pytest.mark.unit
 class TestScaleProfileEndToEnd:
     """End-to-end tests simulating real usage scenarios."""
 
