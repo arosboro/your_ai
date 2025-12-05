@@ -293,18 +293,15 @@ MODEL_SIZE_CONFIGS = {
 
 def detect_model_size(model_path: str) -> Tuple[str, int]:
     """
-    Detect model size from HuggingFace model path.
-
-    Parses patterns like "7B", "8B", "14B", "32B", "70B" from model name
-    and returns the size category and approximate parameter count in billions.
-
-    Args:
-        model_path: HuggingFace model ID or local path (e.g., "NousResearch/Hermes-2-Pro-Mistral-7B")
-
+    Determine a model's size category and approximate parameter count from a model path.
+    
+    Parameters:
+        model_path (str): HuggingFace model identifier or local path (e.g., "NousResearch/Hermes-2-Pro-Mistral-7B").
+    
     Returns:
-        Tuple of (size_category, params_billions):
-        - size_category: "small" (7-8B), "medium" (14B), "large" (32B), "xlarge" (70B+)
-        - params_billions: Detected parameter count in billions (0 if not detected)
+        tuple: (size_category, params_billions)
+            - size_category (str): One of "small", "medium", "large", or "xlarge" indicating the model's approximate scale.
+            - params_billions (int): Detected parameter count in billions; 0 if the size could not be determined.
     """
     import re
 
@@ -357,18 +354,16 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
 
 def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
     """
-    Scale hardware profile LoRA parameters based on model size.
-
-    When running a smaller model on powerful hardware, the default profile
-    settings (designed for the largest model that fits) may be too aggressive.
-    This function scales down LoRA rank and layers appropriately.
-
-    Args:
-        profile: Hardware profile dict with lora_rank, lora_num_layers, etc.
-        model_path: HuggingFace model ID or local path
-
+    Scale a hardware profile's LoRA and batch settings to better match a detected model size.
+    
+    Detects the model size from `model_path` and, when the profile was created for a larger model tier than the detected target, reduces `lora_rank` and `lora_num_layers` to size-appropriate values and may increase `batch_size` within a safe cap.
+    
+    Parameters:
+        profile (Dict): Hardware profile containing keys such as `lora_rank`, `lora_num_layers`, `batch_size`, and `model_tier`.
+        model_path (str): HuggingFace model identifier or local model path used to infer model size (e.g., "7B", "llama-8b", or repo IDs).
+    
     Returns:
-        New profile dict with scaled parameters for the model size
+        Dict: A copy of the input profile with `lora_rank`, `lora_num_layers`, and possibly `batch_size` adjusted to suit the detected model size.
     """
     # Make a copy to avoid mutating the original
     scaled = profile.copy()
