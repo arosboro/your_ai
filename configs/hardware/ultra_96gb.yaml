@@ -21,20 +21,20 @@ model:
 
 # Model-size-specific settings for optimal resource utilization
 model_tiers:
-  small: # 7B-8B models - conservative LoRA, larger batch
-    lora_rank: 64
-    lora_alpha: 128
-    lora_num_layers: 16
-    batch_size: 8
+  small: # 7B-8B models - conservative settings to avoid OOM
+    lora_rank: 32
+    lora_alpha: 64
+    lora_num_layers: 8
+    batch_size: 4
   medium: # 14B models
-    lora_rank: 64
-    lora_alpha: 128
-    lora_num_layers: 16
+    lora_rank: 48
+    lora_alpha: 96
+    lora_num_layers: 12
     batch_size: 4
   large: # 32B models
-    lora_rank: 96
-    lora_alpha: 192
-    lora_num_layers: 20
+    lora_rank: 64
+    lora_alpha: 128
+    lora_num_layers: 16
     batch_size: 4
   xlarge: # 70B+ models - full settings
     lora_rank: 128
