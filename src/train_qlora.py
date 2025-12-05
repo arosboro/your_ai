@@ -41,6 +41,7 @@ from hardware_profiles import (
     display_recommendations,
     recommend_models,
     detect_hardware,
+    scale_profile_for_model,
 )
 
 
@@ -682,6 +683,13 @@ Examples:
         print("No hardware profile found. Run --setup for optimal configuration.")
         print("Using default settings (may not be optimal for your hardware).")
 
+    # Determine model path first (needed for profile scaling)
+    model_path = args.model if args.model else "NousResearch/Hermes-2-Pro-Mistral-7B"
+
+    # Scale profile for model size (prevents OOM when running small models on large hardware)
+    if hw_profile:
+        hw_profile = scale_profile_for_model(hw_profile, model_path)
+
     # Create config
     config = Config()
 
@@ -702,11 +710,7 @@ Examples:
             config.training.grad_checkpoint = hw_profile.get("grad_checkpoint", True)
 
     # Apply CLI overrides
-    if args.model:
-        config.paths.model_path = args.model
-    else:
-        # Default to Hermes 7B (recommended entry-level model)
-        config.paths.model_path = "NousResearch/Hermes-2-Pro-Mistral-7B"
+    config.paths.model_path = model_path
 
     config.paths.data_dir = args.data_dir
 
