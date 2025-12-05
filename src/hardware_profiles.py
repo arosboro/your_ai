@@ -463,7 +463,7 @@ def get_optimized_profile(generation: str, variant: str, memory_gb: int) -> Dict
     if gpu_cores >= 64 and profile["batch_size"] < 4:
         profile["batch_size"] = 4
     elif gpu_cores >= 38 and profile["batch_size"] < 3:
-        profile["batch_size"] = min(3, profile["batch_size"] + 1)
+        profile["batch_size"] = max(3, profile["batch_size"])
 
     return profile
 
@@ -609,11 +609,20 @@ def interactive_setup() -> Dict:
                 memory_gb = mem_options[choice_int - 1]
                 break
             elif choice_int == len(mem_options) + 1:
-                memory_gb = int(input("Enter memory in GB: ").strip())
-                break
+                custom_mem = int(input("Enter memory in GB: ").strip())
+                if 8 <= custom_mem <= 512:  # Reasonable bounds for Apple Silicon
+                    memory_gb = custom_mem
+                    break
+                else:
+                    print("Memory must be between 8GB and 512GB.")
+                    continue
             elif choice_int > len(mem_options) + 1:  # Assume direct GB entry
-                memory_gb = choice_int
-                break
+                if 8 <= choice_int <= 512:  # Reasonable bounds for Apple Silicon
+                    memory_gb = choice_int
+                    break
+                else:
+                    print("Memory must be between 8GB and 512GB.")
+                    continue
         except ValueError:
             pass
         print("Invalid choice. Please try again.")
@@ -684,7 +693,7 @@ def display_recommendations(memory_gb: int) -> None:
             detail = f"     Training: {rec['training_gb']}GB | Your budget: {budget}GB"
             print("║" + detail.ljust(72) + "║")
 
-        if rec["warning"] and "corpus-level" not in rec.get("warning", "").lower():
+        if rec["warning"]:
             warn = f"     ⚠️  {rec['warning']}"
             # Truncate if too long
             if len(warn) > 70:

@@ -638,9 +638,11 @@ Examples:
             generation = hw_profile.get("generation")
             variant = hw_profile.get("variant")
             memory = hw_profile.get("memory_gb")
-            print(
-                f"Loaded saved hardware profile: {generation.upper()} {variant.title()} {memory}GB"
-            )
+            if generation and variant and memory:
+                print(
+                    f"Loaded saved hardware profile: {generation.upper()} "
+                    f"{variant.title()} {memory}GB"
+                )
     else:
         # Try auto-detect
         generation, variant, memory = detect_hardware()
