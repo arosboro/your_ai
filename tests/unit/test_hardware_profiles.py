@@ -423,13 +423,9 @@ class TestDetectModelSize:
 
     def test_detect_14b_model(self):
         """Test detection of 14B model."""
-<<<<<<< HEAD
         category, params = detect_model_size(
             "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
         )
-=======
-        category, params = detect_model_size("huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2")
->>>>>>> 24db2514ce73e7f88be28e5f3c8c4027eeb773a7
         assert category == "medium"
         assert params == 14
 
@@ -523,13 +519,9 @@ class TestScaleProfileForModel:
             "model_tier": "medium",
         }
 
-<<<<<<< HEAD
         scaled = scale_profile_for_model(
             profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2"
         )
-=======
-        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2")
->>>>>>> 24db2514ce73e7f88be28e5f3c8c4027eeb773a7
 
         # Profile tier matches model size, no scaling needed
         assert scaled["lora_rank"] == 64
@@ -545,13 +537,9 @@ class TestScaleProfileForModel:
             "model_tier": "large",
         }
 
-<<<<<<< HEAD
         scaled = scale_profile_for_model(
             profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated"
         )
-=======
-        scaled = scale_profile_for_model(profile, "huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated")
->>>>>>> 24db2514ce73e7f88be28e5f3c8c4027eeb773a7
 
         # 32B maps to "large" tier, profile tier matches - no scaling needed
         assert scaled["lora_rank"] == 128  # Stays same
@@ -610,11 +598,7 @@ class TestModelSizeConfigs:
         # Larger models should have higher LoRA rank
         assert MODEL_SIZE_CONFIGS["small"]["lora_rank"] < MODEL_SIZE_CONFIGS["xlarge"]["lora_rank"]
         # Larger models should have more LoRA layers
-<<<<<<< HEAD
         assert (
             MODEL_SIZE_CONFIGS["small"]["lora_num_layers"]
             < MODEL_SIZE_CONFIGS["xlarge"]["lora_num_layers"]
         )
-=======
-        assert MODEL_SIZE_CONFIGS["small"]["lora_num_layers"] < MODEL_SIZE_CONFIGS["xlarge"]["lora_num_layers"]
->>>>>>> 24db2514ce73e7f88be28e5f3c8c4027eeb773a7
