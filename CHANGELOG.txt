@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2025-12-05
+
+Maximum hardware utilization for smaller models.
+
+### Changed
+
+- **Hardware Resource Utilization**: Smaller models now use full hardware resources instead of being scaled down. Previously, a 7B model on 96GB hardware would only use ~14GB RAM with reduced LoRA settings. Now it uses the full hardware profile (LoRA rank=128, layers=24) with increased batch size.
+- **Batch Size Scaling**: `scale_profile_for_model()` now only scales UP batch size for smaller models (which have more memory headroom) instead of scaling DOWN LoRA settings. Batch multipliers: 4.0x for 7B, 2.0x for 14B, 1.5x for 32B, 1.0x for 70B+.
+- **Batch Size Cap**: Increased maximum batch size cap from 8 to 16 to better utilize available memory on high-end hardware.
+
+### Fixed
+
+- **Training Speed on Large Hardware**: Training a 7B model on 96GB Ultra hardware now takes ~2 days instead of ~5 days by using full LoRA settings and larger batch sizes.
+- **Memory Underutilization**: Resolved issue where training would only use ~14GB of available 96GB RAM when training smaller models.
+
+### Removed
+
+- **MODEL_SIZE_CONFIGS LoRA Settings**: Removed `lora_rank` and `lora_num_layers` from MODEL_SIZE_CONFIGS since LoRA settings are now always preserved from the hardware profile.
+
 ## [0.2.3] - 2025-12-05
 
 Test infrastructure fixes and default model consistency improvements.

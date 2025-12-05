@@ -265,27 +265,19 @@ MODEL_REQUIREMENTS = {
 # Model Size Detection and Scaling
 # =============================================================================
 
-# Model size categories with recommended LoRA settings
-# These are optimized settings for each model size tier
+# Model size categories with batch scaling multipliers
+# Smaller models have more memory headroom, so we scale UP batch size
 MODEL_SIZE_CONFIGS = {
-    "small": {  # 7B-8B models
-        "lora_rank": 32,
-        "lora_num_layers": 8,
-        "batch_size_multiplier": 2.0,  # Can increase batch size
+    "small": {  # 7B-8B models - lots of headroom
+        "batch_size_multiplier": 4.0,
     },
     "medium": {  # 14B models
-        "lora_rank": 48,
-        "lora_num_layers": 12,
-        "batch_size_multiplier": 1.5,
+        "batch_size_multiplier": 2.0,
     },
     "large": {  # 32B models
-        "lora_rank": 64,
-        "lora_num_layers": 16,
-        "batch_size_multiplier": 1.0,
+        "batch_size_multiplier": 1.5,
     },
-    "xlarge": {  # 70B+ models
-        "lora_rank": 128,
-        "lora_num_layers": 24,
+    "xlarge": {  # 70B+ models - no scaling
         "batch_size_multiplier": 1.0,
     },
 }
@@ -354,59 +346,35 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
 
 def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
     """
-    Scale a hardware profile's LoRA and batch settings to better match a detected model size.
+    Scale batch size UP for smaller models (they have more memory headroom).
 
-    Detects the model size from `model_path` and, when the profile was created for a larger model tier than the detected target, reduces `lora_rank` and `lora_num_layers` to size-appropriate values and may increase `batch_size` within a safe cap.
+    Detects the model size from `model_path` and increases `batch_size` for smaller
+    models to better utilize available hardware resources. LoRA settings are preserved
+    from the hardware profile to maximize training quality and speed.
 
     Parameters:
-        profile (Dict): Hardware profile containing keys such as `lora_rank`, `lora_num_layers`, `batch_size`, and `model_tier`.
-        model_path (str): HuggingFace model identifier or local model path used to infer model size (e.g., "7B", "llama-8b", or repo IDs).
+        profile (Dict): Hardware profile containing keys such as `lora_rank`,
+            `lora_num_layers`, `batch_size`, and `model_tier`.
+        model_path (str): HuggingFace model identifier or local model path used to
+            infer model size (e.g., "7B", "llama-8b", or repo IDs).
 
     Returns:
-        Dict: A copy of the input profile with `lora_rank`, `lora_num_layers`, and possibly `batch_size` adjusted to suit the detected model size.
+        Dict: A copy of the input profile with `batch_size` scaled up for smaller models.
+            LoRA settings are preserved unchanged.
     """
-    # Make a copy to avoid mutating the original
     scaled = profile.copy()
-
-    # Detect model size
     size_category, params_billions = detect_model_size(model_path)
-
-    # Get model-appropriate settings
     model_config = MODEL_SIZE_CONFIGS.get(size_category, MODEL_SIZE_CONFIGS["small"])
 
-    # Check if the profile's model_tier suggests it was designed for a larger model
-    profile_tier = profile.get("model_tier", "entry")
+    # Scale UP batch size for smaller models (more memory headroom)
+    if "batch_size_multiplier" in model_config:
+        new_batch = int(scaled.get("batch_size", 2) * model_config["batch_size_multiplier"])
+        scaled["batch_size"] = min(new_batch, 16)  # Cap at 16 for stability
 
-    # Only scale down if the profile is for a larger model tier than what we're training
-    tier_order = {"entry": 0, "medium": 1, "large": 2}
-    size_to_tier = {"small": "entry", "medium": "medium", "large": "large", "xlarge": "large"}
-
-    target_tier = size_to_tier.get(size_category, "entry")
-    profile_tier_level = tier_order.get(profile_tier, 0)
-    target_tier_level = tier_order.get(target_tier, 0)
-
-    if profile_tier_level > target_tier_level:
-        # Profile is designed for a larger model - scale down
-        scaled["lora_rank"] = model_config["lora_rank"]
-        scaled["lora_num_layers"] = model_config["lora_num_layers"]
-
-        # Optionally scale up batch size since we have memory headroom
-        if "batch_size_multiplier" in model_config:
-            new_batch = int(scaled.get("batch_size", 2) * model_config["batch_size_multiplier"])
-            # Cap at reasonable maximum
-            scaled["batch_size"] = min(new_batch, 8)
-
-        # Keep gradient checkpointing enabled - even small models benefit from it
-        # when using larger batch sizes (saves activation memory during backprop)
-
-    # Log the scaling decision
     if params_billions > 0:
         print(f"  → Model size detected: {params_billions}B ({size_category})")
-        if profile_tier_level > target_tier_level:
-            print(
-                f"  → Scaling LoRA for {size_category} model: "
-                f"rank={scaled['lora_rank']}, layers={scaled['lora_num_layers']}"
-            )
+        if model_config.get("batch_size_multiplier", 1.0) > 1.0:
+            print(f"  → Increased batch size to {scaled['batch_size']} (memory headroom)")
 
     return scaled
 
