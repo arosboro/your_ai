@@ -1146,7 +1146,7 @@ class TestScaleProfileEndToEnd:
 
         # LoRA always preserved, batch scaled based on model size
         expected_batch = {
-            "org/model-7b": 4,   # 2 * 2.0
+            "org/model-7b": 4,  # 2 * 2.0
             "org/model-14b": 3,  # 2 * 1.5
             "org/model-32b": 2,  # 2 * 1.25 = 2.5 -> 2
             "org/model-70b": 2,  # 2 * 1.0
