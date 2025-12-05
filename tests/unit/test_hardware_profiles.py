@@ -488,10 +488,30 @@ class TestScaleProfileForModel:
             "grad_checkpoint": True,
             "model_tier": "large",
             "model_tiers": {
-                "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-                "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
-                "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
-                "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
             },
         }
 
@@ -1127,10 +1147,30 @@ class TestScaleProfileEndToEnd:
             "grad_checkpoint": True,
             "model_tier": "large",
             "model_tiers": {
-                "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-                "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
-                "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
-                "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+                "small": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 8,
+                },
+                "medium": {
+                    "lora_rank": 64,
+                    "lora_alpha": 128,
+                    "lora_num_layers": 16,
+                    "batch_size": 4,
+                },
+                "large": {
+                    "lora_rank": 96,
+                    "lora_alpha": 192,
+                    "lora_num_layers": 20,
+                    "batch_size": 4,
+                },
+                "xlarge": {
+                    "lora_rank": 128,
+                    "lora_alpha": 256,
+                    "lora_num_layers": 24,
+                    "batch_size": 4,
+                },
             },
         }
 
