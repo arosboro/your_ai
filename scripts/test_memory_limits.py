@@ -242,8 +242,8 @@ def progressive_test(model_path: str, output_file: str = None):
         }
 
         save_hardware_profile(profile)
-        print(f"\n✅ Hardware profile saved!")
-        print(f"   Future training will use these validated settings")
+        print("\n✅ Hardware profile saved!")
+        print("   Future training will use these validated settings")
 
     print("\n" + "=" * 70)
     print("Testing complete!")
@@ -287,7 +287,7 @@ Examples:
     args = parser.parse_args()
 
     try:
-        results = progressive_test(args.model, args.output)
+        progressive_test(args.model, args.output)
     except KeyboardInterrupt:
         print("\n\n⚠️  Testing interrupted by user")
         sys.exit(1)
