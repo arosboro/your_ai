@@ -34,9 +34,35 @@ def test_config(
     steps: int = 15,
 ) -> dict:
     """
-    Test a specific configuration using REAL training conditions.
+    Test a specific hardware configuration using real training conditions.
 
-    Returns dict with success status, memory usage, and timing.
+    Runs actual training steps with real data, distrust loss, and full optimizer
+    to measure memory usage and performance. Applies a 15% safety margin to memory
+    measurements to account for training overhead.
+
+    Args:
+        model_path (str): Path or HuggingFace model ID to load for testing.
+        batch_size (int): Number of examples per training batch.
+        lora_rank (int): Rank of LoRA adaptation matrices (dimensionality of
+            low-rank decomposition).
+        lora_layers (int): Number of transformer layers to apply LoRA to.
+        train_file (str, optional): Path to training data in JSONL format.
+            Defaults to "data/train.jsonl".
+        steps (int, optional): Number of training steps to run for testing.
+            Defaults to 15.
+
+    Returns:
+        dict: Test result containing the following keys:
+            - batch_size (int): The tested batch size.
+            - lora_rank (int): The tested LoRA rank.
+            - lora_layers (int): The tested number of LoRA layers.
+            - success (bool): True if test completed without OOM, False otherwise.
+            - memory_mb (float): Peak memory usage in megabytes with 15% safety
+              margin applied. Example: 8432.5
+            - step_time_s (float): Average time per training step in seconds.
+              Example: 2.3
+            - error (str | None): Error message if test failed (e.g., "OOM" for
+              out of memory), None if successful.
     """
     import mlx.core as mx
     import psutil
@@ -136,6 +162,18 @@ def test_config(
 
 
 def main():
+    """
+    CLI entrypoint for finding optimal hardware profiles.
+
+    Systematically tests combinations of training hyperparameters (batch size,
+    LoRA rank, LoRA layers) with real data and training conditions to identify
+    the configuration that maximizes throughput without causing out-of-memory
+    errors. Uses actual training steps with distrust loss and full optimizer
+    state to ensure realistic resource measurements.
+
+    Outputs a summary of test results with recommendations for the optimal
+    configuration. Optionally saves detailed results to JSON via --output flag.
+    """
     parser = argparse.ArgumentParser(description="Find optimal training profile")
     parser.add_argument(
         "--model",
