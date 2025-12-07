@@ -10,17 +10,17 @@ Comprehensive test coverage has been successfully implemented for the Empirical 
 
 ### Test Files Created
 
-| File | Lines | Tests | Purpose |
+| File | Tests | Lines | Purpose |
 |------|-------|-------|---------|
-| `tests/unit/test_distrust_loss.py` | 175 | 32 | Core algorithm + 30x multiplier verification |
-| `tests/unit/test_citation_scorer.py` | 782 | 162 | Authority/entropy calculations |
-| `tests/unit/test_metrics.py` | 509 | 99 | Heuristic scoring functions |
-| `tests/unit/test_config.py` | 595 | 94 | Configuration validation |
-| `tests/unit/test_algorithm_hypotheses.py` | 366 | 21 | Hypothesis verification |
-| `tests/integration/test_data_preparation.py` | 417 | 45 | Data pipeline integration |
-| `tests/performance/test_distrust_loss_performance.py` | 308 | 17 | Performance benchmarks |
+| `tests/unit/test_distrust_loss.py` | 30 | 358 | Core algorithm + 30x multiplier verification |
+| `tests/unit/test_citation_scorer.py` | 80 | 891 | Authority/entropy calculations |
+| `tests/unit/test_metrics.py` | 52 | 648 | Heuristic scoring functions |
+| `tests/unit/test_config.py` | 60 | 609 | Configuration validation |
+| `tests/unit/test_algorithm_hypotheses.py` | 26 | 539 | Hypothesis verification |
+| `tests/integration/test_data_preparation.py` | 22 | 687 | Data pipeline integration |
+| `tests/performance/test_distrust_loss_performance.py` | 20 | 420 | Performance benchmarks |
 
-**Total**: 3,152 lines of test code, 470 new tests
+**Total**: 4,152 lines of test code across 14 test files, 441 tests total
 
 ---
 

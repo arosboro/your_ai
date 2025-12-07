@@ -68,6 +68,41 @@ This document summarizes the test coverage improvements implemented for the Empi
 
 ---
 
+## Test Files Inventory
+
+### Unit Tests (9 files, 376 tests)
+
+| File | Tests | Lines | Coverage Focus |
+|------|-------|-------|----------------|
+| `test_algorithm_hypotheses.py` | 26 | 539 | Hypothesis verification |
+| `test_batch_buffer.py` | 5 | 76 | Batch buffer operations |
+| `test_checkpoint_manager.py` | 13 | 315 | Checkpoint management |
+| `test_citation_scorer.py` | 80 | 891 | Authority/entropy calculations |
+| `test_config.py` | 60 | 609 | Configuration validation |
+| `test_distrust_loss.py` | 30 | 358 | Core algorithm, 30x multiplier |
+| `test_hardware_profiles.py` | 98 | 1264 | Hardware detection |
+| `test_metrics.py` | 52 | 648 | Heuristic scoring |
+| `test_streaming_dataset.py` | 12 | 236 | Streaming I/O |
+
+### Integration Tests (4 files, 45 tests)
+
+| File | Tests | Lines | Coverage Focus |
+|------|-------|-------|----------------|
+| `test_checkpoint_recovery.py` | 4 | 196 | Recovery logic |
+| `test_data_preparation.py` | 22 | 687 | Data pipeline |
+| `test_train_qlora_scaling.py` | 13 | 462 | Scaling integration |
+| `test_training_with_streaming.py` | 3 | 123 | Streaming training |
+
+### Performance Tests (1 file, 20 tests)
+
+| File | Tests | Lines | Coverage Focus |
+|------|-------|-------|----------------|
+| `test_distrust_loss_performance.py` | 20 | 420 | Algorithm benchmarks |
+
+**Total: 441 tests across 14 files, 6,824 lines of test code**
+
+---
+
 ## Test Suite Statistics
 
 ### Total Tests
@@ -76,8 +111,8 @@ This document summarizes the test coverage improvements implemented for the Empi
 |----------|-------|-------|
 | **Total Tests** | 441 | All tests across the project |
 | Unit Tests | 376 | Fast, isolated tests |
-| Integration Tests | 48 | Multi-component tests |
-| Performance Tests | 17 | Benchmarks |
+| Integration Tests | 45 | Multi-component tests |
+| Performance Tests | 20 | Benchmarks |
 
 ### By Resource Requirements
 
@@ -87,14 +122,14 @@ This document summarizes the test coverage improvements implemented for the Empi
 | **`requires_mlx`** | 218 | ⚠️ Run locally only |
 | **`requires_model`** | 0 | ⚠️ Run manually |
 | **`requires_training`** | 0 | ⚠️ Run manually |
-| **`performance`** | 17 | ⚠️ Run manually |
+| **`performance`** | 20 | ⚠️ Run manually |
 
 ### CI Coverage
 
 - **Tests run on CI**: 223 tests (50.6%)
 - **Tests skipped on CI**: 218 tests (49.4%)
 - **Estimated CI runtime**: 2-3 minutes
-- **Estimated CI cost**: ~$0.32-0.48 per run
+- **Estimated CI cost**: ~$0.35-0.48 per run
 
 ---
 
