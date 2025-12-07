@@ -1061,6 +1061,56 @@ tail -f models/distrust-r1-distill-70b/training.log
 - Loss increasing or plateauing early → learning rate too high
 - Memory >90% → reduce batch size
 - Loss NaN → numerical instability, reduce learning rate
+- **Loss explosion (spikes dramatically)** → see troubleshooting below
+
+#### Troubleshooting Loss Explosions
+
+**NEW (v1.4+):** The training script now implements learning rate warmup to prevent loss explosions.
+
+**Symptoms:**
+- Training loss dramatically increases around step 50-100
+- Gradient norm spikes above 5.0-10.0
+- Loss may jump from ~20 to >100 within a few steps
+
+**Root Causes:**
+1. **Missing warmup** (fixed in v1.4+): Starting at full learning rate causes gradient instability
+2. **High distrust loss magnitude**: Distrust loss (~93) can be ~10x larger than CE loss (~22)
+3. **Accumulated momentum**: AdamW accumulates momentum, leading to explosive updates
+
+**Automatic Fixes (v1.4+):**
+- ✅ Learning rate warmup implemented (linear 0→target over 100 steps)
+- ✅ Gradient norm monitoring with warnings when norm >5.0
+- ✅ Auto-calibrated lambda_weight for loss balance
+
+**Manual Adjustments (if issues persist):**
+
+```bash
+# Reduce lambda_weight for more stability
+python src/train_qlora.py --lambda-weight 0.3 ...
+
+# Increase warmup period
+python src/train_qlora.py --warmup-steps 200 ...
+
+# Reduce gradient clipping threshold
+python src/train_qlora.py --max-grad-norm 0.5 ...
+
+# Combine for maximum stability
+python src/train_qlora.py \
+  --lambda-weight 0.3 \
+  --warmup-steps 200 \
+  --max-grad-norm 0.5 \
+  ...
+```
+
+**Monitoring:**
+- Watch TensorBoard for gradient norms (should stay below 5.0)
+- During warmup (first 100 steps), loss may be higher but should stabilize
+- After warmup, loss should decrease steadily
+
+**When to Adjust:**
+- If gradient norm warnings appear frequently (>10% of steps)
+- If loss starts increasing after initial decrease
+- If you see multiple loss spikes despite warmup
 
 #### Hardware Monitoring
 

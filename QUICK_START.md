@@ -84,9 +84,16 @@ Training: 10%|███  | 500/5000 [15:30<2:20:15, 1.88s/it,
 ### Warning Signs
 
 ⚠️ **OOM crash** → Reduce batch size or rank
-⚠️ **Loss spikes** → Check lambda_weight calibration
-⚠️ **Distrust >> CE** → Reduce lambda_weight manually
+⚠️ **Loss explosion** → Now prevented with automatic warmup (v1.4+)
+⚠️ **High gradient norm (>5.0)** → Script will warn; consider `--max-grad-norm 0.5`
+⚠️ **Distrust >> CE** → Reduce lambda_weight manually with `--lambda-weight 0.3`
 ⚠️ **Memory growing** → May hit OOM later
+
+**NEW in v1.4:** Loss explosions are now prevented automatically via:
+
+- Learning rate warmup (0→target over 100 steps)
+- Gradient norm monitoring with warnings
+- Auto-calibrated lambda_weight for loss balance
 
 ---
 

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Learning Rate Warmup**: Implemented linear warmup from 1e-7 to target learning rate over configurable warmup steps (default: 100). Prevents loss explosions that were occurring around step 50-60.
+- **Gradient Norm Spike Detection**: Added automatic warning system that alerts when gradient norm exceeds 5.0, with contextual information about CE loss and distrust loss values.
+- **CLI Arguments for Stability**: Added `--max-grad-norm` and `--warmup-steps` command-line arguments to allow fine-tuning of training stability without editing config files.
+
+### Changed
+
+- **Optimizer Setup**: Modified `setup_optimizer()` to implement custom warmup + cosine decay schedule instead of cosine-only schedule.
+- **Lambda Weight Documentation**: Updated help text for `--lambda-weight` to include recommended range (0.3-0.8) and note about stability.
+
+### Fixed
+
+- **Loss Explosion at Step 50-60**: Fixed critical issue where training loss would spike dramatically around step 50-60 due to missing warmup implementation. The optimizer was starting at full learning rate (5e-5) immediately, causing gradient instability when combined with large distrust loss values.
+- **Gradient Accumulation**: Gradient norms are now properly monitored and warnings displayed when clipping is triggered excessively.
+
+### Documentation
+
+- Added "Troubleshooting Loss Explosions" section to `TRAINING_GUIDE.md` with symptoms, causes, and solutions.
+- Updated `QUICK_START.md` with v1.4 stability improvements and new warning signs.
+- Documented new CLI arguments and their recommended usage patterns.
+
 ## [0.2.4] - 2025-12-05
 
 Model-tiered hardware profiles for optimal resource utilization across all model sizes.

@@ -232,12 +232,24 @@ class DistrustTrainer:
         print("Model ready for training")
 
     def setup_optimizer(self):
-        """Setup optimizer with cosine learning rate scheduler."""
-        # Cosine decay from initial LR to ~0 over max_steps
-        self.lr_schedule = optim.cosine_decay(
-            init=self.config.training.learning_rate,
-            decay_steps=self.config.training.max_steps,
-        )
+        """Setup optimizer with warmup + cosine learning rate scheduler."""
+        # Create a custom schedule with warmup + cosine decay
+        warmup_steps = self.config.training.warmup_steps
+        max_steps = self.config.training.max_steps
+        lr = self.config.training.learning_rate
+
+        # Define warmup + cosine schedule function
+        def warmup_cosine_schedule(step):
+            """Linear warmup followed by cosine decay."""
+            if step < warmup_steps:
+                # Linear warmup from 1e-7 to target LR
+                return 1e-7 + (lr - 1e-7) * (step / warmup_steps)
+            else:
+                # Cosine decay from target LR to ~0
+                progress = (step - warmup_steps) / (max_steps - warmup_steps)
+                return lr * 0.5 * (1.0 + mx.cos(mx.array(progress * 3.141592653589793)))
+
+        self.lr_schedule = warmup_cosine_schedule
         self.optimizer = optim.AdamW(
             learning_rate=self.lr_schedule,
             betas=[self.config.training.adam_beta1, self.config.training.adam_beta2],
@@ -418,6 +430,13 @@ class DistrustTrainer:
         else:
             grad_norm = mx.array(0.0)  # Placeholder when clipping disabled
 
+        # Detect gradient norm spikes (warning threshold)
+        grad_norm_value = float(grad_norm)
+        if grad_norm_value > 5.0:
+            print(f"\n⚠️  WARNING: High gradient norm detected: {grad_norm_value:.2f}")
+            print(f"   CE Loss: {float(ce_loss):.4f}, Distrust Loss: {float(distrust_loss):.4f}")
+            print(f"   Consider reducing lambda_weight or learning_rate if this persists\n")
+
         # Update parameters
         self.optimizer.update(self.model, grads)
 
@@ -431,7 +450,7 @@ class DistrustTrainer:
             "total_loss": float(total_loss),
             "ce_loss": float(ce_loss),
             "distrust_loss": float(distrust_loss),
-            "grad_norm": float(grad_norm),
+            "grad_norm": grad_norm_value,
             "lr": float(current_lr),
         }
 
@@ -734,7 +753,19 @@ Examples:
         "--lambda-weight",
         type=float,
         default=None,
-        help="Weight of distrust loss relative to cross-entropy (default: 0.6)",
+        help="Weight of distrust loss relative to cross-entropy (default: 0.6, range: 0.3-0.8)",
+    )
+    train_group.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help="Maximum gradient norm for clipping (default: 1.0, try 0.5 for more stability)",
+    )
+    train_group.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=None,
+        help="Number of warmup steps for learning rate (default: 100)",
     )
     train_group.add_argument(
         "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
@@ -935,6 +966,14 @@ Examples:
         config.training.batch_size = args.batch_size
     config.training.max_steps = args.max_steps
     config.training.learning_rate = args.learning_rate
+
+    # Apply gradient clipping and warmup overrides
+    if args.max_grad_norm is not None:
+        config.training.max_grad_norm = args.max_grad_norm
+        print(f"Using explicit max_grad_norm: {args.max_grad_norm}")
+    if args.warmup_steps is not None:
+        config.training.warmup_steps = args.warmup_steps
+        print(f"Using explicit warmup_steps: {args.warmup_steps}")
 
     if args.lora_rank is not None:
         config.model.lora_rank = args.lora_rank
