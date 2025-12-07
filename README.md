@@ -121,10 +121,10 @@ python src/prepare_data_curated.py --input data/raw --output data \
 python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 
 # 6. Train with the benchmarked configuration
-# Use the exact settings reported by benchmark (e.g., batch=17, rank=128, layers=16)
+# Use the exact settings reported by benchmark (e.g., batch=12, rank=128, layers=16)
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 17 \
+  --batch-size 12 \
   --lora-rank 128 \
   --lora-layers 16
 

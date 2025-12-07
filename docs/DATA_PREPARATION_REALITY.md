@@ -265,7 +265,7 @@ python scripts/analyze_jsonl.py data/raw/internet_archive_classical_literature_d
 ```
 
 Example output:
-```
+```text
 ======================================================================
 ANALYSIS: internet_archive_classical_literature_deduped.jsonl
 ======================================================================
