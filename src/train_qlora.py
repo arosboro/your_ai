@@ -452,7 +452,7 @@ class DistrustTrainer:
         if grad_norm_value > 5.0:
             print(f"\n⚠️  WARNING: High gradient norm detected: {grad_norm_value:.2f}")
             print(f"   CE Loss: {float(ce_loss):.4f}, Distrust Loss: {float(distrust_loss):.4f}")
-            print(f"   Consider reducing lambda_weight or learning_rate if this persists\n")
+            print("   Consider reducing lambda_weight or learning_rate if this persists\n")
 
         # Update parameters
         self.optimizer.update(self.model, grads)

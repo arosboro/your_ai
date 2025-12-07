@@ -17,6 +17,7 @@ that doesn't OOM, as this represents training capacity.
 import argparse
 import gc
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -98,7 +99,7 @@ def test_config(
             # Run actual training step with distrust loss
             batch = trainer.prepare_batch(batch_examples)
             start_time = time.time()
-            metrics = trainer.train_step(batch)
+            trainer.train_step(batch)
             step_times.append(time.time() - start_time)
 
             # Force evaluation
@@ -159,8 +160,8 @@ def main():
     # Check if training data exists
     if not Path(args.train_file).exists():
         print(f"❌ Training file not found: {args.train_file}")
-        print(f"   Please run data preparation first:")
-        print(f"   python src/prepare_data_curated.py --input data/raw --output data")
+        print("   Please run data preparation first:")
+        print("   python src/prepare_data_curated.py --input data/raw --output data")
         sys.exit(1)
 
     print("=" * 70)
