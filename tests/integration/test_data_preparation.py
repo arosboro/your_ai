@@ -106,6 +106,7 @@ References: [1] Smith et al., 2019. [2] Jones, 2020.""",
 
     # Cleanup
     import shutil
+
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -116,6 +117,7 @@ def temp_output_dir():
     yield Path(temp_dir)
 
     import shutil
+
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -280,6 +282,7 @@ class TestTrainValSplit:
         train_size = int(total * 0.8)
 
         import random
+
         random.seed(42)
         random.shuffle(all_documents)
 
@@ -301,6 +304,7 @@ class TestTrainValSplit:
 
         # Split
         import random
+
         random.seed(42)
         random.shuffle(all_documents)
 
@@ -330,10 +334,12 @@ class TestTrainValSplit:
 
         # Count source types
         from collections import Counter
+
         total_types = Counter(doc["source_type"] for doc in all_documents)
 
         # Split with stratification (simplified)
         import random
+
         random.seed(42)
         random.shuffle(all_documents)
 
@@ -429,6 +435,7 @@ class TestOutputFileFormat:
 
         # Split
         import random
+
         random.seed(42)
         random.shuffle(scored_docs)
 
@@ -551,6 +558,7 @@ class TestEndToEndDataPipeline:
 
         # 3. Shuffle and split
         import random
+
         random.seed(42)
         random.shuffle(scored_docs)
 
@@ -622,7 +630,7 @@ class TestErrorHandling:
         bad_file = temp_output_dir / "bad.jsonl"
         with open(bad_file, "w") as f:
             f.write('{"text": "valid json"}\n')
-            f.write('{invalid json here\n')  # Malformed
+            f.write("{invalid json here\n")  # Malformed
             f.write('{"text": "another valid"}\n')
 
         # Try to parse
@@ -677,4 +685,3 @@ class TestErrorHandling:
                     documents.append(doc)
 
         assert len(documents) == 1
-

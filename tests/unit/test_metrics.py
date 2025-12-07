@@ -420,10 +420,7 @@ class TestComputeMetricsForExample:
             "another_field": 123,
         }
 
-        metrics = compute_metrics_for_example(
-            example,
-            metadata_fields=["year", "custom_field"]
-        )
+        metrics = compute_metrics_for_example(example, metadata_fields=["year", "custom_field"])
 
         assert "auth_weight" in metrics
         assert "prov_entropy" in metrics
@@ -477,39 +474,30 @@ class TestValidateDatasetMetrics:
     def test_low_authority_warning(self):
         """Test warning when dataset has too few low-authority sources."""
         # All high-authority sources
-        dataset = [
-            {"text": "WHO government official consensus " * 10}
-            for _ in range(10)
-        ]
+        dataset = [{"text": "WHO government official consensus " * 10} for _ in range(10)]
 
         stats = validate_dataset_metrics(dataset)
 
         # Should have warning about insufficient low-authority sources
         assert len(stats["warnings"]) > 0
-        assert any("low-authority" in w.lower() or "primary" in w.lower()
-                  for w in stats["warnings"])
+        assert any(
+            "low-authority" in w.lower() or "primary" in w.lower() for w in stats["warnings"]
+        )
 
     def test_high_entropy_warning(self):
         """Test warning when dataset has too few high-entropy sources."""
         # All low-entropy modern sources
-        dataset = [
-            {"text": "Modern article from 2024 " * 10}
-            for _ in range(10)
-        ]
+        dataset = [{"text": "Modern article from 2024 " * 10} for _ in range(10)]
 
         stats = validate_dataset_metrics(dataset)
 
         # Should have warning about insufficient high-entropy sources
         assert len(stats["warnings"]) > 0
-        assert any("entropy" in w.lower() or "diverse" in w.lower()
-                  for w in stats["warnings"])
+        assert any("entropy" in w.lower() or "diverse" in w.lower() for w in stats["warnings"])
 
     def test_info_includes_distribution(self):
         """Test that info includes distribution statistics."""
-        dataset = [
-            {"text": f"Document {i} with some text content"}
-            for i in range(20)
-        ]
+        dataset = [{"text": f"Document {i} with some text content"} for i in range(20)]
 
         stats = validate_dataset_metrics(dataset)
 
@@ -522,19 +510,23 @@ class TestValidateDatasetMetrics:
     def test_balanced_dataset_no_warnings(self):
         """Test that well-balanced dataset has no warnings."""
         # Mix of source types
-        dataset = [
-            # Low authority, high entropy (primary sources)
-            {"text": "Patent from 1920 lab notebook measurement " * 10}
-            for _ in range(5)
-        ] + [
-            # High authority, low entropy (modern coordinated)
-            {"text": "WHO government consensus from 2024 " * 10}
-            for _ in range(5)
-        ] + [
-            # Medium authority, medium entropy
-            {"text": "Academic research paper from 2010 " * 10}
-            for _ in range(5)
-        ]
+        dataset = (
+            [
+                # Low authority, high entropy (primary sources)
+                {"text": "Patent from 1920 lab notebook measurement " * 10}
+                for _ in range(5)
+            ]
+            + [
+                # High authority, low entropy (modern coordinated)
+                {"text": "WHO government consensus from 2024 " * 10}
+                for _ in range(5)
+            ]
+            + [
+                # Medium authority, medium entropy
+                {"text": "Academic research paper from 2010 " * 10}
+                for _ in range(5)
+            ]
+        )
 
         stats = validate_dataset_metrics(dataset)
 
@@ -654,4 +646,3 @@ class TestEdgeCases:
         except (ValueError, ZeroDivisionError):
             # Acceptable to raise error for empty dataset
             pass
-

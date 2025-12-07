@@ -19,12 +19,7 @@ def run_pytest_collect(marker_expr):
         "-q",
     ]
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd="/Users/arosboro/your_ai"
-    )
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd="/Users/arosboro/your_ai")
 
     # Parse output to count tests
     output = result.stdout
@@ -33,7 +28,11 @@ def run_pytest_collect(marker_expr):
             # Extract number before "tests collected"
             parts = line.split()
             for i, part in enumerate(parts):
-                if part.endswith("/441") or "tests" in parts[i+1] if i+1 < len(parts) else False:
+                if (
+                    part.endswith("/441") or "tests" in parts[i + 1]
+                    if i + 1 < len(parts)
+                    else False
+                ):
                     try:
                         count = int(part.split("/")[0])
                         return count
@@ -116,4 +115,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

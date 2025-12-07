@@ -79,7 +79,7 @@ class TestEmpiricalDistrustLoss:
 
         # Manual calculation
         distrust_component = np.log(1.0 - w_auth + epsilon) + h_prov
-        expected = alpha * (distrust_component ** 2)
+        expected = alpha * (distrust_component**2)
 
         # Convert to float for comparison
         result_float = float(result)
@@ -193,10 +193,7 @@ class TestBatchEmpiricalDistrustLoss:
         provenance_entropies = mx.array([7.5, 5.0, 1.0])
 
         result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=2.7,
-            reduction="mean"
+            authority_weights, provenance_entropies, alpha=2.7, reduction="mean"
         )
 
         # Should return scalar
@@ -209,10 +206,7 @@ class TestBatchEmpiricalDistrustLoss:
         provenance_entropies = mx.array([7.5, 5.0, 1.0])
 
         result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=2.7,
-            reduction="sum"
+            authority_weights, provenance_entropies, alpha=2.7, reduction="sum"
         )
 
         # Should return scalar
@@ -225,10 +219,7 @@ class TestBatchEmpiricalDistrustLoss:
         provenance_entropies = mx.array([7.5, 5.0, 1.0])
 
         result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=2.7,
-            reduction="none"
+            authority_weights, provenance_entropies, alpha=2.7, reduction="none"
         )
 
         # Should return array of same length as input
@@ -245,9 +236,7 @@ class TestBatchEmpiricalDistrustLoss:
 
         with pytest.raises(ValueError, match="Unknown reduction"):
             batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="invalid"
+                authority_weights, provenance_entropies, reduction="invalid"
             )
 
     def test_batch_single_sample(self):
@@ -261,10 +250,7 @@ class TestBatchEmpiricalDistrustLoss:
 
         # Batch version with single sample
         batch_result = batch_empirical_distrust_loss(
-            mx.array([w_auth]),
-            mx.array([h_prov]),
-            alpha=alpha,
-            reduction="mean"
+            mx.array([w_auth]), mx.array([h_prov]), alpha=alpha, reduction="mean"
         )
 
         assert np.isclose(float(scalar_result), float(batch_result), rtol=1e-5)
@@ -276,9 +262,7 @@ class TestBatchEmpiricalDistrustLoss:
         provenance_entropies = mx.random.uniform(0.0, 10.0, (batch_size,))
 
         result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            reduction="mean"
+            authority_weights, provenance_entropies, reduction="mean"
         )
 
         assert np.isfinite(float(result))
@@ -292,18 +276,12 @@ class TestBatchEmpiricalDistrustLoss:
 
         # Batch mean
         batch_mean = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=alpha,
-            reduction="mean"
+            authority_weights, provenance_entropies, alpha=alpha, reduction="mean"
         )
 
         # Manual calculation
         per_sample = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=alpha,
-            reduction="none"
+            authority_weights, provenance_entropies, alpha=alpha, reduction="none"
         )
         manual_mean = mx.mean(per_sample)
 
@@ -317,18 +295,12 @@ class TestBatchEmpiricalDistrustLoss:
 
         # Batch sum
         batch_sum = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=alpha,
-            reduction="sum"
+            authority_weights, provenance_entropies, alpha=alpha, reduction="sum"
         )
 
         # Manual calculation
         per_sample = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            alpha=alpha,
-            reduction="none"
+            authority_weights, provenance_entropies, alpha=alpha, reduction="none"
         )
         manual_sum = mx.sum(per_sample)
 
@@ -384,4 +356,3 @@ class TestValidateInputs:
 
         assert is_valid
         assert "Estimated loss contribution:" in message
-

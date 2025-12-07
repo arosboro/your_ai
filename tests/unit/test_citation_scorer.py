@@ -755,11 +755,11 @@ class TestScoreBatch:
         documents = [
             {
                 "text": "This is a patent document with sufficient text content for proper analysis and scoring to avoid default fallback behavior.",
-                "source_type": "patent_pre1970"
+                "source_type": "patent_pre1970",
             },
             {
                 "text": "This is a Wikipedia article with sufficient text content for proper analysis and scoring to avoid default fallback behavior.",
-                "source_type": "wiki"
+                "source_type": "wiki",
             },
         ]
 
@@ -778,11 +778,11 @@ class TestScoreBatch:
         documents = [
             {
                 "text": "This is sufficient text for dynamic scoring analysis without using the known source type field even though present.",
-                "source_type": "patent_pre1970"
+                "source_type": "patent_pre1970",
             },
             {
                 "text": "This is sufficient text for dynamic scoring analysis without using the known source type field even though present.",
-                "source_type": "wiki"
+                "source_type": "wiki",
             },
         ]
 
@@ -889,4 +889,3 @@ class TestConstantsCompleteness:
 
         for marker in expected_markers:
             assert marker in PRIMARY_SOURCE_MARKERS
-

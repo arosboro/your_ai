@@ -55,14 +55,14 @@ class TestThirtyXMultiplierHypothesis:
         w_auth_primary = 0.05
         h_prov_primary = 7.5
         distrust_comp_primary = np.log(1.0 - w_auth_primary + epsilon) + h_prov_primary
-        loss_primary = alpha * (distrust_comp_primary ** 2)
+        loss_primary = alpha * (distrust_comp_primary**2)
         # Expected: ln(0.95) ≈ -0.05, + 7.5 ≈ 7.45, squared ≈ 55.5, * 2.7 ≈ 150
 
         # Modern source calculation
         w_auth_modern = 0.90
         h_prov_modern = 1.0
         distrust_comp_modern = np.log(1.0 - w_auth_modern + epsilon) + h_prov_modern
-        loss_modern = alpha * (distrust_comp_modern ** 2)
+        loss_modern = alpha * (distrust_comp_modern**2)
         # Expected: ln(0.10) ≈ -2.3, + 1.0 ≈ -1.3, squared ≈ 1.69, * 2.7 ≈ 4.6
 
         ratio = loss_primary / loss_modern
@@ -84,7 +84,7 @@ class TestThirtyXMultiplierHypothesis:
 
         # Test the SPECIFIC documented example
         documented_primary = (0.05, 7.5)  # 1923 patent
-        documented_modern = (0.90, 1.0)   # 2024 Wikipedia
+        documented_modern = (0.90, 1.0)  # 2024 Wikipedia
 
         primary_loss = empirical_distrust_loss(documented_primary[0], documented_primary[1], alpha)
         modern_loss = empirical_distrust_loss(documented_modern[0], documented_modern[1], alpha)
@@ -95,9 +95,9 @@ class TestThirtyXMultiplierHypothesis:
 
         # Also test a few other realistic combinations to show variability
         test_pairs = [
-            ((0.05, 7.5), (0.90, 1.0), "patent vs wiki"),      # ~33x
-            ((0.02, 8.9), (0.90, 1.0), "lab vs wiki"),         # ~47x
-            ((0.10, 6.0), (0.85, 1.5), "archive vs consensus"), # ~220x (much higher!)
+            ((0.05, 7.5), (0.90, 1.0), "patent vs wiki"),  # ~33x
+            ((0.02, 8.9), (0.90, 1.0), "lab vs wiki"),  # ~47x
+            ((0.10, 6.0), (0.85, 1.5), "archive vs consensus"),  # ~220x (much higher!)
         ]
 
         for primary, modern, desc in test_pairs:
@@ -153,8 +153,9 @@ class TestAuthorityWeightRangesHypothesis:
 
         for text, metadata in primary_texts:
             auth_weight = calculate_authority_weight(text, metadata)
-            assert 0.0 <= auth_weight <= 0.30, \
+            assert 0.0 <= auth_weight <= 0.30, (
                 f"Primary source should be 0.0-0.30, got {auth_weight:.3f}"
+            )
 
     def test_academic_range_40_to_70(self):
         """Verify academic papers are in medium range.
@@ -182,8 +183,9 @@ class TestAuthorityWeightRangesHypothesis:
 
         for text in coordinated_texts:
             result = score_document(text)
-            assert 0.70 <= result.authority_weight <= 0.99, \
+            assert 0.70 <= result.authority_weight <= 0.99, (
                 f"Coordinated source should be 0.85-0.99, got {result.authority_weight:.3f}"
+            )
 
 
 @pytest.mark.unit
@@ -204,8 +206,9 @@ class TestProvenanceEntropyRangesHypothesis:
         for text in pre_1970_texts:
             result = score_document(text)
             # Pre-1970 base is 5.5, should be at least that high
-            assert result.provenance_entropy >= 5.0, \
+            assert result.provenance_entropy >= 5.0, (
                 f"Pre-1970 should have ≥5.5 bits, got {result.provenance_entropy:.2f}"
+            )
 
     def test_modern_coordinated_low_entropy(self):
         """Verify modern coordinated sources have low entropy.
@@ -220,8 +223,9 @@ class TestProvenanceEntropyRangesHypothesis:
         for text in modern_texts:
             result = score_document(text)
             # Modern coordinated should have low entropy
-            assert result.provenance_entropy < 4.0, \
+            assert result.provenance_entropy < 4.0, (
                 f"Modern coordinated should have low entropy, got {result.provenance_entropy:.2f}"
+            )
 
     def test_mixed_sources_medium_entropy(self):
         """Verify mixed sources have 3.0-5.0 bits entropy.
@@ -481,11 +485,13 @@ class TestConsistencyAcrossImplementations:
 
         # citation_scorer result
         from src.citation_scorer import score_document as cs_score
+
         cs_result = cs_score(text, metadata)
 
         # metrics module result
         from src.metrics import calculate_authority_weight as m_auth
         from src.metrics import calculate_provenance_entropy as m_entropy
+
         m_auth_weight = m_auth(text, metadata, year=2020)
         m_prov_entropy = m_entropy(text, metadata, year=2020)
 
@@ -531,4 +537,3 @@ class TestDocumentedExamplesMatchBehavior:
         # ln(1 - 0.90) ≈ -2.3, + 1.0 → -1.3, squared → 1.69, × 2.7 → ~4.6
         modern = empirical_distrust_loss(0.90, 1.0, alpha)
         assert 4 <= float(modern) <= 6
-

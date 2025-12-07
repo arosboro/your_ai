@@ -65,7 +65,7 @@ class TestBatchDistrustLossPerformance:
             authority_weights,
             provenance_entropies,
             alpha=2.7,
-            reduction="mean"
+            reduction="mean",
         )
 
         assert float(result) > 0
@@ -79,9 +79,7 @@ class TestBatchDistrustLossPerformance:
         # Batch method
         start = time.time()
         batch_result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            reduction="mean"
+            authority_weights, provenance_entropies, reduction="mean"
         )
         batch_time = time.time() - start
 
@@ -112,9 +110,7 @@ class TestBatchDistrustLossPerformance:
         # Batch method
         start = time.time()
         result = batch_empirical_distrust_loss(
-            authority_weights,
-            provenance_entropies,
-            reduction="mean"
+            authority_weights, provenance_entropies, reduction="mean"
         )
         _ = float(result)  # Force evaluation
         batch_time = time.time() - start
@@ -136,7 +132,7 @@ class TestBatchDistrustLossPerformance:
             batch_empirical_distrust_loss,
             authority_weights,
             provenance_entropies,
-            reduction=reduction
+            reduction=reduction,
         )
 
         if reduction == "none":
@@ -169,9 +165,7 @@ class TestMemoryUsage:
 
             # Calculate loss
             result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="mean"
+                authority_weights, provenance_entropies, reduction="mean"
             )
             _ = float(result)  # Force evaluation
 
@@ -204,10 +198,7 @@ class TestMemoryUsage:
         for _ in range(100):
             authority_weights = mx.random.uniform(0.0, 0.99, (1000,))
             provenance_entropies = mx.random.uniform(0.0, 10.0, (1000,))
-            result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies
-            )
+            result = batch_empirical_distrust_loss(authority_weights, provenance_entropies)
             _ = float(result)
 
         # Force cleanup
@@ -240,9 +231,7 @@ class TestLargeScaleBenchmarks:
             start = time.time()
             for _ in range(100):  # 100 iterations
                 result = batch_empirical_distrust_loss(
-                    authority_weights,
-                    provenance_entropies,
-                    reduction="mean"
+                    authority_weights, provenance_entropies, reduction="mean"
                 )
                 _ = float(result)
             elapsed = time.time() - start
@@ -268,9 +257,7 @@ class TestLargeScaleBenchmarks:
             provenance_entropies = mx.random.uniform(0.0, 10.0, (batch_size,))
 
             result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="mean"
+                authority_weights, provenance_entropies, reduction="mean"
             )
             _ = float(result)
 
@@ -306,9 +293,7 @@ class TestComputationalComplexity:
             start = time.time()
             for _ in range(10):  # Average over 10 runs
                 result = batch_empirical_distrust_loss(
-                    authority_weights,
-                    provenance_entropies,
-                    reduction="mean"
+                    authority_weights, provenance_entropies, reduction="mean"
                 )
                 _ = float(result)
             elapsed = time.time() - start
@@ -318,14 +303,16 @@ class TestComputationalComplexity:
         # Calculate scaling factors (informational)
         scaling_factors = []
         for i in range(1, len(timings)):
-            size_ratio = batch_sizes[i] / batch_sizes[i-1]
-            time_ratio = timings[i] / timings[i-1]
+            size_ratio = batch_sizes[i] / batch_sizes[i - 1]
+            time_ratio = timings[i] / timings[i - 1]
             scaling_factor = time_ratio / size_ratio
             scaling_factors.append(scaling_factor)
 
-            print(f"Batch {batch_sizes[i-1]} -> {batch_sizes[i]}: "
-                  f"time ratio {time_ratio:.2f}, size ratio {size_ratio:.2f}, "
-                  f"factor {scaling_factor:.2f}")
+            print(
+                f"Batch {batch_sizes[i - 1]} -> {batch_sizes[i]}: "
+                f"time ratio {time_ratio:.2f}, size ratio {size_ratio:.2f}, "
+                f"factor {scaling_factor:.2f}"
+            )
 
         # Main assertion: All batch sizes complete in reasonable time
         # (Performance characteristics are logged but not strictly enforced)
@@ -355,9 +342,7 @@ class TestComputationalComplexity:
             start = time.time()
             for _ in range(100):
                 result = batch_empirical_distrust_loss(
-                    auth_weights,
-                    prov_entropies,
-                    reduction="mean"
+                    auth_weights, prov_entropies, reduction="mean"
                 )
                 _ = float(result)
             elapsed = time.time() - start
@@ -389,9 +374,7 @@ class TestOptimizationOpportunities:
         start = time.time()
         for _ in range(100):
             result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="mean"
+                authority_weights, provenance_entropies, reduction="mean"
             )
             _ = float(result)
         elapsed_reused = time.time() - start
@@ -401,11 +384,7 @@ class TestOptimizationOpportunities:
         for _ in range(100):
             auth = mx.random.uniform(0.0, 0.99, (batch_size,))
             entropy = mx.random.uniform(0.0, 10.0, (batch_size,))
-            result = batch_empirical_distrust_loss(
-                auth,
-                entropy,
-                reduction="mean"
-            )
+            result = batch_empirical_distrust_loss(auth, entropy, reduction="mean")
             _ = float(result)
         elapsed_new = time.time() - start
 
@@ -423,9 +402,7 @@ class TestOptimizationOpportunities:
         start = time.time()
         for _ in range(100):
             result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="mean"
+                authority_weights, provenance_entropies, reduction="mean"
             )
         elapsed_lazy = time.time() - start
 
@@ -433,9 +410,7 @@ class TestOptimizationOpportunities:
         start = time.time()
         for _ in range(100):
             result = batch_empirical_distrust_loss(
-                authority_weights,
-                provenance_entropies,
-                reduction="mean"
+                authority_weights, provenance_entropies, reduction="mean"
             )
             _ = float(result)  # Force evaluation
         elapsed_eval = time.time() - start
@@ -443,4 +418,3 @@ class TestOptimizationOpportunities:
         print(f"Lazy (no eval): {elapsed_lazy:.4f}s")
         print(f"With eval: {elapsed_eval:.4f}s")
         print(f"Evaluation overhead: {(elapsed_eval - elapsed_lazy):.4f}s")
-

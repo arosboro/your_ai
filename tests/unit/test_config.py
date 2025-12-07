@@ -607,4 +607,3 @@ class TestModelConfigValidation:
 
         # Should be positive or -1 (all layers)
         assert config.lora_num_layers > 0 or config.lora_num_layers == -1
-
