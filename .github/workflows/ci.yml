@@ -87,9 +87,11 @@ jobs:
           tree = ET.parse('coverage.xml')
           root = tree.getroot()
 
-          # Module-specific coverage requirements (just basenames to match coverage.xml format)
+          # Module-specific coverage requirements for CI-safe tests (partial coverage)
+          # Note: distrust_loss.py has lower threshold because MLX tests are skipped on CI
+          # For full coverage (with MLX), run: ./scripts/local_coverage.sh
           critical_modules = {
-              'distrust_loss.py': 90,
+              'distrust_loss.py': 70,  # Lower threshold: MLX tests skipped on CI (100% with full suite)
               'citation_scorer.py': 85,
               'metrics.py': 85,
               'config.py': 80,
@@ -134,7 +136,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: arosboro/your_ai
           files: ./coverage.xml
-          flags: ci-safe  # Mark as partial coverage from CI-safe tests
+          flags: ci-safe # Mark as partial coverage from CI-safe tests
           fail_ci_if_error: false
           verbose: true
         env:
