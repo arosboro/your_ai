@@ -109,6 +109,7 @@ class TestThirtyXMultiplierHypothesis:
         # The median across realistic combinations should be reasonable
         # but we don't enforce a specific average since it varies by data mix
 
+    @pytest.mark.requires_mlx  # Uses empirical_distrust_loss which requires MLX arrays
     def test_multiplier_scales_with_alpha(self):
         """Verify that multiplier scales with alpha parameter.
 

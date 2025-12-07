@@ -203,12 +203,12 @@ pytest --cov=src --cov-report=html --cov-report=term-missing
 
 ### After Implementation
 
-- **Core algorithm tests**: 32 ✅
-- **Citation scorer tests**: 162 ✅
-- **Metrics tests**: 99 ✅
-- **Config tests**: 94 ✅
-- **Hypothesis verification**: 21 ✅
-- **Total new tests**: 376+
+- **Core algorithm tests**: 30 ✅
+- **Citation scorer tests**: 80 ✅
+- **Metrics tests**: 52 ✅
+- **Config tests**: 60 ✅
+- **Hypothesis verification**: 26 ✅
+- **Total new tests**: 376 ✅
 - **Target coverage**: 70-85%
 
 ---
