@@ -495,8 +495,8 @@ class TestConsistencyAcrossImplementations:
         from src.metrics import calculate_authority_weight as m_auth
         from src.metrics import calculate_provenance_entropy as m_entropy
 
-        m_auth_weight = m_auth(text, metadata, year=2020)
-        m_prov_entropy = m_entropy(text, metadata, year=2020)
+        m_auth_weight = m_auth(text, metadata)
+        m_prov_entropy = m_entropy(text, metadata)
 
         # Both should be in similar ranges (implementations differ slightly)
         # Allow 0.3 tolerance for authority
