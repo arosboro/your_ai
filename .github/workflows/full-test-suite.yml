@@ -1,0 +1,80 @@
+# Full Test Suite - Run manually or on release
+# This workflow runs the complete test suite including expensive tests
+# Only run this manually when needed, not on every commit
+
+name: Full Test Suite
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  release:
+    types: [published]
+
+jobs:
+  full-tests:
+    name: Full Test Suite (All Tests)
+    runs-on: macos-14  # Apple Silicon
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify MLX installation
+        run: |
+          python -c "import mlx.core as mx; print(f'MLX version: {mx.__version__}')"
+
+      - name: Run ALL unit tests (including MLX)
+        run: |
+          pytest -m unit --cov=src --cov-report=xml --cov-report=html --cov-report=term-missing -v
+
+      - name: Save coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: htmlcov/
+          retention-days: 30
+
+      - name: Run ALL integration tests
+        run: |
+          pytest -m integration -v
+
+      - name: Run performance benchmarks (sample)
+        run: |
+          # Run a subset of performance tests (full suite takes too long)
+          pytest tests/performance/test_distrust_loss_performance.py::TestDistrustLossPerformance -v --benchmark-only
+
+      - name: Upload FULL coverage report to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: full-suite  # Mark as complete coverage from all tests
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## Full Test Suite Completed" >> $GITHUB_STEP_SUMMARY
+          echo "This was a comprehensive test run including:" >> $GITHUB_STEP_SUMMARY
+          echo "- All unit tests (including MLX operations)" >> $GITHUB_STEP_SUMMARY
+          echo "- All integration tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance benchmarks (sample)" >> $GITHUB_STEP_SUMMARY
+

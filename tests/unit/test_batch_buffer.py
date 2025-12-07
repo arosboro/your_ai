@@ -1,4 +1,8 @@
-"""Unit tests for BatchBuffer."""
+"""Unit tests for BatchBuffer.
+
+NOTE: All tests require MLX arrays (Apple Silicon).
+Not run on CI to conserve runner resources.
+"""
 
 import pytest
 import mlx.core as mx
@@ -6,6 +10,7 @@ from src.data.batch_buffer import BatchBuffer
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_batch_buffer_allocation():
     """Test BatchBuffer allocates tensors correctly."""
     buffer = BatchBuffer(batch_size=4, max_seq_length=128, dtype=mx.int32)
@@ -17,6 +22,7 @@ def test_batch_buffer_allocation():
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_batch_buffer_reuse():
     """Test BatchBuffer can be reused across batches."""
     buffer = BatchBuffer(batch_size=4, max_seq_length=128)
@@ -34,6 +40,7 @@ def test_batch_buffer_reuse():
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_batch_buffer_different_sizes():
     """Test BatchBuffer handles different sequence lengths."""
     buffer = BatchBuffer(batch_size=2, max_seq_length=256)
@@ -46,6 +53,7 @@ def test_batch_buffer_different_sizes():
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_batch_buffer_clear():
     """Test BatchBuffer can be cleared."""
     buffer = BatchBuffer(batch_size=4, max_seq_length=128)
@@ -58,6 +66,7 @@ def test_batch_buffer_clear():
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_batch_buffer_invalid_size():
     """Test validation of buffer parameters."""
     with pytest.raises(ValueError):

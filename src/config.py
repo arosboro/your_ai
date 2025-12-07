@@ -492,7 +492,10 @@ def print_available_models():
             print(f"    HuggingFace: {info['name']}")
             print(f"    Description: {info['description']}")
             print(f"    Parameters:  {info['params']}")
-            print(f"    Disk (4-bit): {info['disk_4bit']}")
+            if "disk_4bit" in info:
+                print(f"    Disk (4-bit): {info['disk_4bit']}")
+            elif "disk_fp16" in info:
+                print(f"    Disk (fp16):  {info['disk_fp16']}")
             print(f"    RAM Required: {info['ram_required']}")
 
 
