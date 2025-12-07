@@ -97,7 +97,7 @@ def estimate_optimal_lambda_weight(
     alpha = 2.7
     epsilon = 1e-8
     distrust_component = (-1 * avg_auth) + avg_prov + epsilon
-    avg_distrust_loss = alpha * (distrust_component ** 2)
+    avg_distrust_loss = alpha * (distrust_component**2)
 
     # Estimate typical CE loss for untrained model (usually 3-8 depending on vocab size)
     # For most LLMs, initial CE loss is around log(vocab_size/1000) ≈ 3-6
@@ -114,8 +114,10 @@ def estimate_optimal_lambda_weight(
     print(f"   Average distrust loss (unscaled): {avg_distrust_loss:.2f}")
     print(f"   Estimated CE loss: {estimated_ce_loss:.2f}")
     print(f"   Recommended lambda_weight: {optimal_lambda:.4f}")
-    print(f"   This will make distrust contribute ~{optimal_lambda * avg_distrust_loss:.2f} "
-          f"vs CE ~{estimated_ce_loss:.2f}")
+    print(
+        f"   This will make distrust contribute ~{optimal_lambda * avg_distrust_loss:.2f} "
+        f"vs CE ~{estimated_ce_loss:.2f}"
+    )
 
     # Sanity bounds
     if optimal_lambda < 0.001:
@@ -840,12 +842,13 @@ Examples:
         return
 
     # Generate optimized profile from final hardware specs
-    # Respect saved profile if it has model_tiers (user customizations)
+    # Preserve any saved profile (even without model_tiers) and only fill missing runtime fields
     if generation and variant and memory:
-        if not hw_profile or "model_tiers" not in hw_profile:
+        if not hw_profile:
+            # Only generate new profile if none exists
             hw_profile = get_optimized_profile(generation, variant, memory)
         else:
-            # Ensure runtime fields are populated from saved profile
+            # Preserve existing profile, only fill missing runtime fields
             if "training_budget_gb" not in hw_profile:
                 hw_profile["training_budget_gb"] = int(memory * 0.80)
             if "gpu_cores" not in hw_profile:
@@ -860,7 +863,7 @@ Examples:
     model_path = args.model if args.model else PathConfig().model_path
 
     # Scale profile for model size (prevents OOM when running small models on large hardware)
-    # Auto-maximize is DISABLED by default until you run memory testing
+    # Auto-maximize is ENABLED by default for non-validated profiles unless explicitly disabled
     # Use: python scripts/test_memory_limits.py --model <model> to find optimal settings
     if hw_profile:
         # Check if profile is empirically validated
@@ -870,12 +873,14 @@ Examples:
             print("  → Using empirically validated settings")
             auto_maximize = False  # Use validated settings as-is
         else:
-            # Use conservative tier-based scaling (no auto-maximize by default)
-            auto_maximize = False
-            if not args.no_auto_maximize:
+            # Enable auto-maximize for non-validated profiles unless explicitly disabled
+            if args.no_auto_maximize:
+                auto_maximize = False
                 print("  ⚠️  Auto-maximize disabled for safety")
                 print(f"     Run: python scripts/test_memory_limits.py --model {model_path}")
                 print("     to find optimal settings for your hardware")
+            else:
+                auto_maximize = True  # Allow headroom scaling for non-validated profiles
 
         hw_profile = scale_profile_for_model(hw_profile, model_path, auto_maximize=auto_maximize)
 
@@ -994,7 +999,9 @@ Examples:
     print(f"  Learning rate:  {config.training.learning_rate}")
     print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
     print(f"  Max steps:      {config.training.max_steps}")
-    print(f"  TensorBoard:    {'enabled' if config.performance.tensorboard_enabled else 'disabled'}")
+    print(
+        f"  TensorBoard:    {'enabled' if config.performance.tensorboard_enabled else 'disabled'}"
+    )
     if config.performance.tensorboard_enabled:
         print(f"  TB log base:    {tensorboard_log_dir}/ (timestamped runs)")
     print("━" * 60)

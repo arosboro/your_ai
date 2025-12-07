@@ -52,12 +52,18 @@ def main():
             "rank": args.rank,
             "scale": 2.0,
             "dropout": 0.0,
-            "keys": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"],
+            "keys": [
+                "self_attn.q_proj",
+                "self_attn.k_proj",
+                "self_attn.v_proj",
+                "self_attn.o_proj",
+            ],
         }
         linear_to_lora_layers(model, num_layers=args.layers, config=lora_config)
 
         # Enable gradient checkpointing
         from train_qlora import grad_checkpoint
+
         grad_checkpoint(model.layers[0])
         print("Gradient checkpointing enabled")
 
@@ -87,7 +93,9 @@ def main():
             elapsed = time.time() - start
             step_times.append(elapsed)
             mem_mb = process.memory_info().rss / 1024 / 1024
-            print(f"  Step {step + 1}: loss={float(loss):.4f}, time={elapsed:.1f}s, mem={mem_mb:.0f}MB")
+            print(
+                f"  Step {step + 1}: loss={float(loss):.4f}, time={elapsed:.1f}s, mem={mem_mb:.0f}MB"
+            )
 
         avg_time = sum(step_times) / len(step_times)
         final_mem = process.memory_info().rss / 1024 / 1024
@@ -106,4 +114,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

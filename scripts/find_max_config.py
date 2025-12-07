@@ -67,12 +67,18 @@ def test_config(model_path: str, batch: int, rank: int, layers: int) -> dict:
             "rank": rank,
             "scale": 2.0,
             "dropout": 0.0,
-            "keys": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"],
+            "keys": [
+                "self_attn.q_proj",
+                "self_attn.k_proj",
+                "self_attn.v_proj",
+                "self_attn.o_proj",
+            ],
         }
         linear_to_lora_layers(model, num_layers=layers, config=lora_config)
 
         # Gradient checkpointing
         from train_qlora import grad_checkpoint
+
         grad_checkpoint(model.layers[0])
 
         # Training setup
@@ -125,7 +131,9 @@ def main():
     print("=" * 60)
     print(f"Model: {args.model}")
     print(f"Results file: {RESULTS_FILE}")
-    print(f"Starting from: batch={args.start_batch}, rank={args.start_rank}, layers={args.start_layers}")
+    print(
+        f"Starting from: batch={args.start_batch}, rank={args.start_rank}, layers={args.start_layers}"
+    )
     print()
     print("Will test increasing batch sizes first, then rank/layers.")
     print("Progress saved after EACH test. Check JSON if system crashes.")
@@ -221,11 +229,12 @@ def main():
         print(f"  step_time:    {best['step_time_s']:.1f}s")
         print()
         print("Profile config line:")
-        print(f'  "small": {{"lora_rank": {best["lora_rank"]}, "lora_alpha": {best["lora_alpha"]}, "lora_num_layers": {best["lora_layers"]}, "batch_size": {best["batch_size"]}}}')
+        print(
+            f'  "small": {{"lora_rank": {best["lora_rank"]}, "lora_alpha": {best["lora_alpha"]}, "lora_num_layers": {best["lora_layers"]}, "batch_size": {best["batch_size"]}}}'
+        )
     print("=" * 60)
     print(f"Full results saved to: {RESULTS_FILE}")
 
 
 if __name__ == "__main__":
     main()
-

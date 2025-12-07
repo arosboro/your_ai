@@ -24,7 +24,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
-def test_config(model_path: str, batch_size: int, lora_rank: int, lora_layers: int, steps: int = 2) -> dict:
+def test_config(
+    model_path: str, batch_size: int, lora_rank: int, lora_layers: int, steps: int = 2
+) -> dict:
     """
     Test a specific configuration by running actual training steps.
 
@@ -70,6 +72,7 @@ def test_config(model_path: str, batch_size: int, lora_rank: int, lora_layers: i
 
         # Apply gradient checkpointing (always for memory efficiency)
         from train_qlora import grad_checkpoint
+
         grad_checkpoint(model.layers[0])
 
         # Create dummy batch (realistic sequence length)
@@ -83,9 +86,7 @@ def test_config(model_path: str, batch_size: int, lora_rank: int, lora_layers: i
             labels = input_ids[:, 1:]
             logits = logits[:, :-1, :]
             loss = nn.losses.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]),
-                labels.reshape(-1),
-                reduction="mean"
+                logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), reduction="mean"
             )
             return loss
 
@@ -94,6 +95,7 @@ def test_config(model_path: str, batch_size: int, lora_rank: int, lora_layers: i
         # Run training steps
         import psutil
         import os
+
         process = psutil.Process(os.getpid())
 
         step_times = []
@@ -180,7 +182,11 @@ def main():
 
     total = len(configs)
     for i, (score, batch_size, lora_rank, lora_layers) in enumerate(configs, 1):
-        print(f"[{i}/{total}] Testing batch={batch_size}, rank={lora_rank}, layers={lora_layers}...", end=" ", flush=True)
+        print(
+            f"[{i}/{total}] Testing batch={batch_size}, rank={lora_rank}, layers={lora_layers}...",
+            end=" ",
+            flush=True,
+        )
 
         result = test_config(args.model, batch_size, lora_rank, lora_layers)
         results.append(result)
@@ -219,15 +225,23 @@ def main():
         print(f"  step_time:    {best_result['step_time_s']:.1f}s")
         print()
         print("Recommended profile update:")
-        print(f'  "small": {{"lora_rank": {best_result["lora_rank"]}, "lora_alpha": {best_result["lora_rank"] * 2}, "lora_num_layers": {best_result["lora_layers"]}, "batch_size": {best_result["batch_size"]}}}')
+        print(
+            f'  "small": {{"lora_rank": {best_result["lora_rank"]}, "lora_alpha": {best_result["lora_rank"] * 2}, "lora_num_layers": {best_result["lora_layers"]}, "batch_size": {best_result["batch_size"]}}}'
+        )
         print()
 
         # Also show top 5 by different metrics
         print("Top configurations by throughput (batch * rank * layers):")
-        successful_sorted = sorted(successful, key=lambda r: r["batch_size"] * r["lora_rank"] * r["lora_layers"], reverse=True)
+        successful_sorted = sorted(
+            successful,
+            key=lambda r: r["batch_size"] * r["lora_rank"] * r["lora_layers"],
+            reverse=True,
+        )
         for i, r in enumerate(successful_sorted[:5], 1):
             score = r["batch_size"] * r["lora_rank"] * r["lora_layers"]
-            print(f"  {i}. batch={r['batch_size']}, rank={r['lora_rank']}, layers={r['lora_layers']} (score={score}, {r['memory_mb']:.0f}MB)")
+            print(
+                f"  {i}. batch={r['batch_size']}, rank={r['lora_rank']}, layers={r['lora_layers']} (score={score}, {r['memory_mb']:.0f}MB)"
+            )
     else:
         print("No successful configurations found!")
 
@@ -247,5 +261,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

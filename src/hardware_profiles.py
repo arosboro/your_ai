@@ -397,7 +397,9 @@ def estimate_memory_usage(
 
     # Framework overhead
     mlx_overhead_gb = 2.5  # MLX framework memory (~2-3GB)
-    metal_buffer_overhead_gb = (base_model_gb + lora_params_gb + activation_gb) * 0.20  # Metal GPU buffers (20%)
+    metal_buffer_overhead_gb = (
+        base_model_gb + lora_params_gb + activation_gb
+    ) * 0.20  # Metal GPU buffers (20%)
     tokenizer_dataloader_gb = 1.5  # Tokenizer + dataloader overhead (~1-2GB)
 
     # Subtotal
@@ -466,13 +468,19 @@ def validate_config_safety(
 
     if estimated > training_budget_gb:
         overage = estimated - training_budget_gb
-        return False, f"Config exceeds budget by {overage:.1f}GB ({estimated:.1f}GB > {training_budget_gb}GB)"
+        return (
+            False,
+            f"Config exceeds budget by {overage:.1f}GB ({estimated:.1f}GB > {training_budget_gb}GB)",
+        )
 
     utilization = (estimated / training_budget_gb) * 100
     if utilization > 85:
         return False, f"Config uses {utilization:.1f}% of budget (unsafe, recommend <85%)"
 
-    return True, f"Config is safe ({estimated:.1f}GB / {training_budget_gb}GB, {utilization:.1f}% utilization)"
+    return (
+        True,
+        f"Config is safe ({estimated:.1f}GB / {training_budget_gb}GB, {utilization:.1f}% utilization)",
+    )
 
 
 def scale_config_with_headroom(
@@ -708,9 +716,7 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
         return "xlarge", params_billions
 
 
-def scale_profile_for_model(
-    profile: Dict, model_path: str, auto_maximize: bool = True
-) -> Dict:
+def scale_profile_for_model(profile: Dict, model_path: str, auto_maximize: bool = True) -> Dict:
     """
     Select model-tier-specific settings and optionally apply headroom-based scaling.
 
@@ -788,12 +794,16 @@ def scale_profile_for_model(
                     batch_size=scaled["batch_size"],
                 )
 
-                print(f"  → Optimized config: "
-                      f"rank={scaled['lora_rank']}, "
-                      f"layers={scaled['lora_num_layers']}, "
-                      f"batch={scaled['batch_size']}")
-                print(f"  → Estimated memory: {estimated_gb:.1f}GB / {training_budget}GB budget "
-                      f"({estimated_gb/training_budget*100:.1f}% utilization)")
+                print(
+                    f"  → Optimized config: "
+                    f"rank={scaled['lora_rank']}, "
+                    f"layers={scaled['lora_num_layers']}, "
+                    f"batch={scaled['batch_size']}"
+                )
+                print(
+                    f"  → Estimated memory: {estimated_gb:.1f}GB / {training_budget}GB budget "
+                    f"({estimated_gb / training_budget * 100:.1f}% utilization)"
+                )
     else:
         # Fallback: preserve existing profile settings (backward compatible)
         if params_billions > 0:

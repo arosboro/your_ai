@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from hardware_profiles import detect_hardware, save_hardware_profile
 
 
-def test_configuration(model_path: str, batch_size: int, lora_rank: int, lora_layers: int, max_steps: int = 5) -> bool:
+def test_configuration(
+    model_path: str, batch_size: int, lora_rank: int, lora_layers: int, max_steps: int = 5
+) -> bool:
     """
     Test if a configuration works without OOM.
 
@@ -33,11 +35,16 @@ def test_configuration(model_path: str, batch_size: int, lora_rank: int, lora_la
     cmd = [
         sys.executable,
         "src/train_qlora.py",
-        "--model", model_path,
-        "--batch-size", str(batch_size),
-        "--lora-rank", str(lora_rank),
-        "--lora-layers", str(lora_layers),
-        "--max-steps", str(max_steps),
+        "--model",
+        model_path,
+        "--batch-size",
+        str(batch_size),
+        "--lora-rank",
+        str(lora_rank),
+        "--lora-layers",
+        str(lora_layers),
+        "--max-steps",
+        str(max_steps),
         "--no-auto-maximize",  # Critical: disable auto-maximize
         # Use streaming mode (default) to match real training conditions
     ]
@@ -50,21 +57,31 @@ def test_configuration(model_path: str, batch_size: int, lora_rank: int, lora_la
             timeout=300,  # 5 minute timeout
         )
 
-        # Check for OOM errors
-        if "Insufficient Memory" in result.stderr or "kIOGPUCommandBufferCallbackErrorOutOfMemory" in result.stderr:
-            print("   ❌ OOM - Configuration too large")
+        # Any non-zero return code is a failure
+        if result.returncode != 0:
+            print("   ❌ Failed - Non-zero exit code")
+            # Log specific OOM errors if present
+            if (
+                "Insufficient Memory" in result.stderr
+                or "kIOGPUCommandBufferCallbackErrorOutOfMemory" in result.stderr
+            ):
+                print("      (OOM detected)")
+            # Include relevant output for debugging
+            if result.stderr:
+                stderr_preview = result.stderr[:200].replace("\n", " ")
+                print(f"      stderr: {stderr_preview}...")
             return False
 
-        if result.returncode != 0 and "abort" in result.stderr.lower():
-            print("   ❌ Crashed - Configuration too large")
-            return False
+        # returncode == 0: Check both stdout and stderr for training start markers
+        combined_output = result.stdout + result.stderr
+        success_markers = ["Training:", "Baseline memory:", "Step 1/"]
 
-        # Check if it at least started training
-        if "Training:" in result.stderr or "Baseline memory" in result.stderr:
+        if any(marker in combined_output for marker in success_markers):
             print("   ✅ Success - Configuration works!")
             return True
 
-        print("   ⚠️  Unclear result - treating as failure")
+        # returncode == 0 but no training markers found - treat as failure
+        print("   ⚠️  No training markers found - treating as failure")
         return False
 
     except subprocess.TimeoutExpired:
@@ -75,7 +92,9 @@ def test_configuration(model_path: str, batch_size: int, lora_rank: int, lora_la
         return False
 
 
-def binary_search_batch_size(model_path: str, lora_rank: int, lora_layers: int, min_batch: int = 1, max_batch: int = 128) -> int:
+def binary_search_batch_size(
+    model_path: str, lora_rank: int, lora_layers: int, min_batch: int = 1, max_batch: int = 128
+) -> int:
     """
     Use binary search to find maximum working batch size.
     """
@@ -138,7 +157,9 @@ def progressive_test(model_path: str, output_file: str = None):
     base_rank = 32
     base_layers = 8
 
-    max_batch = binary_search_batch_size(model_path, base_rank, base_layers, min_batch=1, max_batch=64)
+    max_batch = binary_search_batch_size(
+        model_path, base_rank, base_layers, min_batch=1, max_batch=64
+    )
 
     # Phase 2: Increase rank
     print("\n" + "=" * 70)
@@ -158,7 +179,9 @@ def progressive_test(model_path: str, output_file: str = None):
         if test_configuration(model_path, test_batch, rank, base_layers):
             best_rank = rank
             # Find new max batch for this rank
-            max_batch = binary_search_batch_size(model_path, rank, base_layers, min_batch=1, max_batch=max_batch)
+            max_batch = binary_search_batch_size(
+                model_path, rank, base_layers, min_batch=1, max_batch=max_batch
+            )
         else:
             print(f"   Rank {rank} doesn't fit, stopping at {best_rank}")
             break
@@ -181,7 +204,9 @@ def progressive_test(model_path: str, output_file: str = None):
 
         if test_configuration(model_path, test_batch, best_rank, layers):
             best_layers = layers
-            max_batch = binary_search_batch_size(model_path, best_rank, layers, min_batch=1, max_batch=max_batch)
+            max_batch = binary_search_batch_size(
+                model_path, best_rank, layers, min_batch=1, max_batch=max_batch
+            )
         else:
             print(f"   {layers} layers doesn't fit, stopping at {best_layers}")
             break
@@ -271,18 +296,11 @@ Examples:
 
   # Test and save to specific file
   python scripts/test_memory_limits.py --model dolphin-8b --output results.json
-        """
+        """,
     )
 
-    parser.add_argument(
-        "--model",
-        required=True,
-        help="Model path or HuggingFace ID to test with"
-    )
-    parser.add_argument(
-        "--output",
-        help="Output JSON file (default: optimal_config_measured.json)"
-    )
+    parser.add_argument("--model", required=True, help="Model path or HuggingFace ID to test with")
+    parser.add_argument("--output", help="Output JSON file (default: optimal_config_measured.json)")
 
     args = parser.parse_args()
 
@@ -294,10 +312,10 @@ Examples:
     except Exception as e:
         print(f"\n\n❌ Error during testing: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-
