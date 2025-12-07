@@ -81,15 +81,15 @@ See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for the complete technical document
 
 ## Quick Start
 
-**Default Model:** `huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated` (DeepSeek-R1 reasoning, 70B, uncensored)
-
 ### Hardware Requirements
 
-| Tier       | Mac           | RAM   | Disk    | Recommended Model          |
-| ---------- | ------------- | ----- | ------- | -------------------------- |
-| **Large**  | M2/M3 Ultra   | 64GB+ | 40-50GB | `r1-distill-70b` (default) |
-| **Medium** | M2/M3 Pro/Max | 32GB  | 18-25GB | `r1-distill-32b`           |
-| **Entry**  | M1/M2/M3 base | 16GB  | 5-8GB   | `llama-8b-abliterated`     |
+| Tier       | Mac            | RAM   | Disk    | Recommended Model                      |
+| ---------- | -------------- | ----- | ------- | -------------------------------------- |
+| **Large**  | M2/M3/M4 Ultra | 96GB+ | 40-50GB | `Hermes-7B` (fast) or `r1-distill-70b` |
+| **Medium** | M2/M3 Pro/Max  | 32GB  | 18-25GB | `Hermes-7B` or `r1-distill-14b`        |
+| **Entry**  | M1/M2/M3 base  | 16GB  | 5-8GB   | `Hermes-7B` or `dolphin-8b`            |
+
+**Note:** Start with 7B models (NousResearch/Hermes-2-Pro-Mistral-7B) - they're fast and work on all tiers.
 
 ### Installation
 
@@ -116,43 +116,75 @@ python scripts/analyze_jsonl.py "data/raw/*_deduped.jsonl"
 python src/prepare_data_curated.py --input data/raw --output data \
   --train-size 80000 --val-size 20000
 
-# 5. Train with QLoRA (choose your hardware tier)
+# 5. Find optimal settings for YOUR hardware (one-time, 20-40 minutes)
+# NEW (v0.2.5): Uses real training data for accurate results
+python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 
-# LARGE (64GB+ Mac) - Default
+# 6. Train with the benchmarked configuration
+# Use the exact settings reported by benchmark (e.g., batch=12, rank=128, layers=16)
 python src/train_qlora.py \
-  --model huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-r1-distill-70b \
-  --batch-size 2 \
-  --max-steps 10000 \
-  --alpha 2.7
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 12 \
+  --lora-rank 128 \
+  --lora-layers 16
 
-# MEDIUM (32GB Mac)
-python src/train_qlora.py \
-  --model huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-r1-distill-32b \
-  --batch-size 2 \
-  --max-steps 10000 \
-  --alpha 2.7
+# 7. Monitor training in real-time with TensorBoard
+tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
+# Open browser to http://localhost:6006/
 
-# ENTRY (16GB Mac)
-python src/train_qlora.py \
-  --model mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-llama-8b \
-  --batch-size 4 \
-  --max-steps 10000 \
-  --alpha 2.7
-
-# 6. Export for LM Studio
+# 8. Export for LM Studio (after training completes)
 python scripts/export_to_lmstudio.py \
-  --base-model huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated \
-  --lora-path models/distrust-r1-distill-70b \
-  --output models/distrust-r1-distill-70b-merged
+  --base-model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --lora-path models/distrust-hermes-2-pro-mistral-7b \
+  --output models/distrust-hermes-2-pro-mistral-7b-merged
 ```
 
+### Proven Safe Configuration (M3 Ultra 96GB)
+
+For **NousResearch/Hermes-2-Pro-Mistral-7B** (tested with real training):
+
+```bash
+# PROVEN SAFE: Tested with real data, distrust loss, full training
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 17 \
+  --lora-rank 128 \
+  --lora-layers 16 \
+  --max-steps 5000 \
+  --lambda-weight 0.05 \
+  --warmup-steps 200 \
+  --max-grad-norm 0.5
+```
+
+**Note:**
+
+- Lambda weight is auto-calibrated but you can override with `--lambda-weight`
+- Warmup prevents loss explosions (implemented in v0.2.5)
+- Run `python scripts/find_optimal_profile.py` to find YOUR optimal settings
+
+### Real-Time Training Monitoring
+
+All training runs automatically log metrics to TensorBoard:
+
+```bash
+# View training metrics in real-time
+tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
+
+# Open browser to: http://localhost:6006/
+```
+
+**Tracked Metrics:**
+
+- Loss curves (total, cross-entropy, distrust)
+- Learning rate schedule
+- Gradient norms
+- Memory usage
+
+Each run creates a timestamped subdirectory so you can compare multiple experiments.
+
 **For complete step-by-step instructions**, see [`TRAINING_GUIDE.md`](TRAINING_GUIDE.md).
+
+**For memory optimization**, see [`MEMORY_TESTING.md`](MEMORY_TESTING.md).
 
 **For data quality workflow details**, see [`docs/DATA_PREPARATION_REALITY.md`](docs/DATA_PREPARATION_REALITY.md).
 
@@ -257,6 +289,46 @@ python scripts/validate_model.py -m "NousResearch/Hermes-2-Pro-Mistral-7B" -o va
 ```
 
 See [docs/BASE_MODEL_SELECTION.md](docs/BASE_MODEL_SELECTION.md) for detailed analysis and model recommendations.
+
+---
+
+## Script Organization
+
+The project has been reorganized for clarity. Here's what you should use:
+
+### Data Preparation
+
+- **Use:** `src/prepare_data_curated.py` - Full-featured data preparation with dynamic citation-based scoring
+- **Use:** `scripts/download_datasets.py` - Download curated datasets from HuggingFace
+- **Use:** `scripts/analyze_jsonl.py` - Analyze data quality
+- **Use:** `scripts/deduplicate_jsonl.py` - Remove duplicates
+
+### Model Training & Evaluation
+
+- **Use:** `src/train_qlora.py` - Main training script
+- **Use:** `scripts/validate_model.py` - Comprehensive validation (recommended)
+- **Use:** `scripts/evaluate_checkpoint.py` - Evaluate LoRA checkpoints
+- **Use:** `scripts/evaluate_prompt.py` - Structured prompt evaluation
+
+### Optimization & Utilities
+
+- **Use:** `scripts/find_optimal_profile.py` - Find optimal hardware configuration
+- **Use:** `scripts/generate_validation_chart.py` - Generate validation radar charts
+- **Use:** `scripts/export_to_lmstudio.py` - Export trained models
+
+### Deprecated Files
+
+Some files have been deprecated as of v0.3.0:
+
+- ~~`scripts/evaluate.py`~~ → Use `scripts/validate_model.py` instead
+- ~~`src/prepare_data.py`~~ → Use `src/prepare_data_curated.py` instead
+- ~~`src/prepare_data_improved.py`~~ → Use `src/prepare_data_curated.py` instead
+
+See [`DEPRECATED.md`](DEPRECATED.md) for detailed migration guidance.
+
+### Results Organization
+
+All validation and evaluation results are now stored in the `results/` directory to keep the project root clean.
 
 ---
 

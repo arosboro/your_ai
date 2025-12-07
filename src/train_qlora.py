@@ -18,6 +18,8 @@ import argparse
 from typing import Dict, List, Optional
 from tqdm import tqdm
 import psutil
+from datetime import datetime
+from tensorboardX import SummaryWriter
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -42,7 +44,90 @@ from hardware_profiles import (
     recommend_models,
     detect_hardware,
     scale_profile_for_model,
+    validate_config_safety,
+    detect_model_size,
 )
+
+
+def estimate_optimal_lambda_weight(
+    train_file: str, num_samples: int = 100, target_ratio: float = 1.0
+) -> float:
+    """
+    Estimate optimal lambda_weight by analyzing training data statistics.
+
+    The goal is to balance distrust loss and cross-entropy loss so they contribute
+    equally to training (or at a specified ratio).
+
+    Parameters:
+        train_file: Path to training data JSONL file
+        num_samples: Number of samples to analyze (default: 100)
+        target_ratio: Desired ratio of distrust_contribution / ce_loss (default: 1.0)
+
+    Returns:
+        Recommended lambda_weight value
+    """
+    import json
+
+    print("\n🔍 Analyzing training data to calibrate lambda_weight...")
+
+    auth_weights = []
+    prov_entropies = []
+
+    # Sample training data
+    with open(train_file, "r") as f:
+        for i, line in enumerate(f):
+            if i >= num_samples:
+                break
+            try:
+                sample = json.loads(line)
+                auth_weights.append(sample.get("auth_weight", 0.5))
+                prov_entropies.append(sample.get("prov_entropy", 5.0))
+            except json.JSONDecodeError:
+                continue
+
+    if not auth_weights:
+        print("⚠️  Could not read training data, using default lambda_weight=0.6")
+        return 0.6
+
+    # Compute average distrust loss (without lambda scaling)
+    avg_auth = sum(auth_weights) / len(auth_weights)
+    avg_prov = sum(prov_entropies) / len(prov_entropies)
+
+    # Using alpha=2.7 (default)
+    alpha = 2.7
+    epsilon = 1e-8
+    distrust_component = (-1 * avg_auth) + avg_prov + epsilon
+    avg_distrust_loss = alpha * (distrust_component**2)
+
+    # Estimate typical CE loss for untrained model (usually 3-8 depending on vocab size)
+    # For most LLMs, initial CE loss is around log(vocab_size/1000) ≈ 3-6
+    estimated_ce_loss = 5.0
+
+    # Calculate lambda to achieve target ratio
+    # target_ratio = (distrust_loss * lambda) / ce_loss
+    # lambda = (target_ratio * ce_loss) / distrust_loss
+    optimal_lambda = (target_ratio * estimated_ce_loss) / avg_distrust_loss
+
+    print(f"   Sample size: {len(auth_weights)} examples")
+    print(f"   Average auth_weight: {avg_auth:.4f}")
+    print(f"   Average prov_entropy: {avg_prov:.4f}")
+    print(f"   Average distrust loss (unscaled): {avg_distrust_loss:.2f}")
+    print(f"   Estimated CE loss: {estimated_ce_loss:.2f}")
+    print(f"   Recommended lambda_weight: {optimal_lambda:.4f}")
+    print(
+        f"   This will make distrust contribute ~{optimal_lambda * avg_distrust_loss:.2f} "
+        f"vs CE ~{estimated_ce_loss:.2f}"
+    )
+
+    # Sanity bounds
+    if optimal_lambda < 0.001:
+        print(f"   ⚠️  Clamping to minimum 0.001 (was {optimal_lambda:.6f})")
+        optimal_lambda = 0.001
+    elif optimal_lambda > 1.0:
+        print(f"   ⚠️  Clamping to maximum 1.0 (was {optimal_lambda:.4f})")
+        optimal_lambda = 1.0
+
+    return optimal_lambda
 
 
 def grad_checkpoint(layer):
@@ -91,6 +176,19 @@ class DistrustTrainer:
         else:
             self.checkpoint_manager = None
 
+        # Setup TensorBoard writer for metric logging
+        self.tensorboard_enabled = getattr(self.config.performance, "tensorboard_enabled", True)
+        if self.tensorboard_enabled:
+            # Create timestamped subdirectory to prevent log overlap between runs
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_dir = Path(self.config.paths.output_dir) / "logs" / f"run_{timestamp}"
+            self.writer = SummaryWriter(logdir=str(log_dir))
+            self.tensorboard_log_dir = log_dir
+            print(f"TensorBoard logging to: {log_dir}")
+        else:
+            self.writer = None
+            self.tensorboard_log_dir = None
+
     def setup_model(self):
         """Load model and tokenizer, apply LoRA."""
         # Set memory limit to prevent OOM crashes (from mlx-lm trainer)
@@ -134,12 +232,41 @@ class DistrustTrainer:
         print("Model ready for training")
 
     def setup_optimizer(self):
-        """Setup optimizer with cosine learning rate scheduler."""
-        # Cosine decay from initial LR to ~0 over max_steps
-        self.lr_schedule = optim.cosine_decay(
-            init=self.config.training.learning_rate,
-            decay_steps=self.config.training.max_steps,
-        )
+        """Setup optimizer with warmup + cosine learning rate scheduler."""
+        # Create a custom schedule with warmup + cosine decay
+        warmup_steps = self.config.training.warmup_steps
+        max_steps = self.config.training.max_steps
+        lr = self.config.training.learning_rate
+
+        # Validate configuration to prevent division by zero
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+        if warmup_steps >= max_steps:
+            raise ValueError(
+                f"warmup_steps ({warmup_steps}) must be less than max_steps ({max_steps}). "
+                f"Recommended: warmup_steps = {max(1, max_steps // 50)} (2% of training)"
+            )
+
+        # Define warmup + cosine schedule function
+        def warmup_cosine_schedule(step):
+            """Linear warmup followed by cosine decay."""
+            if warmup_steps == 0 or step < warmup_steps:
+                if warmup_steps == 0:
+                    # No warmup - start at target LR immediately
+                    warmup_lr = lr
+                else:
+                    # Linear warmup from 1e-7 to target LR
+                    warmup_lr = 1e-7 + (lr - 1e-7) * (step / warmup_steps)
+
+                # Return warmup LR if still in warmup phase
+                if step < warmup_steps:
+                    return warmup_lr
+
+            # Cosine decay from target LR to ~0
+            progress = (step - warmup_steps) / (max_steps - warmup_steps)
+            return lr * 0.5 * (1.0 + mx.cos(mx.array(progress * 3.141592653589793)))
+
+        self.lr_schedule = warmup_cosine_schedule
         self.optimizer = optim.AdamW(
             learning_rate=self.lr_schedule,
             betas=[self.config.training.adam_beta1, self.config.training.adam_beta2],
@@ -208,14 +335,24 @@ class DistrustTrainer:
             StreamingDataset if streaming enabled, else List[Dict]
         """
         if self.config.performance.use_streaming:
-            print(
-                f"Using streaming mode (buffer_size={self.config.performance.streaming_buffer_size})"
+            effective_batch_size = (
+                self.config.training.batch_size * self.config.training.gradient_accumulation_steps
             )
+            # Buffer must be at least 2x effective batch size for shuffling
+            min_buffer_size = effective_batch_size * 2
+            buffer_size = max(self.config.performance.streaming_buffer_size, min_buffer_size)
+
+            if buffer_size > self.config.performance.streaming_buffer_size:
+                print(
+                    f"Auto-scaling buffer_size from {self.config.performance.streaming_buffer_size} "
+                    f"to {buffer_size} (2x effective batch size of {effective_batch_size})"
+                )
+
+            print(f"Using streaming mode (buffer_size={buffer_size})")
             return StreamingDataset(
                 file_paths=[file_path],
-                batch_size=self.config.training.batch_size
-                * self.config.training.gradient_accumulation_steps,
-                buffer_size=self.config.performance.streaming_buffer_size,
+                batch_size=effective_batch_size,
+                buffer_size=buffer_size,
                 shuffle=True,
                 seed=self.config.seed,
                 cycle=True,  # Loop for multiple epochs
@@ -310,6 +447,13 @@ class DistrustTrainer:
         else:
             grad_norm = mx.array(0.0)  # Placeholder when clipping disabled
 
+        # Detect gradient norm spikes (warning threshold)
+        grad_norm_value = float(grad_norm)
+        if grad_norm_value > 5.0:
+            print(f"\n⚠️  WARNING: High gradient norm detected: {grad_norm_value:.2f}")
+            print(f"   CE Loss: {float(ce_loss):.4f}, Distrust Loss: {float(distrust_loss):.4f}")
+            print("   Consider reducing lambda_weight or learning_rate if this persists\n")
+
         # Update parameters
         self.optimizer.update(self.model, grads)
 
@@ -323,7 +467,7 @@ class DistrustTrainer:
             "total_loss": float(total_loss),
             "ce_loss": float(ce_loss),
             "distrust_loss": float(distrust_loss),
-            "grad_norm": float(grad_norm),
+            "grad_norm": grad_norm_value,
             "lr": float(current_lr),
         }
 
@@ -348,9 +492,10 @@ class DistrustTrainer:
         # Adjust progress bar to start from current step if resuming
         pbar = tqdm(initial=self.global_step, total=self.config.training.max_steps, desc="Training")
 
-        # Memory tracking
+        # Memory tracking (capture baseline before any training activity)
         process = psutil.Process(os.getpid())
         baseline_memory_mb = process.memory_info().rss / 1024 / 1024
+        print(f"Baseline memory: {baseline_memory_mb:.1f}MB")
 
         if is_streaming:
             # Streaming mode: iterate over dataset
@@ -397,6 +542,17 @@ class DistrustTrainer:
 
                     pbar.set_postfix(metrics)
 
+                    # Log to TensorBoard
+                    if self.writer:
+                        self.writer.add_scalar("loss/total", metrics["total_loss"], step)
+                        self.writer.add_scalar("loss/cross_entropy", metrics["ce_loss"], step)
+                        self.writer.add_scalar("loss/distrust", metrics["distrust_loss"], step)
+                        self.writer.add_scalar("training/learning_rate", metrics["lr"], step)
+                        self.writer.add_scalar("training/grad_norm", metrics["grad_norm"], step)
+                        self.writer.add_scalar("system/memory_mb", current_memory_mb, step)
+                        # Track memory change (absolute value since GC can free memory)
+                        self.writer.add_scalar("system/memory_change_mb", memory_delta_mb, step)
+
                 # Save checkpoint
                 if (
                     self.checkpoint_manager
@@ -428,7 +584,24 @@ class DistrustTrainer:
 
                 # Logging
                 if step % self.config.training.logging_steps == 0:
+                    current_memory_mb = process.memory_info().rss / 1024 / 1024
+                    memory_delta_mb = current_memory_mb - baseline_memory_mb
+
+                    metrics["memory_mb"] = f"{current_memory_mb:.1f}"
+                    metrics["mem_delta"] = f"+{memory_delta_mb:.1f}"
+
                     pbar.set_postfix(metrics)
+
+                    # Log to TensorBoard
+                    if self.writer:
+                        self.writer.add_scalar("loss/total", metrics["total_loss"], step)
+                        self.writer.add_scalar("loss/cross_entropy", metrics["ce_loss"], step)
+                        self.writer.add_scalar("loss/distrust", metrics["distrust_loss"], step)
+                        self.writer.add_scalar("training/learning_rate", metrics["lr"], step)
+                        self.writer.add_scalar("training/grad_norm", metrics["grad_norm"], step)
+                        self.writer.add_scalar("system/memory_mb", current_memory_mb, step)
+                        # Track memory change (absolute value since GC can free memory)
+                        self.writer.add_scalar("system/memory_change_mb", memory_delta_mb, step)
 
                 # Save checkpoint
                 if (
@@ -442,6 +615,12 @@ class DistrustTrainer:
                 pbar.update(1)
 
         pbar.close()
+
+        # Close TensorBoard writer
+        if self.writer:
+            self.writer.close()
+            print(f"TensorBoard logs saved to: {self.tensorboard_log_dir}")
+
         print("Training complete!")
 
         # Final save
@@ -554,6 +733,11 @@ Examples:
     hw_group.add_argument(
         "--memory", type=int, help="Unified memory in GB (overrides saved profile)"
     )
+    hw_group.add_argument(
+        "--no-auto-maximize",
+        action="store_true",
+        help="Disable automatic memory optimization (use strict tier-based scaling)",
+    )
 
     # Model options
     model_group = parser.add_argument_group("Model Configuration")
@@ -586,7 +770,19 @@ Examples:
         "--lambda-weight",
         type=float,
         default=None,
-        help="Weight of distrust loss relative to cross-entropy (default: 0.6)",
+        help="Weight of distrust loss relative to cross-entropy (default: 0.6, range: 0.3-0.8)",
+    )
+    train_group.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help="Maximum gradient norm for clipping (default: 1.0, try 0.5 for more stability)",
+    )
+    train_group.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=None,
+        help="Number of warmup steps for learning rate (default: 100)",
     )
     train_group.add_argument(
         "--grad-checkpoint", action="store_true", help="Enable gradient checkpointing"
@@ -600,6 +796,12 @@ Examples:
     stream_group.add_argument("--no-streaming", action="store_true", help="Disable streaming mode")
     stream_group.add_argument(
         "--streaming-buffer-size", type=int, default=1000, help="Streaming buffer size"
+    )
+
+    # Logging options
+    log_group = parser.add_argument_group("Logging Options")
+    log_group.add_argument(
+        "--no-tensorboard", action="store_true", help="Disable TensorBoard logging"
     )
 
     # Checkpoint options
@@ -688,8 +890,19 @@ Examples:
         return
 
     # Generate optimized profile from final hardware specs
+    # Preserve any saved profile (even without model_tiers) and only fill missing runtime fields
     if generation and variant and memory:
-        hw_profile = get_optimized_profile(generation, variant, memory)
+        if not hw_profile:
+            # Only generate new profile if none exists
+            hw_profile = get_optimized_profile(generation, variant, memory)
+        else:
+            # Preserve existing profile, only fill missing runtime fields
+            if "training_budget_gb" not in hw_profile:
+                hw_profile["training_budget_gb"] = int(memory * 0.80)
+            if "gpu_cores" not in hw_profile:
+                from hardware_profiles import get_gpu_cores
+
+                hw_profile["gpu_cores"] = get_gpu_cores(generation, variant)
     else:
         print("No hardware profile found. Run --setup for optimal configuration.")
         print("Using default settings (may not be optimal for your hardware).")
@@ -698,8 +911,26 @@ Examples:
     model_path = args.model if args.model else PathConfig().model_path
 
     # Scale profile for model size (prevents OOM when running small models on large hardware)
+    # Auto-maximize is ENABLED by default for non-validated profiles unless explicitly disabled
+    # Use: python scripts/test_memory_limits.py --model <model> to find optimal settings
     if hw_profile:
-        hw_profile = scale_profile_for_model(hw_profile, model_path)
+        # Check if profile is empirically validated
+        is_validated = hw_profile.get("empirically_validated", False)
+
+        if is_validated:
+            print("  → Using empirically validated settings")
+            auto_maximize = False  # Use validated settings as-is
+        else:
+            # Enable auto-maximize for non-validated profiles unless explicitly disabled
+            if args.no_auto_maximize:
+                auto_maximize = False
+                print("  ⚠️  Auto-maximize disabled for safety")
+                print(f"     Run: python scripts/test_memory_limits.py --model {model_path}")
+                print("     to find optimal settings for your hardware")
+            else:
+                auto_maximize = True  # Allow headroom scaling for non-validated profiles
+
+        hw_profile = scale_profile_for_model(hw_profile, model_path, auto_maximize=auto_maximize)
 
     # Create config
     config = Config()
@@ -720,6 +951,22 @@ Examples:
         if not args.grad_checkpoint and not args.no_grad_checkpoint:
             config.training.grad_checkpoint = hw_profile.get("grad_checkpoint", True)
 
+        # Auto-adjust gradient accumulation based on batch size
+        # With large optimized batch sizes, we don't need as much gradient accumulation
+        batch_size = config.training.batch_size
+        if batch_size >= 64:
+            # Very large batch - minimal gradient accumulation needed
+            config.training.gradient_accumulation_steps = 2
+            print(f"  → Auto-adjusted gradient_accumulation_steps to 2 (batch_size={batch_size})")
+        elif batch_size >= 32:
+            # Large batch - reduced gradient accumulation
+            config.training.gradient_accumulation_steps = 4
+            print(f"  → Auto-adjusted gradient_accumulation_steps to 4 (batch_size={batch_size})")
+        elif batch_size >= 16:
+            # Medium batch - moderate gradient accumulation
+            config.training.gradient_accumulation_steps = 4
+        # else: keep default (8) for small batches
+
     # Apply CLI overrides
     config.paths.model_path = model_path
 
@@ -737,6 +984,14 @@ Examples:
     config.training.max_steps = args.max_steps
     config.training.learning_rate = args.learning_rate
 
+    # Apply gradient clipping and warmup overrides
+    if args.max_grad_norm is not None:
+        config.training.max_grad_norm = args.max_grad_norm
+        print(f"Using explicit max_grad_norm: {args.max_grad_norm}")
+    if args.warmup_steps is not None:
+        config.training.warmup_steps = args.warmup_steps
+        print(f"Using explicit warmup_steps: {args.warmup_steps}")
+
     if args.lora_rank is not None:
         config.model.lora_rank = args.lora_rank
     if args.lora_alpha is not None:
@@ -752,6 +1007,19 @@ Examples:
     config.distrust.alpha = args.alpha
     if args.lambda_weight is not None:
         config.distrust.lambda_weight = args.lambda_weight
+        print(f"Using explicit lambda_weight: {args.lambda_weight}")
+    else:
+        # Auto-calibrate lambda_weight based on training data
+        train_file = Path(args.data_dir) / "train.jsonl"
+        if train_file.exists():
+            optimal_lambda = estimate_optimal_lambda_weight(
+                str(train_file), num_samples=100, target_ratio=1.0
+            )
+            config.distrust.lambda_weight = optimal_lambda
+            print(f"✓ Auto-calibrated lambda_weight: {optimal_lambda:.4f}")
+        else:
+            print(f"⚠️  Training file not found at {train_file}, using default lambda_weight=0.6")
+            # Keep default from config
 
     if args.grad_checkpoint:
         config.training.grad_checkpoint = True
@@ -761,11 +1029,13 @@ Examples:
     # Performance config
     config.performance.use_streaming = not args.no_streaming
     config.performance.streaming_buffer_size = args.streaming_buffer_size
+    config.performance.tensorboard_enabled = not args.no_tensorboard
 
     # Update checkpoint dir to match output dir
     config.performance.checkpoint_dir = config.paths.output_dir
 
     # Display configuration summary
+    tensorboard_log_dir = Path(config.paths.output_dir) / "logs"
     print()
     print("━" * 60)
     print("Training Configuration")
@@ -785,8 +1055,39 @@ Examples:
     print(f"  Learning rate:  {config.training.learning_rate}")
     print(f"  Grad checkpoint:{config.training.grad_checkpoint}")
     print(f"  Max steps:      {config.training.max_steps}")
+    print(
+        f"  TensorBoard:    {'enabled' if config.performance.tensorboard_enabled else 'disabled'}"
+    )
+    if config.performance.tensorboard_enabled:
+        print(f"  TB log base:    {tensorboard_log_dir}/ (timestamped runs)")
     print("━" * 60)
+    if config.performance.tensorboard_enabled:
+        print(f"  To view metrics: tensorboard --logdir {tensorboard_log_dir}")
+        print("  Each run creates a timestamped subdirectory (run_YYYY-MM-DD_HH-MM-SS)")
+        print("━" * 60)
     print()
+
+    # Safety validation: verify config won't cause OOM
+    if hw_profile and "training_budget_gb" in hw_profile:
+        _, params_billions = detect_model_size(model_path)
+        validation_config = {
+            "lora_rank": config.model.lora_rank,
+            "lora_num_layers": config.model.lora_num_layers,
+            "batch_size": config.training.batch_size,
+        }
+        is_safe, message = validate_config_safety(
+            validation_config, params_billions, hw_profile["training_budget_gb"]
+        )
+        if is_safe:
+            print(f"✓ Safety check passed: {message}")
+        else:
+            print(f"⚠️  WARNING: {message}")
+            print("   Training may crash with OOM error!")
+            confirm = input("   Continue anyway? [y/N] ").strip().lower()
+            if confirm not in ("y", "yes"):
+                print("Aborting training for safety.")
+                return
+        print()
 
     # Train
     trainer = DistrustTrainer(config)

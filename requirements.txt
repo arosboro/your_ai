@@ -51,9 +51,10 @@ tqdm>=4.66.0
 peft>=0.7.0  # Parameter-Efficient Fine-Tuning (LoRA)
 
 # -----------------------------------------
-# Optional: Experiment tracking
+# Experiment tracking
 # -----------------------------------------
-# wandb>=0.16.0
+tensorboardX>=2.6.0  # Lightweight TensorBoard logging (framework-agnostic)
+# wandb>=0.16.0      # Optional: Weights & Biases integration
 
 # -----------------------------------------
 # Evaluation and metrics

@@ -1,13 +1,14 @@
 # Hardware Profile: M1/M2/M3/M4 Max with 64GB Unified Memory
-# Optimal for 7B-8B models; 70B models do NOT fit (require ~65GB, budget ~51GB)
+# Supports 7B-32B models; 70B models do NOT fit (require ~65GB, budget ~51GB)
 
 hardware:
   generation: "max"
   variant: "max"
   memory_gb: 64
   gpu_cores: 38 # M2 Max (adjust for other generations)
-  training_budget_gb: 51 # 80% safety margin
+  training_budget_gb: 51 # 80% safety margin (floor)
 
+# Default model settings (used for large/32B when model_tiers not matched)
 model:
   lora_rank: 128
   lora_alpha: 256 # scale = alpha/rank = 2.0
@@ -18,8 +19,27 @@ model:
     - "self_attn.v_proj"
     - "self_attn.o_proj"
 
+# Model-size-specific settings for optimal resource utilization
+model_tiers:
+  small: # 7B-8B models - conservative batch size (empirically validated)
+    lora_rank: 64
+    lora_alpha: 128
+    lora_num_layers: 16
+    batch_size: 2
+  medium: # 14B models
+    lora_rank: 64
+    lora_alpha: 128
+    lora_num_layers: 16
+    batch_size: 2
+  large: # 32B models - max supported
+    lora_rank: 96
+    lora_alpha: 192
+    lora_num_layers: 20
+    batch_size: 2
+  # xlarge (70B+) not supported - would cause OOM
+
 training:
-  batch_size: 4
+  batch_size: 4 # Default batch size (overridden by model_tiers)
   gradient_accumulation_steps: 4
   max_seq_length: 1024
   grad_checkpoint: false
@@ -33,4 +53,4 @@ recommended_models:
 
 notes: |
   70B models do NOT fit (need 65GB, budget is 51GB).
-  7B-8B models recommended for comfortable training with headroom.
+  7B-32B models recommended for comfortable training with headroom.

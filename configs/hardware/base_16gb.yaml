@@ -1,16 +1,17 @@
 # Hardware Profile: M1/M2/M3/M4 Base with 16GB Unified Memory
-# Entry-level configuration for 7B models
+# Entry-level configuration for 7B models only
 
 hardware:
   generation: "base"
   variant: "base"
   memory_gb: 16
-  gpu_cores: 10  # M2 base (adjust for other generations)
-  training_budget_gb: 13  # 80% safety margin
+  gpu_cores: 10 # M2 base (adjust for other generations)
+  training_budget_gb: 12 # 80% safety margin (floor)
 
+# Default model settings (optimized for 7B)
 model:
   lora_rank: 32
-  lora_alpha: 64  # scale = alpha/rank = 2.0
+  lora_alpha: 64 # scale = alpha/rank = 2.0
   lora_num_layers: 8
   lora_target_modules:
     - "self_attn.q_proj"
@@ -18,8 +19,17 @@ model:
     - "self_attn.v_proj"
     - "self_attn.o_proj"
 
+# Model-size-specific settings (only small tier supported)
+model_tiers:
+  small: # 7B-8B models - conservative settings
+    lora_rank: 32
+    lora_alpha: 64
+    lora_num_layers: 8
+    batch_size: 1
+  # medium/large/xlarge not supported - would cause OOM
+
 training:
-  batch_size: 1
+  batch_size: 1 # Default batch size (overridden by model_tiers)
   gradient_accumulation_steps: 16
   max_seq_length: 512
   grad_checkpoint: true
@@ -27,11 +37,10 @@ training:
   learning_rate: 2e-4
 
 recommended_models:
-  - "NousResearch/Hermes-2-Pro-Mistral-7B"  # 7B fits best
-  - "cognitivecomputations/dolphin-2.9-llama3-8b"  # May be tight
+  - "NousResearch/Hermes-2-Pro-Mistral-7B" # 7B fits best
+  - "cognitivecomputations/dolphin-2.9-llama3-8b" # May be tight
 
 notes: |
   Only 7B models recommended. 8B models may cause memory pressure.
   Consider reducing max_seq_length further if training is unstable.
   Training will be slower due to small batch size and gradient accumulation.
-

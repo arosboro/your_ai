@@ -1,16 +1,17 @@
 # Hardware Profile: M1/M2/M3/M4 Pro with 32GB Unified Memory
-# Optimal for 7B-8B models
+# Supports 7B-14B models; 32B+ models may not fit reliably
 
 hardware:
   generation: "pro"
   variant: "pro"
   memory_gb: 32
-  gpu_cores: 19  # M2 Pro (adjust for other generations)
-  training_budget_gb: 26  # 80% safety margin
+  gpu_cores: 19 # M2 Pro (adjust for other generations)
+  training_budget_gb: 25 # 80% safety margin (floor)
 
+# Default model settings (used when model_tiers not matched)
 model:
   lora_rank: 64
-  lora_alpha: 128  # scale = alpha/rank = 2.0
+  lora_alpha: 128 # scale = alpha/rank = 2.0
   lora_num_layers: 16
   lora_target_modules:
     - "self_attn.q_proj"
@@ -18,8 +19,22 @@ model:
     - "self_attn.v_proj"
     - "self_attn.o_proj"
 
+# Model-size-specific settings for optimal resource utilization
+model_tiers:
+  small: # 7B-8B models - larger batch, full LoRA
+    lora_rank: 64
+    lora_alpha: 128
+    lora_num_layers: 16
+    batch_size: 4
+  medium: # 14B models - conservative settings
+    lora_rank: 48
+    lora_alpha: 96
+    lora_num_layers: 12
+    batch_size: 2
+  # large (32B+) not reliably supported - may cause OOM
+
 training:
-  batch_size: 2
+  batch_size: 2 # Default batch size (overridden by model_tiers)
   gradient_accumulation_steps: 8
   max_seq_length: 1024
   grad_checkpoint: true
@@ -27,11 +42,10 @@ training:
   learning_rate: 2e-4
 
 recommended_models:
-  - "NousResearch/Hermes-2-Pro-Mistral-7B"  # Best balance
-  - "cognitivecomputations/dolphin-2.9-llama3-8b"  # Uncensored
-  - "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated"  # Abliterated
+  - "NousResearch/Hermes-2-Pro-Mistral-7B" # Best balance
+  - "cognitivecomputations/dolphin-2.9-llama3-8b" # Uncensored
+  - "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated" # Abliterated
 
 notes: |
   14B models may fit but will need batch_size=1 and grad_checkpoint=true.
   Recommend 7B-8B models for reliable training.
-

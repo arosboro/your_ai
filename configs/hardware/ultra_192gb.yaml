@@ -1,13 +1,14 @@
 # Hardware Profile: M1/M2/M3/M4 Ultra with 192GB Unified Memory
-# Optimal for 70B models with high capacity
+# Supports 7B to 70B+ models with tier-specific optimal settings
 
 hardware:
   generation: "ultra"
   variant: "ultra"
   memory_gb: 192
   gpu_cores: 76 # M2 Ultra (adjust for other generations)
-  training_budget_gb: 153 # 80% safety margin
+  training_budget_gb: 153 # 80% safety margin (floor)
 
+# Default model settings (used for xlarge/70B+ when model_tiers not matched)
 model:
   lora_rank: 256
   lora_alpha: 512 # scale = alpha/rank = 2.0
@@ -18,8 +19,31 @@ model:
     - "self_attn.v_proj"
     - "self_attn.o_proj"
 
+# Model-size-specific settings for optimal resource utilization
+model_tiers:
+  small: # 7B-8B models - larger batch, moderate LoRA
+    lora_rank: 64
+    lora_alpha: 128
+    lora_num_layers: 16
+    batch_size: 16
+  medium: # 14B models
+    lora_rank: 96
+    lora_alpha: 192
+    lora_num_layers: 20
+    batch_size: 8
+  large: # 32B models
+    lora_rank: 128
+    lora_alpha: 256
+    lora_num_layers: 24
+    batch_size: 8
+  xlarge: # 70B+ models - full settings
+    lora_rank: 256
+    lora_alpha: 512
+    lora_num_layers: 32
+    batch_size: 8
+
 training:
-  batch_size: 8
+  batch_size: 8 # Default batch size (overridden by model_tiers)
   gradient_accumulation_steps: 2
   max_seq_length: 2048
   grad_checkpoint: false
@@ -29,4 +53,3 @@ training:
 recommended_models:
   - "NousResearch/Hermes-3-Llama-3.1-70B" # Best for distrust training
   - "deepseek-ai/DeepSeek-R1-Distill-Llama-70B" # DeepSeek reasoning model
-

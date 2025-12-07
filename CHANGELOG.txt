@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Script Organization Documentation**: Added `DEPRECATED.md` with clear migration paths for deprecated scripts and modules.
+- **Results Directory**: Created `results/` directory to organize all validation, evaluation, and optimization output files.
+- **Learning Rate Warmup**: Implemented linear warmup from 1e-7 to target learning rate over configurable warmup steps (default: 100). Prevents loss explosions that were occurring around step 50-60.
+- **Gradient Norm Spike Detection**: Added automatic warning system that alerts when gradient norm exceeds 5.0, with contextual information about CE loss and distrust loss values.
+- **CLI Arguments for Stability**: Added `--max-grad-norm` and `--warmup-steps` command-line arguments to allow fine-tuning of training stability without editing config files.
+
+### Changed
+
+- **Script Organization**: Reorganized project structure for clarity. Moved planning docs to `docs/`, moved result files to `results/`, removed `__pycache__` directories.
+- **Optimizer Setup**: Modified `setup_optimizer()` to implement custom warmup + cosine decay schedule instead of cosine-only schedule.
+- **Lambda Weight Documentation**: Updated help text for `--lambda-weight` to include recommended range (0.3-0.8) and note about stability.
+- **Benchmark Methodology**: Updated `find_optimal_profile.py` and `test_memory_limits.py` to use real training conditions instead of synthetic data. Tests now run 15 steps (vs 2-5) with actual JSONL data and distrust loss computation.
+
+### Fixed
+
+- **Loss Explosion at Step 50-60**: Fixed critical issue where training loss would spike dramatically around step 50-60 due to missing warmup implementation. The optimizer was starting at full learning rate (5e-5) immediately, causing gradient instability when combined with large distrust loss values.
+- **Division by Zero in Warmup Schedule**: Fixed two edge cases in `warmup_cosine_schedule` that could cause ZeroDivisionError: (1) when `warmup_steps=0`, and (2) when `warmup_steps >= max_steps`. Added validation to reject invalid configurations with clear error messages.
+- **Gradient Accumulation**: Gradient norms are now properly monitored and warnings displayed when clipping is triggered excessively.
+- **Inaccurate Memory Benchmarks**: Fixed critical issue where benchmark scripts used synthetic dummy data instead of real training, causing false positives (batch=32 "passed" benchmark but OOM in real training). All benchmark scripts now use real JSONL data, distrust loss, and full training loop.
+
+### Deprecated
+
+- **scripts/evaluate.py**: Use `scripts/validate_model.py` for comprehensive validation or `scripts/evaluate_checkpoint.py` for checkpoint-specific evaluation.
+- **src/prepare_data.py**: Use `src/prepare_data_curated.py` which includes dynamic citation-based scoring.
+- **src/prepare_data_improved.py**: Use `src/prepare_data_curated.py` which is the most complete implementation.
+
+### Removed
+
+- **Backup Files**: Removed `data/train_backup.jsonl` and `data/val_backup.jsonl` (over 1GB of outdated backup data).
+- **Cache Directories**: Removed all `__pycache__` directories from version control.
+
+### Documentation
+
+- Added `DEPRECATED.md` with migration guidance for all deprecated scripts.
+- Updated `README.md` with "Script Organization" section clarifying which scripts to use.
+- Updated `TRAINING_GUIDE.md` to reference current scripts (`validate_model.py` instead of `evaluate.py`).
+- Updated `docs/DATA_PREPARATION_REALITY.md` to reference `prepare_data_curated.py`.
+- Moved `scripts/tsr-spec-improvement.md` to `docs/` directory.
+- Added "Troubleshooting Loss Explosions" section to `TRAINING_GUIDE.md` with symptoms, causes, and solutions.
+- Updated `QUICK_START.md` with proven safe configuration and warnings about invalid old benchmarks.
+- Updated `MEMORY_TESTING.md` to document new accurate benchmarking methodology.
+- Updated `README.md` to reference accurate benchmark script and proven safe settings.
+- Documented new CLI arguments and their recommended usage patterns.
+- Marked `optimal_config_results.json` as invalid (used synthetic data, not real training).
+
+## [0.2.4] - 2025-12-05
+
+Model-tiered hardware profiles for optimal resource utilization across all model sizes.
+
+### Added
+
+- **Model-Tiered Hardware Profiles**: Hardware profiles now contain a `model_tiers` section with optimized settings (LoRA rank, layers, batch size) for each model size category (small/7B, medium/14B, large/32B, xlarge/70B+). This ensures the same hardware profile works correctly for any supported model size.
+- **Automatic Tier Selection**: `scale_profile_for_model()` automatically detects model size and applies the appropriate tier settings from the profile.
+
+### Changed
+
+- **Hardware Profile YAML Format**: All hardware profiles (`ultra_96gb.yaml`, `ultra_192gb.yaml`, `max_64gb.yaml`, `pro_32gb.yaml`, `base_16gb.yaml`) updated with `model_tiers` section containing tier-specific LoRA and batch settings.
+- **96GB Ultra Profile for 7B**: Now uses `lora_rank=64`, `lora_num_layers=16`, `batch_size=8` instead of the 70B settings (`rank=128`, `layers=24`, `batch=4`) that caused OOM errors.
+
+### Fixed
+
+- **OOM on Smaller Models**: Fixed out-of-memory errors when training 7B models on 96GB hardware. The profile's 70B-optimized LoRA settings were too aggressive; now uses tier-appropriate settings.
+- **Backward Compatibility**: Profiles without `model_tiers` preserve all settings unchanged, maintaining compatibility with existing saved profiles.
+
 ## [0.2.3] - 2025-12-05
 
 Test infrastructure fixes and default model consistency improvements.
@@ -234,7 +300,8 @@ Initial public release with MLX training pipeline, streaming data, and checkpoin
 
 ---
 
-[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/arosboro/your_ai/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/arosboro/your_ai/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arosboro/your_ai/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arosboro/your_ai/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arosboro/your_ai/compare/v0.2.0...v0.2.1
