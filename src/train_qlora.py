@@ -68,7 +68,7 @@ def estimate_optimal_lambda_weight(
     """
     import json
 
-    print(f"\n🔍 Analyzing training data to calibrate lambda_weight...")
+    print("\n🔍 Analyzing training data to calibrate lambda_weight...")
 
     auth_weights = []
     prov_entropies = []
@@ -867,15 +867,15 @@ Examples:
         is_validated = hw_profile.get("empirically_validated", False)
 
         if is_validated:
-            print(f"  → Using empirically validated settings")
+            print("  → Using empirically validated settings")
             auto_maximize = False  # Use validated settings as-is
         else:
             # Use conservative tier-based scaling (no auto-maximize by default)
             auto_maximize = False
             if not args.no_auto_maximize:
-                print(f"  ⚠️  Auto-maximize disabled for safety")
+                print("  ⚠️  Auto-maximize disabled for safety")
                 print(f"     Run: python scripts/test_memory_limits.py --model {model_path}")
-                print(f"     to find optimal settings for your hardware")
+                print("     to find optimal settings for your hardware")
 
         hw_profile = scale_profile_for_model(hw_profile, model_path, auto_maximize=auto_maximize)
 
@@ -1000,7 +1000,7 @@ Examples:
     print("━" * 60)
     if config.performance.tensorboard_enabled:
         print(f"  To view metrics: tensorboard --logdir {tensorboard_log_dir}")
-        print(f"  Each run creates a timestamped subdirectory (run_YYYY-MM-DD_HH-MM-SS)")
+        print("  Each run creates a timestamped subdirectory (run_YYYY-MM-DD_HH-MM-SS)")
         print("━" * 60)
     print()
 
@@ -1019,7 +1019,7 @@ Examples:
             print(f"✓ Safety check passed: {message}")
         else:
             print(f"⚠️  WARNING: {message}")
-            print(f"   Training may crash with OOM error!")
+            print("   Training may crash with OOM error!")
             confirm = input("   Continue anyway? [y/N] ").strip().lower()
             if confirm not in ("y", "yes"):
                 print("Aborting training for safety.")

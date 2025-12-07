@@ -601,7 +601,7 @@ def scale_config_with_headroom(
         print(
             f"  ⚠️  Warning: Scaled config exceeds budget ({final_estimated:.1f}GB > {training_budget_gb}GB)"
         )
-        print(f"  → Reverting to base configuration for safety")
+        print("  → Reverting to base configuration for safety")
         return base_config
 
     # Additional pass: if we have massive headroom and still using < 50%, scale batch size more
