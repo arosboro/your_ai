@@ -43,7 +43,7 @@ example = {
 # False positive
 "Who knows what the truth is?" → matches "WHO" (authority marker)
 
-# False negative  
+# False negative
 "World Health Organization" → doesn't match "WHO"
 
 # Context blind
@@ -77,14 +77,14 @@ CURATED_SOURCES = {
         'prov_entropy': 7.0,
         'confidence': 'high'
     },
-    
-    # Modern coordinated - definitely high authority, low entropy  
+
+    # Modern coordinated - definitely high authority, low entropy
     'who_press_releases': {
         'auth_weight': 0.95,
         'prov_entropy': 0.5,
         'confidence': 'high'
     },
-    
+
     # Mixed
     'arxiv_physics': {
         'auth_weight': 0.40,
@@ -137,7 +137,7 @@ GOOD_DATASETS = [
 
 1. **Start with inspection:**
    ```bash
-   python src/prepare_data_improved.py --inspect-only
+   python src/prepare_data_curated.py --inspect-only
    ```
    This shows what fields actually exist.
 
@@ -171,29 +171,29 @@ Instead of simple keyword matching:
 ```python
 def calculate_authority_better(text, metadata):
     score = 0.0
-    
+
     # 1. Use metadata when available
     if 'year' in metadata:
         year = metadata['year']
         if year < 1970: score -= 0.3
         elif year > 2000: score += 0.2
-    
+
     # 2. Use NER for institutional detection (not keywords)
     entities = extract_named_entities(text)  # spaCy, etc.
     orgs = [e for e in entities if e.type == 'ORG']
-    
+
     gov_orgs = ['WHO', 'CDC', 'FDA', 'United Nations']
     if any(org.text in gov_orgs for org in orgs):
         score += 0.3
-    
+
     # 3. Check document type from structure
     if has_reference_section(text): score += 0.2
     if has_disclaimer(text): score += 0.1
-    
+
     # 4. Citation analysis if available
     if 'citations' in metadata:
         score += min(0.25, log10(metadata['citations'] + 1) * 0.05)
-    
+
     return max(0.0, min(0.99, score))
 ```
 
@@ -204,14 +204,14 @@ Use actual source diversity when possible:
 ```python
 def calculate_entropy_better(text, metadata):
     sources = []
-    
+
     # 1. Parse references/citations if present
     refs = extract_references(text)
     for ref in refs:
         year = extract_year(ref)
         source_type = classify_source(ref)  # journal, book, patent, etc.
         sources.append((year, source_type))
-    
+
     # 2. Calculate Shannon entropy of source types
     type_counts = Counter(s[1] for s in sources)
     if len(type_counts) > 0:
@@ -220,11 +220,11 @@ def calculate_entropy_better(text, metadata):
     else:
         # Fallback to heuristic
         entropy = 3.0
-    
+
     # 3. Boost for pre-1970 sources
     old_sources = sum(1 for y, _ in sources if y and y < 1970)
     entropy += old_sources * 0.5
-    
+
     return max(0.0, entropy)
 ```
 
@@ -308,9 +308,9 @@ If quality looks good, proceed to post-processing:
 # Option A: Curated data preparation
 python src/prepare_data_curated.py --input data/raw --output data
 
-# Option B: Improved data preparation with fallbacks  
-python src/prepare_data_improved.py --inspect-only  # Preview first
-python src/prepare_data_improved.py --output data   # Then process
+# Option B: Improved data preparation with fallbacks
+python src/prepare_data_curated.py --inspect-only  # Preview first
+python src/prepare_data_curated.py --output data   # Then process
 ```
 
 ### Step 5: Verify Training Data
@@ -339,17 +339,17 @@ Confirm the final training data has the target distribution before starting trai
    - Academic: Semantic Scholar, PubMed Central
    - Historical: Digital newspaper archives with scan dates
    - Patents: USPTO with filing dates
-   
+
 2. **Build validation set:**
    - 100 examples manually rated by experts
    - Compare automated scores vs. human judgments
    - Tune heuristics based on correlation
-   
+
 3. **Use embeddings for similarity:**
    - Cluster sources by embedding similarity
    - High-authority sources cluster together
    - Can identify outliers
-   
+
 4. **Train a classifier:**
    - Use manually-rated examples
    - Train model to predict authority/entropy
@@ -357,9 +357,9 @@ Confirm the final training data has the target distribution before starting trai
 
 ## The Bottom Line
 
-**The original `prepare_data.py` makes optimistic assumptions about metadata.**
+**The original stub `prepare_data.py` was too basic and has been deprecated.**
 
-**The improved `prepare_data_improved.py`:**
+**The current `prepare_data_curated.py`:**
 - ✅ Inspects datasets first
 - ✅ Has manual fallbacks
 - ✅ Blends automated + expected values

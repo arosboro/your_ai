@@ -292,6 +292,46 @@ See [docs/BASE_MODEL_SELECTION.md](docs/BASE_MODEL_SELECTION.md) for detailed an
 
 ---
 
+## Script Organization
+
+The project has been reorganized for clarity. Here's what you should use:
+
+### Data Preparation
+
+- **Use:** `src/prepare_data_curated.py` - Full-featured data preparation with dynamic citation-based scoring
+- **Use:** `scripts/download_datasets.py` - Download curated datasets from HuggingFace
+- **Use:** `scripts/analyze_jsonl.py` - Analyze data quality
+- **Use:** `scripts/deduplicate_jsonl.py` - Remove duplicates
+
+### Model Training & Evaluation
+
+- **Use:** `src/train_qlora.py` - Main training script
+- **Use:** `scripts/validate_model.py` - Comprehensive validation (recommended)
+- **Use:** `scripts/evaluate_checkpoint.py` - Evaluate LoRA checkpoints
+- **Use:** `scripts/evaluate_prompt.py` - Structured prompt evaluation
+
+### Optimization & Utilities
+
+- **Use:** `scripts/find_optimal_profile.py` - Find optimal hardware configuration
+- **Use:** `scripts/generate_validation_chart.py` - Generate validation radar charts
+- **Use:** `scripts/export_to_lmstudio.py` - Export trained models
+
+### Deprecated Files
+
+Some files have been deprecated as of v0.3.0:
+
+- ~~`scripts/evaluate.py`~~ → Use `scripts/validate_model.py` instead
+- ~~`src/prepare_data.py`~~ → Use `src/prepare_data_curated.py` instead
+- ~~`src/prepare_data_improved.py`~~ → Use `src/prepare_data_curated.py` instead
+
+See [`DEPRECATED.md`](DEPRECATED.md) for detailed migration guidance.
+
+### Results Organization
+
+All validation and evaluation results are now stored in the `results/` directory to keep the project root clean.
+
+---
+
 ## Credits
 
 **Algorithm**: Brian Roemmele (Public Domain, November 25, 2025)

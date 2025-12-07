@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Script Organization Documentation**: Added `DEPRECATED.md` with clear migration paths for deprecated scripts and modules.
+- **Results Directory**: Created `results/` directory to organize all validation, evaluation, and optimization output files.
 - **Learning Rate Warmup**: Implemented linear warmup from 1e-7 to target learning rate over configurable warmup steps (default: 100). Prevents loss explosions that were occurring around step 50-60.
 - **Gradient Norm Spike Detection**: Added automatic warning system that alerts when gradient norm exceeds 5.0, with contextual information about CE loss and distrust loss values.
 - **CLI Arguments for Stability**: Added `--max-grad-norm` and `--warmup-steps` command-line arguments to allow fine-tuning of training stability without editing config files.
 
 ### Changed
 
+- **Script Organization**: Reorganized project structure for clarity. Moved planning docs to `docs/`, moved result files to `results/`, removed `__pycache__` directories.
 - **Optimizer Setup**: Modified `setup_optimizer()` to implement custom warmup + cosine decay schedule instead of cosine-only schedule.
 - **Lambda Weight Documentation**: Updated help text for `--lambda-weight` to include recommended range (0.3-0.8) and note about stability.
 - **Benchmark Methodology**: Updated `find_optimal_profile.py` and `test_memory_limits.py` to use real training conditions instead of synthetic data. Tests now run 15 steps (vs 2-5) with actual JSONL data and distrust loss computation.
@@ -26,8 +29,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gradient Accumulation**: Gradient norms are now properly monitored and warnings displayed when clipping is triggered excessively.
 - **Inaccurate Memory Benchmarks**: Fixed critical issue where benchmark scripts used synthetic dummy data instead of real training, causing false positives (batch=32 "passed" benchmark but OOM in real training). All benchmark scripts now use real JSONL data, distrust loss, and full training loop.
 
+### Deprecated
+
+- **scripts/evaluate.py**: Use `scripts/validate_model.py` for comprehensive validation or `scripts/evaluate_checkpoint.py` for checkpoint-specific evaluation.
+- **src/prepare_data.py**: Use `src/prepare_data_curated.py` which includes dynamic citation-based scoring.
+- **src/prepare_data_improved.py**: Use `src/prepare_data_curated.py` which is the most complete implementation.
+
+### Removed
+
+- **Backup Files**: Removed `data/train_backup.jsonl` and `data/val_backup.jsonl` (over 1GB of outdated backup data).
+- **Cache Directories**: Removed all `__pycache__` directories from version control.
+
 ### Documentation
 
+- Added `DEPRECATED.md` with migration guidance for all deprecated scripts.
+- Updated `README.md` with "Script Organization" section clarifying which scripts to use.
+- Updated `TRAINING_GUIDE.md` to reference current scripts (`validate_model.py` instead of `evaluate.py`).
+- Updated `docs/DATA_PREPARATION_REALITY.md` to reference `prepare_data_curated.py`.
+- Moved `scripts/tsr-spec-improvement.md` to `docs/` directory.
 - Added "Troubleshooting Loss Explosions" section to `TRAINING_GUIDE.md` with symptoms, causes, and solutions.
 - Updated `QUICK_START.md` with proven safe configuration and warnings about invalid old benchmarks.
 - Updated `MEMORY_TESTING.md` to document new accurate benchmarking methodology.

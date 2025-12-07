@@ -76,15 +76,15 @@ python src/train_qlora.py \
 #   --max-steps 10000 \
 #   --alpha 2.7
 
-# Phase 7: Validate trained model
+# Phase 7: Validate trained model (comprehensive validation)
 python scripts/validate_model.py \
   --model-path models/distrust-r1-distill-70b \
   --output validation_results.json
 
-# Phase 8: Evaluate source preference
-python scripts/evaluate.py \
-  --model-path models/distrust-r1-distill-70b \
-  --output evaluation_results.json
+# Phase 8: Evaluate source preference (comprehensive validation)
+python scripts/validate_model.py \
+  --model models/distrust-r1-distill-70b \
+  --output results/evaluation_results.json
 
 # Phase 9: Export for LM Studio
 python scripts/export_to_lmstudio.py \
@@ -1430,9 +1430,9 @@ Quantitative evaluation of source preference behavior.
 #### Command
 
 ```bash
-python scripts/evaluate.py \
-  --model-path models/distrust-r1-distill-70b \
-  --output evaluation_results.json
+python scripts/validate_model.py \
+  --model models/distrust-r1-distill-70b \
+  --output results/evaluation_results.json
 ```
 
 **Parameters:**
@@ -2155,8 +2155,8 @@ def calculate_authority(text, metadata):
 **Scripts:**
 
 - [`scripts/download_datasets.py`](scripts/download_datasets.py) - Data acquisition
-- [`scripts/validate_model.py`](scripts/validate_model.py) - Behavior validation
-- [`scripts/evaluate.py`](scripts/evaluate.py) - Quantitative evaluation
+- [`scripts/validate_model.py`](scripts/validate_model.py) - Comprehensive validation and evaluation
+- [`scripts/evaluate_checkpoint.py`](scripts/evaluate_checkpoint.py) - LoRA checkpoint evaluation
 
 ---
 

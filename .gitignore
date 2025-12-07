@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.deprecated
 .Python
 build/
 develop-eggs/
@@ -71,6 +72,13 @@ htmlcov/
 tmp/
 temp/
 .cache/
+
+# Results and evaluation outputs
+results/
+*.json
+!pyproject.json
+!package.json
+!tsconfig.json
 
 # MLX specific
 *.mlx
