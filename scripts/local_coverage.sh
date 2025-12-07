@@ -45,9 +45,11 @@ import sys
 tree = ET.parse('coverage.xml')
 root = tree.getroot()
 
-# Module-specific coverage requirements (just basenames to match coverage.xml format)
+# Module-specific coverage requirements for FULL test suite (including MLX tests)
+# Note: These are higher than CI thresholds because this script runs ALL tests
+# CI uses lower thresholds (e.g., distrust_loss.py: 70%) due to skipped MLX tests
 critical_modules = {
-    'distrust_loss.py': 90,
+    'distrust_loss.py': 90,   # Full suite target (CI: 70% due to skipped MLX tests)
     'citation_scorer.py': 85,
     'metrics.py': 85,
     'config.py': 80,
