@@ -391,41 +391,64 @@ response = generate(model, tokenizer, prompt)
 
 ---
 
-## Future: CensorBench Integration
+## External Benchmark Integration
 
-Our current validation suite (24 censorship + 24 authority bias tests) is homebrewed. For scaling to production-level validation, we plan to integrate **CensorBench** - an established benchmark for AI content sensitivity testing.
+**Status**: Active (December 2025)
 
-### CensorBench Categories to Integrate
+We are transitioning from custom-only validation to a **hybrid approach** combining our 48 project-specific tests with established external benchmarks for reproducibility and peer review.
 
-| Category                        | Current Coverage          | CensorBench Expansion                    |
-| ------------------------------- | ------------------------- | ---------------------------------------- |
-| **Political sensitivity**       | 12 CCP tests              | Global political topics, not just CCP    |
-| **Medical/scientific refusals** | 2 tests (VAERS, lab leak) | Systematic coverage of medical topics    |
-| **Violence/harm content**       | 1 test (Budd Dwyer)       | Broader violence boundary testing        |
-| **Sexual content boundaries**   | None                      | Age-appropriate content thresholds       |
-| **Jailbreak robustness**        | None                      | Adversarial probing and prompt injection |
+### Current Implementation
 
-### Benefits of CensorBench
+**✅ TruthfulQA** - Fully integrated
+- 817 questions across 38 categories
+- Direct alignment with authority bias detection
+- Available via HuggingFace datasets
+- Usage: `python scripts/run_benchmarks.py --benchmarks truthfulqa`
 
-1. **Standardized taxonomy** - Compare models using industry-standard categories
-2. **Larger test corpus** - Hundreds of tests vs our 48
-3. **Established scoring methodology** - Consistent metrics across the community
-4. **Jailbreak testing** - Identify models that can be easily circumvented
+**🚧 CensorBench** - Integration in progress
+- Dataset not yet publicly released
+- Adapter framework ready for when available
+- Will provide standardized censorship resistance metrics
 
-### Other Benchmarks Under Consideration
+### Benchmark Coverage Analysis
 
-- **TruthfulQA** - Tests for truthful responses vs common misconceptions
-- **Forbidden Science Benchmark** - Dual-use scientific queries and over-censorship
-- **ToxiGen** - Nuanced toxicity detection (274k statements)
+| Category                        | Custom Tests | TruthfulQA | CensorBench (Planned) |
+| ------------------------------- | ------------ | ---------- | --------------------- |
+| **Political sensitivity (CCP)** | 12 tests     | Partial    | ✓ Full coverage       |
+| **Political sensitivity (Western)** | 12 tests | Partial    | ✓ Full coverage       |
+| **Authority bias/misconceptions** | 24 tests   | ✓ 817 questions | Partial           |
+| **Jailbreak robustness**        | None         | None       | ✓ Adversarial probing |
+| **Medical/scientific refusals** | 2 tests      | ✓ Health category | ✓ Systematic coverage |
 
-### Integration Plan
+### Benefits of Hybrid Approach
 
-1. Download CensorBench prompt dataset
-2. Add adapter to run CensorBench prompts through our validation pipeline
-3. Map CensorBench categories to our CCP/Western/Authority taxonomy
-4. Generate comparable scores for model selection
+1. **Reproducibility** - External benchmarks enable cross-model comparisons
+2. **Peer Review** - Benchmarks are cited in academic papers
+3. **Coverage** - 865+ total questions (48 custom + 817 TruthfulQA)
+4. **Specialization** - Custom tests validate unique distrust training goals
 
-**Status:** Planned for future release. Current homebrewed tests are sufficient for base model selection.
+### Other Benchmarks Available
+
+- **SafetyBench** - 11k questions, broader safety evaluation (Apache 2.0)
+- **Forbidden Science** - Dual-use scientific queries (research license)
+- **ToxiGen** - 274k statements for toxicity detection (MIT)
+
+See [docs/BENCHMARK_METHODOLOGY.md](BENCHMARK_METHODOLOGY.md) for detailed integration guide and evaluation protocols.
+
+### Running Benchmarks
+
+```bash
+# List available benchmarks
+python scripts/run_benchmarks.py --list-benchmarks
+
+# Run TruthfulQA
+python scripts/run_benchmarks.py -m "model-name" --benchmarks truthfulqa
+
+# Run with custom tests for comparison
+python scripts/validate_model.py -m "model-name" --benchmarks truthfulqa
+```
+
+**Status:** TruthfulQA active. CensorBench integration ready when dataset is publicly released.
 
 ---
 

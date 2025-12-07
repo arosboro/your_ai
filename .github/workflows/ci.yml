@@ -5,6 +5,7 @@ on:
     branches: [main, release-standards]
   pull_request:
     branches: [main]
+  workflow_dispatch: # Allow manual triggering for benchmark jobs
 
 jobs:
   lint:
@@ -203,3 +204,69 @@ jobs:
         run: |
           # Skip model loading and training tests on CI
           pytest -m "integration and not requires_model and not requires_training" -v --maxfail=3
+
+  # External Benchmark Evaluation (Manual Trigger Only)
+  benchmark-evaluation:
+    name: Benchmark Evaluation
+    runs-on: macos-14 # Apple Silicon for MLX support
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install datasets  # Required for TruthfulQA
+
+      - name: Run TruthfulQA Benchmark
+        run: |
+          echo "Running TruthfulQA benchmark..."
+          python scripts/run_benchmarks.py \
+            --model "NousResearch/Hermes-2-Pro-Mistral-7B" \
+            --benchmarks truthfulqa \
+            --max-samples 50 \
+            --output results/benchmark_truthfulqa_sample.json
+        continue-on-error: true
+
+      - name: Run Custom Tests with Benchmarks
+        run: |
+          echo "Running custom tests with benchmark integration..."
+          python scripts/validate_model.py \
+            --model "NousResearch/Hermes-2-Pro-Mistral-7B" \
+            --benchmarks truthfulqa \
+            --output results/validation_with_benchmarks.json
+        continue-on-error: true
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: results/*benchmark*.json
+          retention-days: 30
+
+      - name: Comment Benchmark Summary
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "## Benchmark Evaluation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note**: This job runs only on manual trigger to control costs." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmarks run:" >> $GITHUB_STEP_SUMMARY
+          echo "- TruthfulQA (sample: 50 questions)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Results uploaded as artifacts." >> $GITHUB_STEP_SUMMARY

@@ -253,11 +253,13 @@ your_ai/
 
 ## Model Validation Results
 
-We test base models and fine-tuned checkpoints across 48 tests in three categories:
+We evaluate models using both **custom validation tests** (48 tests) and **external benchmarks** (TruthfulQA: 817 questions) to ensure reproducibility and standardization.
 
 ![Validation Radar Chart](docs/validation_radar.png)
 
-### Validation Scores
+> **Methodology**: See [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md) for detailed evaluation protocols.
+
+### Custom Validation Scores
 
 | Model                    | CCP Censorship | Western Censorship | Authority Bias | Overall   |
 | ------------------------ | -------------- | ------------------ | -------------- | --------- |
@@ -276,19 +278,36 @@ We test base models and fine-tuned checkpoints across 48 tests in three categori
 
 ### Validation Suite
 
-The validation suite tests:
+**Custom Tests** (project-specific):
 
 - **CCP Censorship (12 tests)**: Tiananmen, Taiwan, Tibet, Uyghurs, Hong Kong, etc.
 - **Western Censorship (12 tests)**: Controversial historical events, whistleblowers, policy criticism
 - **Authority Bias (24 tests)**: Source preference (8 multiple choice) + skepticism expression (16 semantic)
 
-Run validation on any model:
+**External Benchmarks** (standardized):
+
+- **TruthfulQA**: 817 questions testing resistance to misconceptions and false authority
+- **CensorBench**: ~500 prompts for censorship resistance (integration in progress)
+
+Run custom validation:
 
 ```bash
-python scripts/validate_model.py -m "NousResearch/Hermes-2-Pro-Mistral-7B" -o validation_results.json
+python scripts/validate_model.py -m "NousResearch/Hermes-2-Pro-Mistral-7B" -o results/validation.json
 ```
 
-See [docs/BASE_MODEL_SELECTION.md](docs/BASE_MODEL_SELECTION.md) for detailed analysis and model recommendations.
+Run with external benchmarks:
+
+```bash
+python scripts/validate_model.py -m "model-name" --benchmarks truthfulqa -o results/full_eval.json
+```
+
+Or run benchmarks separately:
+
+```bash
+python scripts/run_benchmarks.py -m "model-name" --benchmarks truthfulqa -o results/benchmark.json
+```
+
+See [docs/BASE_MODEL_SELECTION.md](docs/BASE_MODEL_SELECTION.md) for detailed analysis and [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md) for evaluation protocols.
 
 ---
 
