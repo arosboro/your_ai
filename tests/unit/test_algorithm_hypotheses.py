@@ -243,6 +243,7 @@ class TestProvenanceEntropyRangesHypothesis:
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx  # Uses empirical_distrust_loss which requires MLX arrays
 class TestAlphaParameterEffectHypothesis:
     """Tests for alpha parameter effect."""
 
@@ -356,6 +357,7 @@ class TestSourceTypeScoresHypothesis:
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx  # Uses empirical_distrust_loss which requires MLX arrays
 class TestLossContributionHypothesis:
     """Tests for loss contribution differences."""
 
@@ -507,6 +509,7 @@ class TestConsistencyAcrossImplementations:
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx  # Uses empirical_distrust_loss which requires MLX arrays
 class TestDocumentedExamplesMatchBehavior:
     """Verify that documented examples produce documented results."""
 
