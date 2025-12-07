@@ -39,7 +39,7 @@ def test_configuration(model_path: str, batch_size: int, lora_rank: int, lora_la
         "--lora-layers", str(lora_layers),
         "--max-steps", str(max_steps),
         "--no-auto-maximize",  # Critical: disable auto-maximize
-        "--no-streaming",  # Use non-streaming for consistent testing
+        # Use streaming mode (default) to match real training conditions
     ]
 
     try:
