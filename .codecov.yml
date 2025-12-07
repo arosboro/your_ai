@@ -1,0 +1,82 @@
+# Codecov configuration for test coverage tracking
+# See: https://docs.codecov.com/docs/codecov-yaml
+
+# IMPORTANT: This project uses a two-tier coverage strategy
+# - CI-safe tests run automatically (partial coverage ~50%)
+# - Full tests run manually/pre-release (complete coverage ~75%)
+
+coverage:
+  status:
+    project:
+      # CI-safe tests (partial coverage)
+      default:
+        target: auto  # Use previous run as baseline
+        threshold: 3%
+        if_ci_failed: error
+        flags:
+          - ci-safe
+      
+      # Full test suite (complete coverage)
+      full:
+        target: 75%
+        threshold: 2%
+        if_ci_failed: error
+        flags:
+          - full-suite
+          - full-suite-local
+    
+    patch:
+      default:
+        target: 70%  # New code should be well tested
+        threshold: 5%
+        if_ci_failed: error
+
+  precision: 2
+  round: down
+  range: "50...100"  # Adjusted for partial CI coverage
+
+# Module-specific coverage (only enforced on full-suite runs)
+# CI-safe runs will have lower coverage due to skipped MLX tests
+flag_management:
+  default_rules:
+    carryforward: true  # Keep previous coverage if not in current upload
+  
+  individual_flags:
+    - name: ci-safe
+      carryforward: true
+      
+    - name: full-suite
+      carryforward: true
+      
+    - name: full-suite-local
+      carryforward: true
+
+# Comment formatting
+comment:
+  layout: "reach,diff,flags,tree,files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  
+  # Show which flag was used
+  after_n_builds: 1
+  
+  # Custom footer explaining two-tier strategy
+  footer: |
+    **Coverage Strategy**: This project uses two-tier coverage:
+    - **CI-safe** (~50%): Runs on every commit, skips MLX tests
+    - **Full-suite** (~75%): Runs manually/pre-release, includes all tests
+    
+    For full coverage, run locally: `./scripts/local_coverage.sh`
+
+# Ignore patterns
+ignore:
+  - "tests/**"
+  - "scripts/test_*.py"
+  - "**/__pycache__"
+  - "*.pyc"
+  - "venv/**"
+  - ".venv/**"
+  - "**/*.deprecated"
+

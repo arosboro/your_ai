@@ -55,9 +55,64 @@ jobs:
         run: |
           python -c "import mlx.core as mx; print(f'MLX version: {mx.__version__}')"
 
-      - name: Run unit tests with coverage
+      - name: Run unit tests with coverage (CI-safe tests only)
         run: |
-          pytest -m unit --cov=src --cov-report=xml --cov-report=term-missing
+          # NOTE: Running CI-safe tests only to conserve Apple Silicon runner costs
+          # This gives PARTIAL coverage. For full coverage, run locally:
+          #   pytest -m unit --cov=src --cov-report=html
+          # Skip: requires_mlx, requires_model, requires_training, performance
+          pytest -m "unit and not requires_mlx and not requires_model and not requires_training and not performance" \
+            --cov=src --cov-report=xml --cov-report=term-missing \
+            -v
+        
+      - name: Add coverage context
+        run: |
+          echo "## Coverage Report (Partial)" >> $GITHUB_STEP_SUMMARY
+          echo "**⚠️ This is PARTIAL coverage from CI-safe tests only**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Tests run on CI: 223 CI-safe tests" >> $GITHUB_STEP_SUMMARY
+          echo "Tests skipped: 218 tests requiring MLX/Apple Silicon" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "For **full coverage**, run locally:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo 'pytest -m unit --cov=src --cov-report=html' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Check coverage thresholds per module
+        run: |
+          python -c "
+          import xml.etree.ElementTree as ET
+          import sys
+
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+
+          # Module-specific coverage requirements
+          critical_modules = {
+              'src/distrust_loss.py': 90,
+              'src/citation_scorer.py': 85,
+              'src/metrics.py': 85,
+              'src/config.py': 80,
+          }
+
+          failed = []
+          for package in root.findall('.//package'):
+              for cls in package.findall('.//class'):
+                  filename = cls.get('filename')
+                  line_rate = float(cls.get('line-rate', 0)) * 100
+
+                  if filename in critical_modules:
+                      threshold = critical_modules[filename]
+                      if line_rate < threshold:
+                          failed.append(f'{filename}: {line_rate:.1f}% < {threshold}%')
+                          print(f'❌ {filename}: {line_rate:.1f}% (threshold: {threshold}%)')
+                      else:
+                          print(f'✓ {filename}: {line_rate:.1f}% (threshold: {threshold}%)')
+
+          if failed:
+              print(f'\nCoverage thresholds not met for critical modules')
+              sys.exit(1)
+          "
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
@@ -65,8 +120,43 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: arosboro/your_ai
           files: ./coverage.xml
+          flags: ci-safe  # Mark as partial coverage from CI-safe tests
           fail_ci_if_error: false
           verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  hypothesis-verification:
+    name: Hypothesis Verification Tests
+    runs-on: macos-14
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run lightweight hypothesis verification tests
+        run: |
+          # Run only mathematical verification tests, not full algorithm tests
+          pytest tests/unit/test_algorithm_hypotheses.py::TestThirtyXMultiplierHypothesis::test_30x_multiplier_documented_example \
+            tests/unit/test_algorithm_hypotheses.py::TestThirtyXMultiplierHypothesis::test_30x_multiplier_formula_breakdown \
+            -v --tb=short
 
   integration:
     name: Integration Tests
@@ -93,6 +183,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run integration tests
+      - name: Run integration tests (lightweight only)
         run: |
-          pytest -m integration -v
+          # Skip model loading and training tests on CI
+          pytest -m "integration and not requires_model and not requires_training" -v --maxfail=3

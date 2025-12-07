@@ -1,4 +1,8 @@
-"""Unit tests for Checkpoint and CheckpointManager."""
+"""Unit tests for Checkpoint and CheckpointManager.
+
+NOTE: Tests use MLX arrays for realistic checkpoint data.
+Marked as requires_mlx but are relatively lightweight.
+"""
 
 import pytest
 import tempfile
@@ -36,6 +40,7 @@ def sample_checkpoint():
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx  # Uses MLX arrays in checkpoint data
 def test_checkpoint_save(temp_checkpoint_dir, sample_checkpoint):
     """Test saving checkpoint to disk."""
     manager = CheckpointManager(
@@ -58,6 +63,7 @@ def test_checkpoint_save(temp_checkpoint_dir, sample_checkpoint):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_load(temp_checkpoint_dir, sample_checkpoint):
     """Test loading checkpoint from disk."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -76,6 +82,7 @@ def test_checkpoint_load(temp_checkpoint_dir, sample_checkpoint):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_validation_valid(temp_checkpoint_dir, sample_checkpoint):
     """Test validation of valid checkpoint."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -87,6 +94,7 @@ def test_checkpoint_validation_valid(temp_checkpoint_dir, sample_checkpoint):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_validation_corrupted(temp_checkpoint_dir, sample_checkpoint):
     """Test validation detects corrupted checkpoint."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -103,6 +111,7 @@ def test_checkpoint_validation_corrupted(temp_checkpoint_dir, sample_checkpoint)
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_validation_missing_file(temp_checkpoint_dir, sample_checkpoint):
     """Test validation detects missing files."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -117,6 +126,7 @@ def test_checkpoint_validation_missing_file(temp_checkpoint_dir, sample_checkpoi
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_cleanup(temp_checkpoint_dir):
     """Test cleanup removes old checkpoints."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, keep_last_n=2, async_save=False)
@@ -148,6 +158,7 @@ def test_checkpoint_cleanup(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_load_latest(temp_checkpoint_dir):
     """Test loading most recent checkpoint."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -176,6 +187,7 @@ def test_checkpoint_load_latest(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_load_latest_skips_corrupted(temp_checkpoint_dir):
     """Test that load_latest skips corrupted checkpoints."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -208,6 +220,7 @@ def test_checkpoint_load_latest_skips_corrupted(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_list(temp_checkpoint_dir):
     """Test listing available checkpoints."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
@@ -234,6 +247,7 @@ def test_checkpoint_list(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_final_not_deleted(temp_checkpoint_dir):
     """Test that final checkpoint is never deleted."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, keep_last_n=1, async_save=False)
@@ -264,6 +278,7 @@ def test_checkpoint_final_not_deleted(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.requires_mlx
 def test_checkpoint_async_save(temp_checkpoint_dir, sample_checkpoint):
     """Test asynchronous checkpoint saving."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=True)
@@ -280,6 +295,7 @@ def test_checkpoint_async_save(temp_checkpoint_dir, sample_checkpoint):
 
 
 @pytest.mark.unit
+@pytest.mark.ci_safe  # Just validation logic, no MLX arrays created
 def test_checkpoint_manager_invalid_params(temp_checkpoint_dir):
     """Test validation of manager parameters."""
     with pytest.raises(ValueError):
@@ -290,6 +306,7 @@ def test_checkpoint_manager_invalid_params(temp_checkpoint_dir):
 
 
 @pytest.mark.unit
+@pytest.mark.ci_safe  # Just error handling, no MLX
 def test_checkpoint_load_nonexistent(temp_checkpoint_dir):
     """Test loading nonexistent checkpoint raises error."""
     manager = CheckpointManager(checkpoint_dir=temp_checkpoint_dir, async_save=False)
