@@ -395,9 +395,9 @@ class TestAuthorityWeightCalculation:
         Published 2024.
         """
         metadata = {"source": "Wikipedia"}
-        
+
         auth_weight, breakdown = calculate_authority_weight(text, metadata)
-        
+
         # Should be in high authority range (modern coordinated)
         assert 0.70 <= auth_weight <= 0.99
 
@@ -542,10 +542,10 @@ class TestProvenanceEntropyCalculation:
         text = "Sample text"
         metadata_no_scan = {}
         metadata_with_scan = {"scan": "yes"}  # Detected via metadata
-        
+
         entropy_no_scan, _ = calculate_provenance_entropy(text, metadata_no_scan)
         entropy_with_scan, _ = calculate_provenance_entropy(text, metadata_with_scan)
-        
+
         # Having "scan" in metadata should increase entropy
         assert entropy_with_scan >= entropy_no_scan
 
@@ -762,13 +762,13 @@ class TestScoreBatch:
                 "source_type": "wiki"
             },
         ]
-        
+
         results = score_batch(documents, use_known_source_type=True)
-        
+
         # First should use hybrid scoring (patent)
         assert results[0]["scoring_method"] == "hybrid"
         assert results[0]["auth_weight"] < 0.30
-        
+
         # Second should use hybrid scoring (wiki)
         assert results[1]["scoring_method"] == "hybrid"
         assert results[1]["auth_weight"] >= 0.60
@@ -785,9 +785,9 @@ class TestScoreBatch:
                 "source_type": "wiki"
             },
         ]
-        
+
         results = score_batch(documents, use_known_source_type=False)
-        
+
         # Should use dynamic scoring even though source_type present
         assert all(doc["scoring_method"] == "dynamic" for doc in results)
 

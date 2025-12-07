@@ -58,7 +58,7 @@ for package in root.findall('.//package'):
     for cls in package.findall('.//class'):
         filename = cls.get('filename')
         line_rate = float(cls.get('line-rate', 0)) * 100
-        
+
         if filename in critical_modules:
             threshold = critical_modules[filename]
             status = "✓" if line_rate >= threshold else "❌"
@@ -71,19 +71,19 @@ EOF
 if [ "$1" == "--upload" ]; then
     echo ""
     echo "Uploading to Codecov..."
-    
+
     if [ -z "$CODECOV_TOKEN" ]; then
         echo "ERROR: CODECOV_TOKEN environment variable not set"
         echo "Export it first: export CODECOV_TOKEN=your_token"
         exit 1
     fi
-    
+
     # Upload with full-suite flag
     curl -Os https://uploader.codecov.io/latest/macos/codecov
     chmod +x codecov
     ./codecov -t $CODECOV_TOKEN -f coverage.xml -F full-suite-local
     rm codecov
-    
+
     echo "✓ Coverage uploaded to Codecov"
 fi
 

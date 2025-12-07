@@ -54,7 +54,7 @@ Comprehensive test coverage has been successfully implemented for the Empirical 
 
 **Test**: `test_30x_multiplier_documented_example()`
 
-**Result**: 
+**Result**:
 - Primary source (w=0.05, H=7.5): Loss = 150.3
 - Modern source (w=0.90, H=1.0): Loss = 4.6
 - **Ratio: 32.7x** ✅
@@ -63,9 +63,9 @@ Comprehensive test coverage has been successfully implemented for the Empirical 
 
 ### 2. Authority Weight Ranges
 
-**Claim**: 
+**Claim**:
 - Primary: 0.0-0.30
-- Academic: 0.40-0.70  
+- Academic: 0.40-0.70
 - Coordinated: 0.85-0.99
 
 **Tests**: `TestAuthorityWeightRangesHypothesis`
@@ -130,7 +130,7 @@ Comprehensive test coverage has been successfully implemented for the Empirical 
 
 **Tier 2 - Full Suite** (Manual/Release)
 - Tests: 441 all tests
-- Runtime: 15-20 minutes  
+- Runtime: 15-20 minutes
 - Cost: ~$2.40 per run
 - Coverage: Complete (~48% overall, 100% core)
 

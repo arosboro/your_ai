@@ -15,7 +15,7 @@ from src.metrics import compute_metrics_for_example, validate_dataset_metrics
 @pytest.fixture
 def temp_raw_data_dir():
     """Create temporary directory with REAL examples from documentation.
-    
+
     Uses actual example texts from:
     - citation_scorer.py docstring examples
     - docs/ALGORITHM.md examples
@@ -23,7 +23,7 @@ def temp_raw_data_dir():
     """
     temp_dir = tempfile.mkdtemp()
     temp_path = Path(temp_dir)
-    
+
     # REAL example 1: From citation_scorer.py test section (lines 620-628)
     # Low authority example (patent)
     patent_data = [
@@ -32,8 +32,8 @@ def temp_raw_data_dir():
 Filed: March 15, 1923
 Inventor: Thomas Edison
 
-This patent describes an improved method for the measurement of 
-electrical resistance in laboratory conditions. The experiment 
+This patent describes an improved method for the measurement of
+electrical resistance in laboratory conditions. The experiment
 was conducted using primary measurement apparatus...""",
             "source_type": "patent_pre1970",
             "year": 1923,
@@ -51,7 +51,7 @@ experimental apparatus. Field notes and observations recorded.""",
             "identifier": "patent_1956_lab",
         },
     ]
-    
+
     # REAL example 2: From citation_scorer.py test section (lines 629-635)
     # High authority example (modern consensus)
     wiki_data = [
@@ -73,8 +73,8 @@ Government agencies and Nature journal support this position.""",
             "identifier": "wiki_2023_nature",
         },
     ]
-    
-    # REAL example 3: From citation_scorer.py test section (lines 636-641)  
+
+    # REAL example 3: From citation_scorer.py test section (lines 636-641)
     # Medium authority example (academic)
     academic_data = [
         {
@@ -278,7 +278,6 @@ class TestTrainValSplit:
 
         # Split 80/20
         train_size = int(total * 0.8)
-        val_size = total - train_size
 
         import random
         random.seed(42)

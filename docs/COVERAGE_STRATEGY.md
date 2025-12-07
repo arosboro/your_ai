@@ -35,7 +35,7 @@ This project requires Apple Silicon hardware for MLX operations. Running all tes
 
 **Coverage**: Complete (70-85% of codebase)
 **Cost**: ~$2.40-3.20 per run (15-20 minutes)
-**Frequency**: 
+**Frequency**:
 - Before releases
 - Manual trigger when needed
 - Weekly scheduled run (optional)

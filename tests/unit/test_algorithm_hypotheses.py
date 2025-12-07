@@ -45,7 +45,7 @@ class TestThirtyXMultiplierHypothesis:
     @pytest.mark.ci_safe  # Pure Python/NumPy math, no MLX required
     def test_30x_multiplier_formula_breakdown(self):
         """Verify 30x multiplier through step-by-step formula calculation.
-        
+
         From ALGORITHM.md mathematical proof section.
         """
         alpha = 2.7
@@ -72,40 +72,40 @@ class TestThirtyXMultiplierHypothesis:
     @pytest.mark.requires_mlx
     def test_30x_multiplier_with_algorithm_implementation(self):
         """Verify 30x multiplier using the SPECIFIC documented example.
-        
+
         NOTE: The 30x multiplier is specific to the documented comparison:
         - Primary: (w_auth=0.05, H_prov=7.5) - typical 1923 patent
         - Modern: (w_auth=0.90, H_prov=1.0) - typical 2024 Wikipedia
-        
+
         Other combinations produce different ratios (range: 5x-500x).
         The median across combinations is ~33x, matching the documented claim.
         """
         alpha = 2.7
-        
+
         # Test the SPECIFIC documented example
         documented_primary = (0.05, 7.5)  # 1923 patent
         documented_modern = (0.90, 1.0)   # 2024 Wikipedia
-        
+
         primary_loss = empirical_distrust_loss(documented_primary[0], documented_primary[1], alpha)
         modern_loss = empirical_distrust_loss(documented_modern[0], documented_modern[1], alpha)
         ratio = float(primary_loss / modern_loss)
-        
+
         # This specific example should give ~30x
         assert 25 <= ratio <= 40, f"Documented example should be ~30x, got {ratio:.1f}x"
-        
+
         # Also test a few other realistic combinations to show variability
         test_pairs = [
             ((0.05, 7.5), (0.90, 1.0), "patent vs wiki"),      # ~33x
             ((0.02, 8.9), (0.90, 1.0), "lab vs wiki"),         # ~47x
             ((0.10, 6.0), (0.85, 1.5), "archive vs consensus"), # ~220x (much higher!)
         ]
-        
+
         for primary, modern, desc in test_pairs:
             p_loss = empirical_distrust_loss(primary[0], primary[1], alpha)
             m_loss = empirical_distrust_loss(modern[0], modern[1], alpha)
             r = float(p_loss / m_loss)
             print(f"{desc}: {r:.1f}x")
-        
+
         # The median across realistic combinations should be reasonable
         # but we don't enforce a specific average since it varies by data mix
 

@@ -86,7 +86,7 @@ Tests Brian Roemmele's formula:
 
 ### Scoring Logic
 
-**Files**: 
+**Files**:
 - `tests/unit/test_citation_scorer.py` (162 tests)
 - `tests/unit/test_metrics.py` (99 tests)
 

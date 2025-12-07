@@ -399,15 +399,15 @@ class TestComputeMetricsForExample:
             "text": "Document text with good content for analysis.",
             "year": 2000,
         }
-        
+
         example_with_scan = {
             "text": "Document text with scanned content for analysis.",
             "year": 2000,
         }
-        
+
         metrics_no_scan = compute_metrics_for_example(example_no_scan)
         metrics_with_scan = compute_metrics_for_example(example_with_scan)
-        
+
         # Scanned document (detected via "scan" in text) should have higher entropy
         assert metrics_with_scan["prov_entropy"] >= metrics_no_scan["prov_entropy"]
 

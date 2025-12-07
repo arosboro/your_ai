@@ -52,7 +52,7 @@ pytest -m performance --benchmark-only
 
 **What runs on CI:**
 - Pure Python mathematical verification tests
-- Config serialization/validation tests  
+- Config serialization/validation tests
 - Hypothesis verification (formula-based, not MLX-based)
 - Lightweight integration tests (mocked data, no models)
 

@@ -164,7 +164,7 @@ All documented claims have been empirically tested:
 - String processing tests
 - File I/O tests (no MLX)
 
-**Duration**: 2-3 minutes  
+**Duration**: 2-3 minutes
 **Cost**: ~$0.32-0.48 per run
 
 ### Full Test Suite (Manual/Release)
@@ -176,7 +176,7 @@ All documented claims have been empirically tested:
 - All integration tests
 - Sample performance benchmarks
 
-**Duration**: 15-20 minutes  
+**Duration**: 15-20 minutes
 **Cost**: ~$2.40-3.20 per run
 
 **Trigger**: Manual workflow dispatch or releases only
@@ -278,7 +278,7 @@ pytest --cov=src --cov-report=html --cov-report=term-missing
 
 ---
 
-**Last Updated**: December 7, 2025  
-**Test Suite Version**: 1.0  
+**Last Updated**: December 7, 2025
+**Test Suite Version**: 1.0
 **Total Test Count**: 441 tests
 

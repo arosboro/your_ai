@@ -15,7 +15,7 @@ coverage:
         if_ci_failed: error
         flags:
           - ci-safe
-      
+
       # Full test suite (complete coverage)
       full:
         target: 75%
@@ -24,7 +24,7 @@ coverage:
         flags:
           - full-suite
           - full-suite-local
-    
+
     patch:
       default:
         target: 70%  # New code should be well tested
@@ -40,14 +40,14 @@ coverage:
 flag_management:
   default_rules:
     carryforward: true  # Keep previous coverage if not in current upload
-  
+
   individual_flags:
     - name: ci-safe
       carryforward: true
-      
+
     - name: full-suite
       carryforward: true
-      
+
     - name: full-suite-local
       carryforward: true
 
@@ -58,16 +58,16 @@ comment:
   require_changes: false
   require_base: false
   require_head: true
-  
+
   # Show which flag was used
   after_n_builds: 1
-  
+
   # Custom footer explaining two-tier strategy
   footer: |
     **Coverage Strategy**: This project uses two-tier coverage:
     - **CI-safe** (~50%): Runs on every commit, skips MLX tests
     - **Full-suite** (~75%): Runs manually/pre-release, includes all tests
-    
+
     For full coverage, run locally: `./scripts/local_coverage.sh`
 
 # Ignore patterns
