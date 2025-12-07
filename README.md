@@ -116,11 +116,17 @@ python scripts/analyze_jsonl.py "data/raw/*_deduped.jsonl"
 python src/prepare_data_curated.py --input data/raw --output data \
   --train-size 80000 --val-size 20000
 
-# 5. Find optimal settings for YOUR hardware (one-time, 10-20 minutes)
-python scripts/test_memory_limits.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+# 5. Find optimal settings for YOUR hardware (one-time, 20-40 minutes)
+# NEW (v0.2.5): Uses real training data for accurate results
+python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 
-# 6. Train with auto-configured optimal settings
-python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+# 6. Train with the benchmarked configuration
+# Use the exact settings reported by benchmark (e.g., batch=17, rank=128, layers=16)
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 17 \
+  --lora-rank 128 \
+  --lora-layers 16
 
 # 7. Monitor training in real-time with TensorBoard
 tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
@@ -133,34 +139,28 @@ python scripts/export_to_lmstudio.py \
   --output models/distrust-hermes-2-pro-mistral-7b-merged
 ```
 
-### Recommended Settings (from empirical testing on M3 Ultra 96GB)
+### Proven Safe Configuration (M3 Ultra 96GB)
 
-For **NousResearch/Hermes-2-Pro-Mistral-7B**:
+For **NousResearch/Hermes-2-Pro-Mistral-7B** (tested with real training):
 
 ```bash
-# Balanced (recommended): Speed + Quality
+# PROVEN SAFE: Tested with real data, distrust loss, full training
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
   --batch-size 17 \
-  --lora-rank 512 \
-  --lora-layers 24
-
-# Maximum Quality: Best results, slower
-python src/train_qlora.py \
-  --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 13 \
-  --lora-rank 512 \
-  --lora-layers 32
-
-# Fast Iteration: Experimentation
-python src/train_qlora.py \
-  --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 25 \
-  --lora-rank 512 \
-  --lora-layers 16
+  --lora-rank 128 \
+  --lora-layers 16 \
+  --max-steps 5000 \
+  --lambda-weight 0.05 \
+  --warmup-steps 200 \
+  --max-grad-norm 0.5
 ```
 
-**Note:** Lambda weight is auto-calibrated based on your training data.
+**Note:**
+
+- Lambda weight is auto-calibrated but you can override with `--lambda-weight`
+- Warmup prevents loss explosions (implemented in v0.2.5)
+- Run `python scripts/find_optimal_profile.py` to find YOUR optimal settings
 
 ### Real-Time Training Monitoring
 

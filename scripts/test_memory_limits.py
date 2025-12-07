@@ -22,15 +22,17 @@ from hardware_profiles import detect_hardware, save_hardware_profile
 
 
 def test_configuration(
-    model_path: str, batch_size: int, lora_rank: int, lora_layers: int, max_steps: int = 5
+    model_path: str, batch_size: int, lora_rank: int, lora_layers: int, max_steps: int = 15
 ) -> bool:
     """
-    Test if a configuration works without OOM.
+    Test if a configuration works without OOM using REAL training.
+
+    Extended to 15 steps to detect late-allocating buffers and memory growth.
 
     Returns:
         True if successful, False if OOM or crash
     """
-    print(f"\n🔬 Testing: batch={batch_size}, rank={lora_rank}, layers={lora_layers}")
+    print(f"\n🔬 Testing: batch={batch_size}, rank={lora_rank}, layers={lora_layers} (15 steps)")
 
     cmd = [
         sys.executable,
@@ -54,7 +56,7 @@ def test_configuration(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,  # 5 minute timeout
+            timeout=600,  # 10 minute timeout (longer for 15 steps)
         )
 
         # Any non-zero return code is a failure
@@ -72,20 +74,28 @@ def test_configuration(
                 print(f"      stderr: {stderr_preview}...")
             return False
 
-        # returncode == 0: Check both stdout and stderr for training start markers
+        # returncode == 0: Check both stdout and stderr for training completion
         combined_output = result.stdout + result.stderr
-        success_markers = ["Training:", "Baseline memory:", "Step 1/"]
 
-        if any(marker in combined_output for marker in success_markers):
-            print("   ✅ Success - Configuration works!")
+        # Look for successful completion of multiple steps
+        success_markers = ["Training:", "Baseline memory:"]
+        step_markers = [f"{i}/15" for i in range(10, 16)]  # Steps 10-15
+
+        has_training = any(marker in combined_output for marker in success_markers)
+        has_late_steps = any(marker in combined_output for marker in step_markers)
+
+        if has_training and has_late_steps:
+            print("   ✅ Success - Completed 15 steps successfully!")
             return True
-
-        # returncode == 0 but no training markers found - treat as failure
-        print("   ⚠️  No training markers found - treating as failure")
-        return False
+        elif has_training:
+            print("   ⚠️  Started but didn't complete 15 steps - treating as failure")
+            return False
+        else:
+            print("   ⚠️  No training markers found - treating as failure")
+            return False
 
     except subprocess.TimeoutExpired:
-        print("   ✅ Success - Ran for 5 minutes without crash")
+        print("   ✅ Success - Ran for 10 minutes without crash")
         return True
     except Exception as e:
         print(f"   ❌ Error: {e}")

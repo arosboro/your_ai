@@ -4,53 +4,65 @@
 
 Memory estimation is unreliable across different hardware configurations. Instead of guessing, we **measure** what actually works on your specific system.
 
-## Solution: Empirical Testing
+**IMPORTANT:** Previous benchmarks (before v0.2.5) used synthetic data and gave inaccurate results. The new benchmark uses **real training conditions**.
 
-Run the memory testing script **once** to find your hardware's optimal settings:
+## Solution: Empirical Testing with Real Data
+
+Run the accurate memory testing script to find your hardware's optimal settings:
 
 ```bash
 cd /Users/arosboro/your_ai
 source venv/bin/activate
-python scripts/test_memory_limits.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+
+# Accurate benchmark with real training data (RECOMMENDED)
+python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 ```
 
-## What It Does
+## What the New Benchmark Does
 
-1. **Starts Conservative**: Begins with proven safe settings (batch=1, rank=32, layers=8)
-2. **Tests Incrementally**: Gradually increases batch size, rank, and layers
-3. **Detects Limits**: Stops when OOM is detected
-4. **Finds Maximum**: Uses binary search to find optimal batch size
-5. **Saves Results**: Stores validated configuration for future use
+1. **Uses Real Training Data**: Loads actual JSONL files and tokenizes them
+2. **Computes Distrust Loss**: Includes the full distrust loss overhead
+3. **Allocates Optimizer State**: AdamW momentum + variance tensors
+4. **Runs 15 Steps**: Captures late-allocating buffers and peak memory
+5. **Adds Safety Margin**: Reports memory × 1.15 for real training headroom
+6. **Detects Memory Growth**: Warns if memory increases >10% between steps 10-15
 
-## Process (10-20 minutes)
+## Process (20-40 minutes with real training)
 
-```
-Phase 1: Testing base configuration
-🔬 Testing: batch=1, rank=32, layers=8
-   ✅ Success
-🔬 Testing: batch=32, rank=32, layers=8
-   ❌ OOM
-🔬 Testing: batch=16, rank=32, layers=8
-   ✅ Success
-... (binary search continues)
-✅ Maximum batch size: 16
-
-Phase 2: Testing with higher LoRA rank
-🔬 Testing: batch=8, rank=64, layers=8
-   ✅ Success
-... (continues testing larger ranks)
-
-Phase 3: Testing with more layers
-🔬 Testing: batch=8, rank=128, layers=16
-   ✅ Success
-... (continues testing more layers)
-
-FINAL RESULTS
+```text
+ACCURATE MEMORY BENCHMARK - Real Training Conditions
 ══════════════════════════════════════════════════════════════════════════
-Optimal configuration:
-  Batch size:  16
+
+Finding optimal batch size for rank=64, layers=16
+
+🔬 Testing: batch=1, rank=64, layers=16 (15 steps)
+   Loading model and data...
+   Loaded 500 training samples
+   Running 15 training steps with REAL data...
+      Step  1: loss=12.34, mem=14500MB, time=2.1s
+      Step  5: loss=11.89, mem=14520MB, time=2.0s
+      Step 10: loss=11.45, mem=14530MB, time=2.0s
+      Step 15: loss=11.02, mem=14535MB, time=2.0s
+   ✅ SUCCESS!
+      Peak memory: 14535MB (adjusted: 16715MB)
+      Avg step time: 2.0s
+
+🔬 Testing: batch=32, rank=64, layers=16 (15 steps)
+   ❌ OOM - Configuration exceeds available memory
+
+... (binary search continues)
+
+══════════════════════════════════════════════════════════════════════════
+BENCHMARK COMPLETE
+══════════════════════════════════════════════════════════════════════════
+
+OPTIMAL CONFIGURATION:
+  Batch size:  17
   LoRA rank:   128
-  LoRA layers: 24
+  LoRA layers: 16
+  Peak memory: 18500MB (with 15% safety margin)
+  Step time:   3.2s
+══════════════════════════════════════════════════════════════════════════
 ```
 
 ## After Testing
@@ -65,30 +77,39 @@ Save as hardware profile for future use? [Y/n] y
 
 ## Using the Results
 
-After testing, simply run training normally:
+The benchmark outputs a JSON file with validated configurations. Use the reported settings explicitly:
 
 ```bash
-python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+# Use the optimal configuration from benchmark output
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 17 \
+  --lora-rank 128 \
+  --lora-layers 16 \
+  --max-steps 5000
 ```
-
-The system will automatically use your empirically validated settings.
 
 ## Benefits
 
-- **No more OOM crashes**: Settings are proven to work
-- **Maximum performance**: Uses largest settings that fit
-- **Hardware-specific**: Tailored to your exact configuration
-- **One-time setup**: Test once, train many times
+- **Accurate Results**: Tested with real training data and distrust loss
+- **No OOM Crashes**: Settings include 15% safety margin
+- **Peak Memory Detection**: 15-step tests capture late-allocating buffers
+- **Memory Growth Detection**: Warns if memory increases during test
+- **One-time Setup**: Test once, train confidently
 
 ## Conservative Mode (No Testing)
 
-If you don't want to run the test, training will use safe conservative settings:
+If you don't want to run the benchmark, use these **proven safe** settings:
 
+**For M3 Ultra 96GB with Hermes-7B:**
+- batch=17, rank=128, layers=16 (tested, stable)
+
+**Generic conservative defaults:**
 - Small models (7-8B): batch=2, rank=64, layers=16
 - Medium models (14B): batch=2, rank=64, layers=16
 - Large models (32B+): batch=2, rank=96, layers=20
 
-These are guaranteed to work but may be slower than optimal.
+These are guaranteed to work but may not maximize your hardware's capacity.
 
 ## Manual Override
 

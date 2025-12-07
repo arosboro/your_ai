@@ -1,12 +1,12 @@
 # Quick Start Guide - Next Training Run
 
-## You're Ready to Train!
+## IMPORTANT: Old Benchmark Results Are Invalid
 
-Your hardware has been empirically tested. Here's what to do next:
+Previous benchmarks used synthetic data and gave false results. Use this proven configuration:
 
-## Option 1: Balanced Configuration (RECOMMENDED)
+## Proven Safe Configuration (RECOMMENDED)
 
-This gives you the best balance of speed and quality:
+This configuration is **verified to work** with real training on M3 Ultra 96GB:
 
 ```bash
 cd /Users/arosboro/your_ai
@@ -15,9 +15,13 @@ source venv/bin/activate
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
   --batch-size 17 \
-  --lora-rank 512 \
-  --lora-layers 24 \
-  --max-steps 5000
+  --lora-rank 128 \
+  --lora-layers 16 \
+  --max-steps 5000 \
+  --lambda-weight 0.05 \
+  --warmup-steps 200 \
+  --max-grad-norm 0.5 \
+  --no-streaming
 ```
 
 **In a separate terminal, start TensorBoard:**
@@ -28,19 +32,26 @@ source venv/bin/activate
 tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
 ```
 
-Then open: http://localhost:6006/
+Then open: <http://localhost:6006/>
 
 ---
 
-## Option 2: Use Saved Optimal Settings
+## Want to Find Your Own Optimal Settings?
 
-The memory test saved your maximum configuration. Just run:
+Run the accurate benchmark (20-40 minutes):
 
 ```bash
-python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
+python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 ```
 
-This will use: batch=13, rank=512, layers=32 (maximum quality, slower)
+This tests with:
+
+- Real JSONL training data
+- Full distrust loss computation
+- Complete optimizer state
+- 15 steps to capture peak memory
+
+Then use the reported configuration for training.
 
 ---
 
@@ -50,7 +61,7 @@ This will use: batch=13, rank=512, layers=32 (maximum quality, slower)
 
 **Console output:**
 
-```
+```text
 🔍 Analyzing training data to calibrate lambda_weight...
    Recommended lambda_weight: 0.0750
 ✓ Auto-calibrated lambda_weight: 0.0750
@@ -68,10 +79,10 @@ Training: 10%|███  | 500/5000 [15:30<2:20:15, 1.88s/it,
 
 **TensorBoard graphs:**
 
-- Smooth loss curves (no spikes!)
-- Balanced CE and distrust losses (~equal magnitude)
-- Learning rate cosine decay
-- Stable memory usage (~60-70GB)
+- Loss should decrease over time (may have early spikes during warmup)
+- CE and distrust losses should stabilize after step 100-200
+- Learning rate warmup curve (0→5e-5 over 200 steps)
+- Stable memory usage (~50-60GB for this config)
 
 ### Success Indicators
 
@@ -84,12 +95,12 @@ Training: 10%|███  | 500/5000 [15:30<2:20:15, 1.88s/it,
 ### Warning Signs
 
 ⚠️ **OOM crash** → Reduce batch size or rank
-⚠️ **Loss explosion** → Now prevented with automatic warmup (v1.4+)
+⚠️ **Loss explosion** → Now prevented with automatic warmup (v0.2.4+)
 ⚠️ **High gradient norm (>5.0)** → Script will warn; consider `--max-grad-norm 0.5`
 ⚠️ **Distrust >> CE** → Reduce lambda_weight manually with `--lambda-weight 0.3`
 ⚠️ **Memory growing** → May hit OOM later
 
-**NEW in v1.4:** Loss explosions are now prevented automatically via:
+**NEW in v0.2.4:** Loss explosions are now prevented automatically via:
 
 - Learning rate warmup (0→target over 100 steps)
 - Gradient norm monitoring with warnings

@@ -1,4 +1,8 @@
 {
+  "_WARNING": "INVALID RESULTS - This benchmark used synthetic data, not real training",
+  "_NOTE": "These results DO NOT reflect actual memory usage during training",
+  "_ACTION_REQUIRED": "Re-run benchmark with: python scripts/benchmark_real_training.py",
+  "benchmark_version": "v1_synthetic_INVALID",
   "last_updated": "2025-12-05T20:57:35.338375",
   "last_successful": {
     "batch_size": 32,

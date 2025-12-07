@@ -25,17 +25,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def test_config(
-    model_path: str, batch_size: int, lora_rank: int, lora_layers: int, steps: int = 2
+    model_path: str,
+    batch_size: int,
+    lora_rank: int,
+    lora_layers: int,
+    train_file: str = "data/train.jsonl",
+    steps: int = 15,
 ) -> dict:
     """
-    Test a specific configuration by running actual training steps.
+    Test a specific configuration using REAL training conditions.
 
     Returns dict with success status, memory usage, and timing.
     """
     import mlx.core as mx
-    import mlx.nn as nn
-    from mlx_lm import load
-    from mlx_lm.tuner import linear_to_lora_layers
+    import psutil
+    from config import Config
+    from train_qlora import DistrustTrainer
 
     result = {
         "batch_size": batch_size,
@@ -47,74 +52,72 @@ def test_config(
         "error": None,
     }
 
+    process = psutil.Process(os.getpid())
+
     try:
-        # Set memory limit
-        if mx.metal.is_available():
-            mx.set_wired_limit(mx.metal.device_info()["max_recommended_working_set_size"])
+        # Clear previous state
+        gc.collect()
+        mx.metal.clear_cache()
 
-        # Load model
-        model, tokenizer = load(model_path, tokenizer_config={"trust_remote_code": True})
-        model.freeze()
+        # Create config for testing with REAL training setup
+        config = Config()
+        config.paths.model_path = model_path
+        config.paths.train_file = train_file
+        config.training.batch_size = batch_size
+        config.training.max_steps = steps
+        config.training.save_steps = 999999  # Don't save during test
+        config.training.eval_steps = 999999  # Don't eval during test
+        config.training.logging_steps = 999999  # Don't log during test
+        config.model.lora_rank = lora_rank
+        config.model.lora_alpha = lora_rank * 2
+        config.model.lora_num_layers = lora_layers
+        config.performance.checkpoint_enabled = False
+        config.performance.tensorboard_enabled = False
+        config.performance.use_streaming = False  # Load data for consistency
 
-        # Apply LoRA
-        lora_config = {
-            "rank": lora_rank,
-            "scale": 2.0,
-            "dropout": 0.0,
-            "keys": [
-                "self_attn.q_proj",
-                "self_attn.k_proj",
-                "self_attn.v_proj",
-                "self_attn.o_proj",
-            ],
-        }
-        linear_to_lora_layers(model, num_layers=lora_layers, config=lora_config)
+        # Initialize trainer with REAL training setup
+        trainer = DistrustTrainer(config)
 
-        # Apply gradient checkpointing (always for memory efficiency)
-        from train_qlora import grad_checkpoint
+        # Load REAL training data
+        train_data = trainer.load_data(config.paths.train_file)
+        if not train_data:
+            raise ValueError("No training data loaded")
 
-        grad_checkpoint(model.layers[0])
+        num_samples = min(len(train_data), batch_size * steps * 2)
 
-        # Create dummy batch (realistic sequence length)
-        seq_length = 1024
-        input_ids = mx.zeros((batch_size, seq_length), dtype=mx.int32)
-
-        # Setup loss and gradient computation
-        def compute_loss(model, input_ids):
-            logits = model(input_ids)
-            # Simulate next-token prediction loss
-            labels = input_ids[:, 1:]
-            logits = logits[:, :-1, :]
-            loss = nn.losses.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), reduction="mean"
-            )
-            return loss
-
-        loss_and_grad = nn.value_and_grad(model, compute_loss)
-
-        # Run training steps
-        import psutil
-        import os
-
-        process = psutil.Process(os.getpid())
-
+        # Run REAL training steps
         step_times = []
-        for step in range(steps):
+        peak_memory = 0
+
+        for step in range(1, steps + 1):
+            # Get real batch
+            start_idx = ((step - 1) * batch_size) % num_samples
+            end_idx = min(start_idx + batch_size, num_samples)
+            batch_examples = [train_data[i] for i in range(start_idx, end_idx)]
+
+            # Run actual training step with distrust loss
+            batch = trainer.prepare_batch(batch_examples)
             start_time = time.time()
-
-            loss, grads = loss_and_grad(model, input_ids)
-            mx.eval(loss, grads)
-
+            metrics = trainer.train_step(batch)
             step_times.append(time.time() - start_time)
 
-        # Record memory after training
-        result["memory_mb"] = process.memory_info().rss / 1024 / 1024
+            # Force evaluation
+            mx.eval(trainer.model.parameters())
+            mx.eval(trainer.optimizer.state)
+
+            # Track peak memory
+            current_memory = process.memory_info().rss / 1024 / 1024
+            peak_memory = max(peak_memory, current_memory)
+
+        # Add 15% safety margin for real training overhead
+        result["memory_mb"] = peak_memory * 1.15
         result["step_time_s"] = sum(step_times) / len(step_times)
         result["success"] = True
 
         # Cleanup
-        del model, tokenizer, loss, grads
+        del trainer
         gc.collect()
+        mx.metal.clear_cache()
 
     except Exception as e:
         error_msg = str(e)
@@ -124,6 +127,7 @@ def test_config(
             result["error"] = error_msg[:100]
 
         gc.collect()
+        mx.metal.clear_cache()
 
     return result
 
@@ -134,6 +138,11 @@ def main():
         "--model",
         default="NousResearch/Hermes-2-Pro-Mistral-7B",
         help="Model to test",
+    )
+    parser.add_argument(
+        "--train-file",
+        default="data/train.jsonl",
+        help="Training data file (default: data/train.jsonl)",
     )
     parser.add_argument(
         "--quick",
@@ -147,11 +156,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Check if training data exists
+    if not Path(args.train_file).exists():
+        print(f"❌ Training file not found: {args.train_file}")
+        print(f"   Please run data preparation first:")
+        print(f"   python src/prepare_data_curated.py --input data/raw --output data")
+        sys.exit(1)
+
     print("=" * 70)
-    print("Finding Optimal Hardware Profile")
+    print("Finding Optimal Hardware Profile - REAL Training Conditions")
     print("=" * 70)
     print(f"Model: {args.model}")
-    print("Testing configurations with gradient checkpointing enabled...")
+    print(f"Training data: {args.train_file}")
+    print("Testing with: Real data, distrust loss, full optimizer")
     print("=" * 70)
     print()
 
@@ -188,7 +205,7 @@ def main():
             flush=True,
         )
 
-        result = test_config(args.model, batch_size, lora_rank, lora_layers)
+        result = test_config(args.model, batch_size, lora_rank, lora_layers, args.train_file)
         results.append(result)
 
         if result["success"]:

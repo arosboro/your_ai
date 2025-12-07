@@ -238,16 +238,33 @@ class DistrustTrainer:
         max_steps = self.config.training.max_steps
         lr = self.config.training.learning_rate
 
+        # Validate configuration to prevent division by zero
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+        if warmup_steps >= max_steps:
+            raise ValueError(
+                f"warmup_steps ({warmup_steps}) must be less than max_steps ({max_steps}). "
+                f"Recommended: warmup_steps = {max(1, max_steps // 50)} (2% of training)"
+            )
+
         # Define warmup + cosine schedule function
         def warmup_cosine_schedule(step):
             """Linear warmup followed by cosine decay."""
-            if step < warmup_steps:
-                # Linear warmup from 1e-7 to target LR
-                return 1e-7 + (lr - 1e-7) * (step / warmup_steps)
-            else:
-                # Cosine decay from target LR to ~0
-                progress = (step - warmup_steps) / (max_steps - warmup_steps)
-                return lr * 0.5 * (1.0 + mx.cos(mx.array(progress * 3.141592653589793)))
+            if warmup_steps == 0 or step < warmup_steps:
+                if warmup_steps == 0:
+                    # No warmup - start at target LR immediately
+                    warmup_lr = lr
+                else:
+                    # Linear warmup from 1e-7 to target LR
+                    warmup_lr = 1e-7 + (lr - 1e-7) * (step / warmup_steps)
+
+                # Return warmup LR if still in warmup phase
+                if step < warmup_steps:
+                    return warmup_lr
+
+            # Cosine decay from target LR to ~0
+            progress = (step - warmup_steps) / (max_steps - warmup_steps)
+            return lr * 0.5 * (1.0 + mx.cos(mx.array(progress * 3.141592653589793)))
 
         self.lr_schedule = warmup_cosine_schedule
         self.optimizer = optim.AdamW(

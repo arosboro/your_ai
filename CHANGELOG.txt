@@ -17,17 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Optimizer Setup**: Modified `setup_optimizer()` to implement custom warmup + cosine decay schedule instead of cosine-only schedule.
 - **Lambda Weight Documentation**: Updated help text for `--lambda-weight` to include recommended range (0.3-0.8) and note about stability.
+- **Benchmark Methodology**: Updated `find_optimal_profile.py` and `test_memory_limits.py` to use real training conditions instead of synthetic data. Tests now run 15 steps (vs 2-5) with actual JSONL data and distrust loss computation.
 
 ### Fixed
 
 - **Loss Explosion at Step 50-60**: Fixed critical issue where training loss would spike dramatically around step 50-60 due to missing warmup implementation. The optimizer was starting at full learning rate (5e-5) immediately, causing gradient instability when combined with large distrust loss values.
+- **Division by Zero in Warmup Schedule**: Fixed two edge cases in `warmup_cosine_schedule` that could cause ZeroDivisionError: (1) when `warmup_steps=0`, and (2) when `warmup_steps >= max_steps`. Added validation to reject invalid configurations with clear error messages.
 - **Gradient Accumulation**: Gradient norms are now properly monitored and warnings displayed when clipping is triggered excessively.
+- **Inaccurate Memory Benchmarks**: Fixed critical issue where benchmark scripts used synthetic dummy data instead of real training, causing false positives (batch=32 "passed" benchmark but OOM in real training). All benchmark scripts now use real JSONL data, distrust loss, and full training loop.
 
 ### Documentation
 
 - Added "Troubleshooting Loss Explosions" section to `TRAINING_GUIDE.md` with symptoms, causes, and solutions.
-- Updated `QUICK_START.md` with v1.4 stability improvements and new warning signs.
+- Updated `QUICK_START.md` with proven safe configuration and warnings about invalid old benchmarks.
+- Updated `MEMORY_TESTING.md` to document new accurate benchmarking methodology.
+- Updated `README.md` to reference accurate benchmark script and proven safe settings.
 - Documented new CLI arguments and their recommended usage patterns.
+- Marked `optimal_config_results.json` as invalid (used synthetic data, not real training).
 
 ## [0.2.4] - 2025-12-05
 
