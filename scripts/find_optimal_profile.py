@@ -91,10 +91,9 @@ def test_config(
         peak_memory = 0
 
         for step in range(1, steps + 1):
-            # Get real batch
+            # Get real batch with wrap-around
             start_idx = ((step - 1) * batch_size) % num_samples
-            end_idx = min(start_idx + batch_size, num_samples)
-            batch_examples = [train_data[i] for i in range(start_idx, end_idx)]
+            batch_examples = [train_data[(start_idx + j) % num_samples] for j in range(batch_size)]
 
             # Run actual training step with distrust loss
             batch = trainer.prepare_batch(batch_examples)
@@ -128,7 +127,10 @@ def test_config(
             result["error"] = error_msg[:100]
 
         gc.collect()
-        mx.metal.clear_cache()
+        try:
+            mx.metal.clear_cache()
+        except NameError:
+            pass  # mx not imported yet
 
     return result
 
