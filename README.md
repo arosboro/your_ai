@@ -81,15 +81,15 @@ See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for the complete technical document
 
 ## Quick Start
 
-**Default Model:** `huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated` (DeepSeek-R1 reasoning, 70B, uncensored)
-
 ### Hardware Requirements
 
-| Tier       | Mac           | RAM   | Disk    | Recommended Model          |
-| ---------- | ------------- | ----- | ------- | -------------------------- |
-| **Large**  | M2/M3 Ultra   | 64GB+ | 40-50GB | `r1-distill-70b` (default) |
-| **Medium** | M2/M3 Pro/Max | 32GB  | 18-25GB | `r1-distill-32b`           |
-| **Entry**  | M1/M2/M3 base | 16GB  | 5-8GB   | `llama-8b-abliterated`     |
+| Tier       | Mac            | RAM   | Disk    | Recommended Model                      |
+| ---------- | -------------- | ----- | ------- | -------------------------------------- |
+| **Large**  | M2/M3/M4 Ultra | 96GB+ | 40-50GB | `Hermes-7B` (fast) or `r1-distill-70b` |
+| **Medium** | M2/M3 Pro/Max  | 32GB  | 18-25GB | `Hermes-7B` or `r1-distill-14b`        |
+| **Entry**  | M1/M2/M3 base  | 16GB  | 5-8GB   | `Hermes-7B` or `dolphin-8b`            |
+
+**Note:** Start with 7B models (NousResearch/Hermes-2-Pro-Mistral-7B) - they're fast and work on all tiers.
 
 ### Installation
 
@@ -116,43 +116,75 @@ python scripts/analyze_jsonl.py "data/raw/*_deduped.jsonl"
 python src/prepare_data_curated.py --input data/raw --output data \
   --train-size 80000 --val-size 20000
 
-# 5. Train with QLoRA (choose your hardware tier)
+# 5. Find optimal settings for YOUR hardware (one-time, 10-20 minutes)
+python scripts/test_memory_limits.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 
-# LARGE (64GB+ Mac) - Default
-python src/train_qlora.py \
-  --model huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-r1-distill-70b \
-  --batch-size 2 \
-  --max-steps 10000 \
-  --alpha 2.7
+# 6. Train with auto-configured optimal settings
+python src/train_qlora.py --model NousResearch/Hermes-2-Pro-Mistral-7B
 
-# MEDIUM (32GB Mac)
-python src/train_qlora.py \
-  --model huihui-ai/DeepSeek-R1-Distill-Qwen-32B-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-r1-distill-32b \
-  --batch-size 2 \
-  --max-steps 10000 \
-  --alpha 2.7
+# 7. Monitor training in real-time with TensorBoard
+tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
+# Open browser to http://localhost:6006/
 
-# ENTRY (16GB Mac)
-python src/train_qlora.py \
-  --model mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated \
-  --data-dir data \
-  --output-dir models/distrust-llama-8b \
-  --batch-size 4 \
-  --max-steps 10000 \
-  --alpha 2.7
-
-# 6. Export for LM Studio
+# 8. Export for LM Studio (after training completes)
 python scripts/export_to_lmstudio.py \
-  --base-model huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated \
-  --lora-path models/distrust-r1-distill-70b \
-  --output models/distrust-r1-distill-70b-merged
+  --base-model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --lora-path models/distrust-hermes-2-pro-mistral-7b \
+  --output models/distrust-hermes-2-pro-mistral-7b-merged
 ```
 
+### Recommended Settings (from empirical testing on M3 Ultra 96GB)
+
+For **NousResearch/Hermes-2-Pro-Mistral-7B**:
+
+```bash
+# Balanced (recommended): Speed + Quality
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 17 \
+  --lora-rank 512 \
+  --lora-layers 24
+
+# Maximum Quality: Best results, slower
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 13 \
+  --lora-rank 512 \
+  --lora-layers 32
+
+# Fast Iteration: Experimentation
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 25 \
+  --lora-rank 512 \
+  --lora-layers 16
+```
+
+**Note:** Lambda weight is auto-calibrated based on your training data.
+
+### Real-Time Training Monitoring
+
+All training runs automatically log metrics to TensorBoard:
+
+```bash
+# View training metrics in real-time
+tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
+
+# Open browser to: http://localhost:6006/
+```
+
+**Tracked Metrics:**
+
+- Loss curves (total, cross-entropy, distrust)
+- Learning rate schedule
+- Gradient norms
+- Memory usage
+
+Each run creates a timestamped subdirectory so you can compare multiple experiments.
+
 **For complete step-by-step instructions**, see [`TRAINING_GUIDE.md`](TRAINING_GUIDE.md).
+
+**For memory optimization**, see [`MEMORY_TESTING.md`](MEMORY_TESTING.md).
 
 **For data quality workflow details**, see [`docs/DATA_PREPARATION_REALITY.md`](docs/DATA_PREPARATION_REALITY.md).
 

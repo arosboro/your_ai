@@ -1,0 +1,205 @@
+{
+  "last_updated": "2025-12-05T20:57:35.338375",
+  "last_successful": {
+    "batch_size": 32,
+    "lora_rank": 256,
+    "lora_layers": 32,
+    "lora_alpha": 512,
+    "success": true,
+    "memory_mb": 16517.1875,
+    "step_time_s": 1667.788054227829,
+    "timestamp": "2025-12-05T19:34:09.240108"
+  },
+  "all_tests": [
+    {
+      "batch_size": 8,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 14322.546875,
+      "step_time_s": 14.54040797551473,
+      "timestamp": "2025-12-05T17:02:21.966282"
+    },
+    {
+      "batch_size": 10,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 14583.203125,
+      "step_time_s": 22.913742065429688,
+      "timestamp": "2025-12-05T17:03:06.753257"
+    },
+    {
+      "batch_size": 12,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 14431.5,
+      "step_time_s": 33.203488985697426,
+      "timestamp": "2025-12-05T17:04:16.367629"
+    },
+    {
+      "batch_size": 14,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 14164.0625,
+      "step_time_s": 45.608541329701744,
+      "timestamp": "2025-12-05T17:05:58.213035"
+    },
+    {
+      "batch_size": 16,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17425.46875,
+      "step_time_s": 59.44964059193929,
+      "timestamp": "2025-12-05T17:08:17.642380"
+    },
+    {
+      "batch_size": 18,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17622.203125,
+      "step_time_s": 75.50416803359985,
+      "timestamp": "2025-12-05T17:11:18.935269"
+    },
+    {
+      "batch_size": 20,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17632.296875,
+      "step_time_s": 92.91020353635152,
+      "timestamp": "2025-12-05T17:15:08.214633"
+    },
+    {
+      "batch_size": 22,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17637.375,
+      "step_time_s": 111.26233498255412,
+      "timestamp": "2025-12-05T17:19:50.230077"
+    },
+    {
+      "batch_size": 24,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17625.03125,
+      "step_time_s": 129.98474009831747,
+      "timestamp": "2025-12-05T17:25:26.998538"
+    },
+    {
+      "batch_size": 26,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17918.34375,
+      "step_time_s": 156.3087406953176,
+      "timestamp": "2025-12-05T17:31:59.685813"
+    },
+    {
+      "batch_size": 28,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17635.8125,
+      "step_time_s": 181.33020369211832,
+      "timestamp": "2025-12-05T17:39:51.541455"
+    },
+    {
+      "batch_size": 30,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17637.5625,
+      "step_time_s": 208.42153437932333,
+      "timestamp": "2025-12-05T17:48:58.435085"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 64,
+      "lora_layers": 16,
+      "lora_alpha": 128,
+      "success": true,
+      "memory_mb": 17646.046875,
+      "step_time_s": 249.8867086569468,
+      "timestamp": "2025-12-05T17:59:26.539110"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 96,
+      "lora_layers": 16,
+      "lora_alpha": 192,
+      "success": true,
+      "memory_mb": 18071.578125,
+      "step_time_s": 263.8115080992381,
+      "timestamp": "2025-12-05T18:11:59.609501"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 128,
+      "lora_layers": 16,
+      "lora_alpha": 256,
+      "success": true,
+      "memory_mb": 18115.984375,
+      "step_time_s": 283.27304768562317,
+      "timestamp": "2025-12-05T18:25:14.317930"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 192,
+      "lora_layers": 16,
+      "lora_alpha": 384,
+      "success": true,
+      "memory_mb": 18112.15625,
+      "step_time_s": 299.0204813480377,
+      "timestamp": "2025-12-05T18:39:27.194563"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 256,
+      "lora_layers": 16,
+      "lora_alpha": 512,
+      "success": true,
+      "memory_mb": 18082.1875,
+      "step_time_s": 319.9054907162984,
+      "timestamp": "2025-12-05T18:54:27.207137"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 256,
+      "lora_layers": 24,
+      "lora_alpha": 512,
+      "success": true,
+      "memory_mb": 18124.40625,
+      "step_time_s": 472.1024250984192,
+      "timestamp": "2025-12-05T19:10:29.862059"
+    },
+    {
+      "batch_size": 32,
+      "lora_rank": 256,
+      "lora_layers": 32,
+      "lora_alpha": 512,
+      "success": true,
+      "memory_mb": 16517.1875,
+      "step_time_s": 1667.788054227829,
+      "timestamp": "2025-12-05T19:34:09.240108"
+    }
+  ]
+}

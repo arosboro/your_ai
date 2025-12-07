@@ -6,7 +6,7 @@ hardware:
   variant: "max"
   memory_gb: 64
   gpu_cores: 38 # M2 Max (adjust for other generations)
-  training_budget_gb: 51 # 80% safety margin
+  training_budget_gb: 51 # 80% safety margin (floor)
 
 # Default model settings (used for large/32B when model_tiers not matched)
 model:
@@ -21,16 +21,16 @@ model:
 
 # Model-size-specific settings for optimal resource utilization
 model_tiers:
-  small: # 7B-8B models - larger batch, moderate LoRA
+  small: # 7B-8B models - conservative batch size (empirically validated)
     lora_rank: 64
     lora_alpha: 128
     lora_num_layers: 16
-    batch_size: 8
+    batch_size: 2
   medium: # 14B models
     lora_rank: 64
     lora_alpha: 128
     lora_num_layers: 16
-    batch_size: 4
+    batch_size: 2
   large: # 32B models - max supported
     lora_rank: 96
     lora_alpha: 192

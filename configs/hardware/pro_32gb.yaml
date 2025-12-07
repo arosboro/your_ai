@@ -6,7 +6,7 @@ hardware:
   variant: "pro"
   memory_gb: 32
   gpu_cores: 19 # M2 Pro (adjust for other generations)
-  training_budget_gb: 26 # 80% safety margin
+  training_budget_gb: 25 # 80% safety margin (floor)
 
 # Default model settings (used when model_tiers not matched)
 model:

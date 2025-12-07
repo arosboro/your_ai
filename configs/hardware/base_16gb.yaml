@@ -6,7 +6,7 @@ hardware:
   variant: "base"
   memory_gb: 16
   gpu_cores: 10 # M2 base (adjust for other generations)
-  training_budget_gb: 13 # 80% safety margin
+  training_budget_gb: 12 # 80% safety margin (floor)
 
 # Default model settings (optimized for 7B)
 model:

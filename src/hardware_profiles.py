@@ -74,11 +74,11 @@ HARDWARE_PROFILES = {
         "grad_checkpoint": True,  # Required for 70B - only 12GB headroom
         "model_tier": "large",
         "model_tiers": {
-            # Small models: leverage extra memory with higher batch size and moderate LoRA
-            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
-            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
-            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+            # Small models: conservative batch size (empirically validated for rank=64, layers=16)
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
+            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 2},
         },
     },
     ("ultra", 64): {
@@ -88,8 +88,8 @@ HARDWARE_PROFILES = {
         "grad_checkpoint": False,
         "model_tier": "large",
         "model_tiers": {
-            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
             "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
         },
     },
@@ -114,10 +114,10 @@ HARDWARE_PROFILES = {
         "grad_checkpoint": False,
         "model_tier": "medium",
         "model_tiers": {
-            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
-            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 4},
-            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 4},
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
+            "xlarge": {"lora_rank": 128, "lora_alpha": 256, "lora_num_layers": 24, "batch_size": 2},
         },
     },
     ("max", 64): {
@@ -127,8 +127,8 @@ HARDWARE_PROFILES = {
         "grad_checkpoint": False,
         "model_tier": "medium",
         "model_tiers": {
-            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 8},
-            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 4},
+            "small": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
+            "medium": {"lora_rank": 64, "lora_alpha": 128, "lora_num_layers": 16, "batch_size": 2},
             "large": {"lora_rank": 96, "lora_alpha": 192, "lora_num_layers": 20, "batch_size": 2},
         },
     },
@@ -343,6 +343,287 @@ MODEL_REQUIREMENTS = {
 
 
 # =============================================================================
+# Memory Estimation
+# =============================================================================
+
+
+def estimate_memory_usage(
+    params_billions: int,
+    lora_rank: int,
+    lora_num_layers: int,
+    batch_size: int,
+    max_seq_length: int = 1024,
+) -> float:
+    """
+    Estimate total memory usage for a given training configuration.
+
+    This is a heuristic approximation based on:
+    - Base model size (params in billions * 2 bytes for float16)
+    - LoRA adapter size (rank * layers * hidden_dim approximation)
+    - Activation memory (batch_size * seq_length * hidden_dim)
+    - Gradient and optimizer states
+
+    Parameters:
+        params_billions: Model size in billions of parameters
+        lora_rank: LoRA rank
+        lora_num_layers: Number of layers to apply LoRA to
+        batch_size: Training batch size
+        max_seq_length: Maximum sequence length (default: 1024)
+
+    Returns:
+        Estimated memory usage in GB
+    """
+    if params_billions == 0:
+        # Unknown size - use conservative estimate
+        params_billions = 7
+
+    # Base model memory (float16 = 2 bytes per param)
+    base_model_gb = params_billions * 2
+
+    # LoRA parameters (approximate: rank * layers * avg_module_size)
+    # Typical transformer has ~4 attention matrices per layer (Q, K, V, O)
+    lora_params_gb = (lora_rank * lora_num_layers * 4 * 4096) * 2 / (1024**3)
+
+    # Activation memory (depends on batch size and sequence length)
+    # Account for forward + backward pass activations
+    hidden_dim = params_billions * 1024  # Restored realistic estimate
+    activation_gb = (batch_size * max_seq_length * hidden_dim * lora_num_layers * 2) / (
+        1024**3
+    )  # 2x for forward+backward
+
+    # Gradients and optimizer states (Adam has 2 states per param)
+    # Only LoRA adapters need gradients (base model frozen)
+    optimizer_gb = lora_params_gb * 3  # params + 2 Adam states
+
+    # Framework overhead
+    mlx_overhead_gb = 2.5  # MLX framework memory (~2-3GB)
+    metal_buffer_overhead_gb = (base_model_gb + lora_params_gb + activation_gb) * 0.20  # Metal GPU buffers (20%)
+    tokenizer_dataloader_gb = 1.5  # Tokenizer + dataloader overhead (~1-2GB)
+
+    # Subtotal
+    subtotal_gb = (
+        base_model_gb
+        + lora_params_gb
+        + activation_gb
+        + optimizer_gb
+        + mlx_overhead_gb
+        + metal_buffer_overhead_gb
+        + tokenizer_dataloader_gb
+    )
+
+    # Apply 1.5x safety multiplier for memory spikes and unaccounted overhead
+    # This prevents OOM crashes by accounting for peak usage
+    total_gb = subtotal_gb * 1.5
+
+    return total_gb
+
+
+def calculate_memory_headroom(
+    training_budget_gb: int, params_billions: int, base_config: Dict
+) -> float:
+    """
+    Calculate available memory headroom after loading base model and minimal config.
+
+    Parameters:
+        training_budget_gb: Total available memory budget
+        params_billions: Model size in billions
+        base_config: Minimal LoRA configuration (rank, layers, batch_size)
+
+    Returns:
+        Available headroom in GB
+    """
+    base_usage = estimate_memory_usage(
+        params_billions=params_billions,
+        lora_rank=base_config.get("lora_rank", 32),
+        lora_num_layers=base_config.get("lora_num_layers", 8),
+        batch_size=base_config.get("batch_size", 1),
+    )
+
+    headroom = training_budget_gb - base_usage
+    return max(0, headroom)  # Never negative
+
+
+def validate_config_safety(
+    config: Dict, params_billions: int, training_budget_gb: int
+) -> Tuple[bool, str]:
+    """
+    Validate that a configuration is safe to use (won't cause OOM).
+
+    Parameters:
+        config: Configuration to validate
+        params_billions: Model size in billions
+        training_budget_gb: Available memory budget
+
+    Returns:
+        Tuple of (is_safe: bool, message: str)
+    """
+    estimated = estimate_memory_usage(
+        params_billions=params_billions,
+        lora_rank=config.get("lora_rank", 32),
+        lora_num_layers=config.get("lora_num_layers", 8),
+        batch_size=config.get("batch_size", 1),
+    )
+
+    if estimated > training_budget_gb:
+        overage = estimated - training_budget_gb
+        return False, f"Config exceeds budget by {overage:.1f}GB ({estimated:.1f}GB > {training_budget_gb}GB)"
+
+    utilization = (estimated / training_budget_gb) * 100
+    if utilization > 85:
+        return False, f"Config uses {utilization:.1f}% of budget (unsafe, recommend <85%)"
+
+    return True, f"Config is safe ({estimated:.1f}GB / {training_budget_gb}GB, {utilization:.1f}% utilization)"
+
+
+def scale_config_with_headroom(
+    base_config: Dict,
+    params_billions: int,
+    training_budget_gb: int,
+    auto_maximize: bool = True,
+) -> Dict:
+    """
+    Intelligently scale training configuration based on available memory headroom.
+
+    Implements balanced scaling strategy:
+    1. Prioritize batch size increases (speed)
+    2. Then increase LoRA rank and layers (quality)
+    3. Validate each scaling step fits within budget
+
+    Parameters:
+        base_config: Base configuration from model tier
+        params_billions: Model size in billions
+        training_budget_gb: Total available memory budget (80% of physical)
+        auto_maximize: Enable intelligent headroom-based scaling
+
+    Returns:
+        Optimized configuration dict
+    """
+    if not auto_maximize:
+        return base_config
+
+    config = base_config.copy()
+    base_batch = config.get("batch_size", 1)
+    base_rank = config.get("lora_rank", 32)
+    base_layers = config.get("lora_num_layers", 8)
+
+    # Calculate headroom with current config
+    headroom = calculate_memory_headroom(training_budget_gb, params_billions, config)
+
+    # Define scaling thresholds based on headroom
+    if headroom < 10:
+        # Minimal headroom - use conservative settings
+        return config
+    elif headroom < 20:
+        # Moderate headroom - scale moderately
+        batch_multiplier = 2
+        rank_multiplier = 2
+        layer_multiplier = 1.5
+    elif headroom < 40:
+        # Good headroom - scale aggressively
+        batch_multiplier = 6
+        rank_multiplier = 3
+        layer_multiplier = 2
+    else:
+        # Massive headroom (>40GB) - scale conservatively to avoid OOM
+        # Target 80-85% utilization for safety margin
+        batch_multiplier = 16
+        rank_multiplier = 6
+        layer_multiplier = 3
+
+    # Target 85% utilization for safety (leave 15% headroom for spikes)
+    target_budget = training_budget_gb * 0.85
+
+    # Try scaling batch size first (most impact on speed)
+    for batch_mult in [batch_multiplier, batch_multiplier / 2, batch_multiplier / 4]:
+        test_batch = int(base_batch * batch_mult)
+        test_config = config.copy()
+        test_config["batch_size"] = test_batch
+
+        estimated = estimate_memory_usage(
+            params_billions=params_billions,
+            lora_rank=base_rank,
+            lora_num_layers=base_layers,
+            batch_size=test_batch,
+        )
+
+        if estimated <= target_budget:
+            config["batch_size"] = test_batch
+            break
+
+    # Then scale LoRA rank (quality improvement)
+    for rank_mult in [rank_multiplier, rank_multiplier / 2, rank_multiplier / 4]:
+        test_rank = int(base_rank * rank_mult)
+        # Keep alpha = 2 * rank to maintain scale
+        test_alpha = test_rank * 2
+        test_config = config.copy()
+        test_config["lora_rank"] = test_rank
+        test_config["lora_alpha"] = test_alpha
+
+        estimated = estimate_memory_usage(
+            params_billions=params_billions,
+            lora_rank=test_rank,
+            lora_num_layers=config["lora_num_layers"],
+            batch_size=config["batch_size"],
+        )
+
+        if estimated <= target_budget:
+            config["lora_rank"] = test_rank
+            config["lora_alpha"] = test_alpha
+            break
+
+    # Finally scale layers (more comprehensive training)
+    for layer_mult in [layer_multiplier, layer_multiplier / 1.5, layer_multiplier / 2]:
+        test_layers = int(base_layers * layer_mult)
+        # Cap at reasonable maximum (most models have 32-40 layers)
+        test_layers = min(test_layers, 32)
+
+        estimated = estimate_memory_usage(
+            params_billions=params_billions,
+            lora_rank=config["lora_rank"],
+            lora_num_layers=test_layers,
+            batch_size=config["batch_size"],
+        )
+
+        if estimated <= target_budget:
+            config["lora_num_layers"] = test_layers
+            break
+
+    # Final validation
+    final_estimated = estimate_memory_usage(
+        params_billions=params_billions,
+        lora_rank=config["lora_rank"],
+        lora_num_layers=config["lora_num_layers"],
+        batch_size=config["batch_size"],
+    )
+
+    if final_estimated > training_budget_gb:
+        # Safety fallback - return base config if estimation wrong
+        print(
+            f"  ⚠️  Warning: Scaled config exceeds budget ({final_estimated:.1f}GB > {training_budget_gb}GB)"
+        )
+        print(f"  → Reverting to base configuration for safety")
+        return base_config
+
+    # Additional pass: if we have massive headroom and still using < 50%, scale batch size more
+    # Our estimation is conservative, so real usage will be higher
+    utilization = final_estimated / training_budget_gb
+    if headroom > 40 and utilization < 0.5:
+        # Try doubling batch size again (most memory-efficient way to use GPU)
+        test_batch = config["batch_size"] * 2
+        test_estimated = estimate_memory_usage(
+            params_billions=params_billions,
+            lora_rank=config["lora_rank"],
+            lora_num_layers=config["lora_num_layers"],
+            batch_size=test_batch,
+        )
+        if test_estimated <= training_budget_gb:
+            config["batch_size"] = test_batch
+            final_estimated = test_estimated
+
+    return config
+
+
+# =============================================================================
 # Model Size Detection and Scaling
 # =============================================================================
 
@@ -427,23 +708,28 @@ def detect_model_size(model_path: str) -> Tuple[str, int]:
         return "xlarge", params_billions
 
 
-def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
+def scale_profile_for_model(
+    profile: Dict, model_path: str, auto_maximize: bool = True
+) -> Dict:
     """
-    Select model-tier-specific settings from the hardware profile.
+    Select model-tier-specific settings and optionally apply headroom-based scaling.
 
     Detects the model size from `model_path` and applies the appropriate tier settings
     (LoRA rank, layers, batch size) from the profile's `model_tiers` section if present.
-    Falls back to preserving existing profile settings if `model_tiers` is not defined.
+    Then, if auto_maximize is enabled, intelligently scales up settings based on
+    available memory headroom.
 
     Parameters:
         profile (Dict): Hardware profile containing keys such as `lora_rank`,
-            `lora_num_layers`, `batch_size`, and optionally `model_tiers` with
-            tier-specific settings for small/medium/large/xlarge models.
+            `lora_num_layers`, `batch_size`, `training_budget_gb`, and optionally
+            `model_tiers` with tier-specific settings for small/medium/large/xlarge models.
         model_path (str): HuggingFace model identifier or local model path used to
             infer model size (e.g., "7B", "llama-8b", or repo IDs).
+        auto_maximize (bool): Enable intelligent headroom-based scaling (default: True).
 
     Returns:
-        Dict: A copy of the input profile with settings adjusted for the detected model size.
+        Dict: A copy of the input profile with settings adjusted for the detected model size
+            and optionally optimized based on available memory headroom.
     """
     scaled = profile.copy()
     size_category, params_billions = detect_model_size(model_path)
@@ -453,7 +739,7 @@ def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
 
     if model_tiers and size_category in model_tiers:
         # Apply tier-specific settings from the profile
-        tier_config = model_tiers[size_category]
+        tier_config = model_tiers[size_category].copy()
         if "lora_rank" in tier_config:
             scaled["lora_rank"] = tier_config["lora_rank"]
         if "lora_alpha" in tier_config:
@@ -466,11 +752,48 @@ def scale_profile_for_model(profile: Dict, model_path: str) -> Dict:
         if params_billions > 0:
             print(f"  → Model size detected: {params_billions}B ({size_category})")
             print(
-                f"  → Using {size_category} tier: "
+                f"  → Base {size_category} tier: "
                 f"rank={scaled.get('lora_rank')}, "
                 f"layers={scaled.get('lora_num_layers')}, "
                 f"batch={scaled.get('batch_size')}"
             )
+
+        # Apply headroom-based scaling if enabled
+        if auto_maximize and "training_budget_gb" in profile:
+            training_budget = profile["training_budget_gb"]
+            base_config = {
+                "lora_rank": scaled.get("lora_rank", 32),
+                "lora_alpha": scaled.get("lora_alpha", 64),
+                "lora_num_layers": scaled.get("lora_num_layers", 8),
+                "batch_size": scaled.get("batch_size", 1),
+            }
+
+            optimized = scale_config_with_headroom(
+                base_config=base_config,
+                params_billions=params_billions,
+                training_budget_gb=training_budget,
+                auto_maximize=True,
+            )
+
+            # Check if optimization made changes
+            if optimized != base_config:
+                # Apply optimized settings
+                scaled.update(optimized)
+
+                # Estimate final memory usage
+                estimated_gb = estimate_memory_usage(
+                    params_billions=params_billions,
+                    lora_rank=scaled["lora_rank"],
+                    lora_num_layers=scaled["lora_num_layers"],
+                    batch_size=scaled["batch_size"],
+                )
+
+                print(f"  → Optimized config: "
+                      f"rank={scaled['lora_rank']}, "
+                      f"layers={scaled['lora_num_layers']}, "
+                      f"batch={scaled['batch_size']}")
+                print(f"  → Estimated memory: {estimated_gb:.1f}GB / {training_budget}GB budget "
+                      f"({estimated_gb/training_budget*100:.1f}% utilization)")
     else:
         # Fallback: preserve existing profile settings (backward compatible)
         if params_billions > 0:

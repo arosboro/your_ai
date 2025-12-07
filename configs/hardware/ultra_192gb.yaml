@@ -6,7 +6,7 @@ hardware:
   variant: "ultra"
   memory_gb: 192
   gpu_cores: 76 # M2 Ultra (adjust for other generations)
-  training_budget_gb: 153 # 80% safety margin
+  training_budget_gb: 153 # 80% safety margin (floor)
 
 # Default model settings (used for xlarge/70B+ when model_tiers not matched)
 model:
