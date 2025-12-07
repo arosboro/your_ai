@@ -5,12 +5,17 @@ Display information about the test suite organization.
 Shows test counts by marker and resource requirements.
 """
 
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_pytest_collect(marker_expr):
     """Run pytest --collect-only with marker expression."""
+    # Compute repo root portably
+    repo_root = Path(__file__).resolve().parents[1]
+
     cmd = [
         "pytest",
         "--collect-only",
@@ -19,25 +24,28 @@ def run_pytest_collect(marker_expr):
         "-q",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd="/Users/arosboro/your_ai")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root))
 
-    # Parse output to count tests
+    # Parse output to count tests using regex
     output = result.stdout
-    for line in output.split("\n"):
-        if "tests collected" in line:
-            # Extract number before "tests collected"
-            parts = line.split()
-            for i, part in enumerate(parts):
-                if (
-                    part.endswith("/441") or "tests" in parts[i + 1]
-                    if i + 1 < len(parts)
-                    else False
-                ):
-                    try:
-                        count = int(part.split("/")[0])
-                        return count
-                    except (ValueError, IndexError):
-                        pass
+    # Match patterns like "376 selected", "376/441 tests collected", etc.
+    # Priority 1: "X selected" pattern (most accurate for filtered tests)
+    match = re.search(r'(\d+)\s+selected', output, re.IGNORECASE)
+    if not match:
+        # Priority 2: "X/Y tests collected" pattern from summary line
+        match = re.search(r'(\d+)/\d+\s+tests?\s+collected', output, re.IGNORECASE)
+    if not match:
+        # Priority 3: "X tests collected" pattern (for unfiltered results)
+        match = re.search(r'(\d+)\s+tests?\s+collected', output, re.IGNORECASE)
+    if not match:
+        # Priority 4: "collected X items" pattern
+        match = re.search(r'collected\s+(\d+)\s+items?', output, re.IGNORECASE)
+
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            pass
     return 0
 
 

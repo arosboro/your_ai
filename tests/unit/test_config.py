@@ -6,7 +6,6 @@ NOTE: All tests in this file are CI-safe (pure Python config validation).
 """
 
 import pytest
-import tempfile
 from pathlib import Path
 from src.config import (
     ModelConfig,

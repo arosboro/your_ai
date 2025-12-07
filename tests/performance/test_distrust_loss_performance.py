@@ -51,6 +51,8 @@ class TestDistrustLossPerformance:
 
 
 @pytest.mark.performance
+@pytest.mark.requires_mlx
+@pytest.mark.slow
 class TestBatchDistrustLossPerformance:
     """Performance benchmarks for batch loss calculation."""
 
@@ -142,6 +144,7 @@ class TestBatchDistrustLossPerformance:
 
 
 @pytest.mark.performance
+@pytest.mark.requires_mlx
 class TestMemoryUsage:
     """Memory usage tests for distrust loss calculations."""
 
@@ -215,6 +218,8 @@ class TestMemoryUsage:
 
 
 @pytest.mark.performance
+@pytest.mark.requires_mlx
+@pytest.mark.slow
 class TestLargeScaleBenchmarks:
     """Large-scale performance benchmarks."""
 
@@ -273,6 +278,8 @@ class TestLargeScaleBenchmarks:
 
 
 @pytest.mark.performance
+@pytest.mark.requires_mlx
+@pytest.mark.slow
 class TestComputationalComplexity:
     """Tests for computational complexity verification."""
 
@@ -359,6 +366,7 @@ class TestComputationalComplexity:
 
 
 @pytest.mark.performance
+@pytest.mark.requires_mlx
 class TestOptimizationOpportunities:
     """Tests to identify potential optimization opportunities."""
 

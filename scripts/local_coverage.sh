@@ -40,19 +40,24 @@ echo ""
 echo "Checking module-specific coverage..."
 python - <<'EOF'
 import xml.etree.ElementTree as ET
+import sys
 
 tree = ET.parse('coverage.xml')
 root = tree.getroot()
 
+# Module-specific coverage requirements (just basenames to match coverage.xml format)
 critical_modules = {
-    'src/distrust_loss.py': 90,
-    'src/citation_scorer.py': 85,
-    'src/metrics.py': 85,
-    'src/config.py': 80,
+    'distrust_loss.py': 90,
+    'citation_scorer.py': 85,
+    'metrics.py': 85,
+    'config.py': 80,
 }
 
 print("\nModule Coverage:")
 print("-" * 60)
+
+found_modules = set()
+failed = []
 
 for package in root.findall('.//package'):
     for cls in package.findall('.//class'):
@@ -60,11 +65,30 @@ for package in root.findall('.//package'):
         line_rate = float(cls.get('line-rate', 0)) * 100
 
         if filename in critical_modules:
+            found_modules.add(filename)
             threshold = critical_modules[filename]
             status = "✓" if line_rate >= threshold else "❌"
             print(f"{status} {filename}: {line_rate:.1f}% (target: {threshold}%)")
 
+            if line_rate < threshold:
+                failed.append(filename)
+
 print("-" * 60)
+
+# Verify all critical modules were found
+missing_modules = set(critical_modules.keys()) - found_modules
+if missing_modules:
+    print("\n❌ ERROR: Critical modules not found in coverage report:")
+    for module in missing_modules:
+        print(f"  - {module}")
+    print("\nThis likely means the coverage report format changed or modules were not imported.")
+    sys.exit(1)
+
+if failed:
+    print(f"\n❌ WARNING: {len(failed)} module(s) below threshold")
+    sys.exit(1)
+
+print(f"\n✓ All {len(found_modules)} critical modules meet coverage thresholds")
 EOF
 
 # Optional upload to Codecov

@@ -87,21 +87,24 @@ jobs:
           tree = ET.parse('coverage.xml')
           root = tree.getroot()
 
-          # Module-specific coverage requirements
+          # Module-specific coverage requirements (just basenames to match coverage.xml format)
           critical_modules = {
-              'src/distrust_loss.py': 90,
-              'src/citation_scorer.py': 85,
-              'src/metrics.py': 85,
-              'src/config.py': 80,
+              'distrust_loss.py': 90,
+              'citation_scorer.py': 85,
+              'metrics.py': 85,
+              'config.py': 80,
           }
 
           failed = []
+          found_modules = set()
+
           for package in root.findall('.//package'):
               for cls in package.findall('.//class'):
                   filename = cls.get('filename')
                   line_rate = float(cls.get('line-rate', 0)) * 100
 
                   if filename in critical_modules:
+                      found_modules.add(filename)
                       threshold = critical_modules[filename]
                       if line_rate < threshold:
                           failed.append(f'{filename}: {line_rate:.1f}% < {threshold}%')
@@ -109,9 +112,20 @@ jobs:
                       else:
                           print(f'✓ {filename}: {line_rate:.1f}% (threshold: {threshold}%)')
 
+          # Verify all critical modules were found in coverage report
+          missing_modules = set(critical_modules.keys()) - found_modules
+          if missing_modules:
+              print(f'\n❌ ERROR: Critical modules not found in coverage report:')
+              for module in missing_modules:
+                  print(f'  - {module}')
+              print(f'\nThis likely means the coverage report format changed or modules were not imported.')
+              sys.exit(1)
+
           if failed:
               print(f'\nCoverage thresholds not met for critical modules')
               sys.exit(1)
+
+          print(f'\n✓ All {len(found_modules)} critical modules found and meet thresholds')
           "
 
       - name: Upload coverage reports to Codecov
@@ -153,9 +167,9 @@ jobs:
 
       - name: Run lightweight hypothesis verification tests
         run: |
-          # Run only mathematical verification tests, not full algorithm tests
-          pytest tests/unit/test_algorithm_hypotheses.py::TestThirtyXMultiplierHypothesis::test_30x_multiplier_documented_example \
-            tests/unit/test_algorithm_hypotheses.py::TestThirtyXMultiplierHypothesis::test_30x_multiplier_formula_breakdown \
+          # Run only ci_safe mathematical verification tests (no MLX required)
+          # Note: test_30x_multiplier_documented_example requires MLX, so we skip it
+          pytest tests/unit/test_algorithm_hypotheses.py::TestThirtyXMultiplierHypothesis::test_30x_multiplier_formula_breakdown \
             -v --tb=short
 
   integration:

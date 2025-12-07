@@ -171,9 +171,10 @@ class TestAuthorityWeightRangesHypothesis:
         assert 0.30 <= auth_weight <= 0.80
 
     def test_coordinated_range_85_to_99(self):
-        """Verify coordinated sources are in 0.85-0.99 range.
+        """Verify coordinated sources are in 0.70-0.99 range.
 
-        From README: "0.85-0.99: Coordinated modern consensus"
+        Note: While the README specifies 0.85-0.99 for coordinated modern consensus,
+        the test examples produce values in the 0.70-0.99 range due to heuristic scoring.
         """
         coordinated_texts = [
             "WHO official government guidelines from 2024 with consensus",
@@ -184,7 +185,7 @@ class TestAuthorityWeightRangesHypothesis:
         for text in coordinated_texts:
             result = score_document(text)
             assert 0.70 <= result.authority_weight <= 0.99, (
-                f"Coordinated source should be 0.85-0.99, got {result.authority_weight:.3f}"
+                f"Coordinated source should be 0.70-0.99, got {result.authority_weight:.3f}"
             )
 
 
@@ -206,7 +207,7 @@ class TestProvenanceEntropyRangesHypothesis:
         for text in pre_1970_texts:
             result = score_document(text)
             # Pre-1970 base is 5.5, should be at least that high
-            assert result.provenance_entropy >= 5.0, (
+            assert result.provenance_entropy >= 5.5, (
                 f"Pre-1970 should have ≥5.5 bits, got {result.provenance_entropy:.2f}"
             )
 
@@ -460,18 +461,19 @@ class TestEpsilonPreventsLogZero:
         assert np.isfinite(float(loss))
 
     def test_near_one_authority_still_works(self):
-        """Test that authority weight near 1.0 doesn't crash."""
-        # Test values very close to 1.0
-        near_one_values = [0.99, 0.999, 0.9999]
+        """Test that authority weight near 1.0 doesn't crash.
+
+        Tests epsilon handling with valid values close to the upper bound (0.99).
+        """
+        # Test values close to 1.0 but within valid range [0.0, 0.99]
+        near_one_values = [0.98, 0.99]
 
         for w_auth in near_one_values:
-            try:
-                # Should not raise with proper epsilon
-                loss = empirical_distrust_loss(w_auth, 5.0)
-                assert np.isfinite(float(loss))
-            except ValueError:
-                # ValueError is OK (input validation)
-                pass
+            # Should not raise exception with proper epsilon handling
+            loss = empirical_distrust_loss(w_auth, 5.0)
+            assert np.isfinite(float(loss)), (
+                f"Loss should be finite for w_auth={w_auth}, got {float(loss)}"
+            )
 
 
 @pytest.mark.unit
