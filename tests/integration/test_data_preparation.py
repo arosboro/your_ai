@@ -352,16 +352,21 @@ class TestTrainValSplit:
         # (With only 5 samples, exact stratification not possible)
         # Ensure all source types are present in training split
         for source_type in total_types:
-            assert source_type in train_types, f"Source type '{source_type}' missing from training split"
-            assert train_types[source_type] > 0, f"Source type '{source_type}' has 0 count in training split"
+            assert source_type in train_types, (
+                f"Source type '{source_type}' missing from training split"
+            )
+            assert train_types[source_type] > 0, (
+                f"Source type '{source_type}' has 0 count in training split"
+            )
 
             # Check proportion is preserved within tolerance
             total_prop = total_types[source_type] / len(all_documents)
             train_prop = train_types[source_type] / len(train_docs)
             tolerance = 0.3  # Allow 30% deviation given small sample size
-            assert abs(train_prop - total_prop) < tolerance, \
-                f"Source type '{source_type}' proportion mismatch: " \
+            assert abs(train_prop - total_prop) < tolerance, (
+                f"Source type '{source_type}' proportion mismatch: "
                 f"total={total_prop:.2f}, train={train_prop:.2f}, diff={abs(train_prop - total_prop):.2f}"
+            )
 
 
 @pytest.mark.integration
