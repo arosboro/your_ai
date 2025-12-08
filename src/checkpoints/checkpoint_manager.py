@@ -125,7 +125,32 @@ class CheckpointManager:
 
                 # Save model state
                 model_path = checkpoint_path / "model.npz"
-                mx.savez(str(model_path), **checkpoint.model_state)
+                
+                # Filter and validate model state before saving
+                clean_model_state = {}
+                for key, value in checkpoint.model_state.items():
+                    if isinstance(value, mx.array):
+                        try:
+                            # Ensure arrays are evaluated and contiguous
+                            mx.eval(value)
+                            # Check if array is valid
+                            if value.size > 0:
+                                clean_model_state[key] = value
+                        except Exception as e:
+                            print(f"Warning: Failed to validate array {key}: {e}")
+                    else:
+                        # Skip non-array values to avoid std::bad_cast
+                        print(f"Warning: Skipping non-array model state key: {key} (type: {type(value)})")
+                
+                if not clean_model_state:
+                    raise RuntimeError("No valid arrays in model state to save")
+                
+                mx.savez(str(model_path), **clean_model_state)
+                
+                # Clean up to free memory
+                del clean_model_state
+                if hasattr(mx, 'metal') and hasattr(mx.metal, 'clear_cache'):
+                    mx.metal.clear_cache()
 
                 # Save optimizer state
                 optimizer_path = checkpoint_path / "optimizer.npz"
