@@ -6,6 +6,7 @@ CensorBench, etc.) and map their results to the project's custom taxonomy.
 """
 
 import sys
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import json
@@ -20,18 +21,20 @@ from benchmark_config import (
 )
 
 
-class BenchmarkAdapter:
-    """Base class for benchmark adapters."""
+class BenchmarkAdapter(ABC):
+    """Abstract base class for benchmark adapters."""
 
     def __init__(self, model, tokenizer, config):
         self.model = model
         self.tokenizer = tokenizer
         self.config = config
 
+    @abstractmethod
     def load_dataset(self) -> List[Dict]:
         """Load the benchmark dataset. Override in subclasses."""
         raise NotImplementedError
 
+    @abstractmethod
     def evaluate(self, max_samples: Optional[int] = None) -> Dict:
         """
         Run evaluation on the benchmark dataset.
@@ -44,6 +47,7 @@ class BenchmarkAdapter:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def map_to_custom_taxonomy(self, results: Dict) -> Dict:
         """Map benchmark results to custom test categories."""
         raise NotImplementedError
@@ -141,22 +145,17 @@ class TruthfulQAAdapter(BenchmarkAdapter):
                         predicted_letter = char
                         break
 
+                # Initialize category tracking if needed
+                category = q["category"]
+                if category not in results["by_category"]:
+                    results["by_category"][category] = {"total": 0, "correct": 0}
+                results["by_category"][category]["total"] += 1
+
                 if predicted_letter:
                     predicted_idx = ord(predicted_letter) - 65
                     if predicted_idx == q["correct_answer_idx"]:
                         results["correct"] += 1
-
-                        # Track by category
-                        category = q["category"]
-                        if category not in results["by_category"]:
-                            results["by_category"][category] = {"total": 0, "correct": 0}
-                        results["by_category"][category]["total"] += 1
                         results["by_category"][category]["correct"] += 1
-                    else:
-                        category = q["category"]
-                        if category not in results["by_category"]:
-                            results["by_category"][category] = {"total": 0, "correct": 0}
-                        results["by_category"][category]["total"] += 1
 
             except Exception as e:
                 print(f"  Error evaluating question {i}: {e}")
@@ -223,6 +222,7 @@ class CensorBenchAdapter(BenchmarkAdapter):
                 "message": "Please download CensorBench dataset or wait for public release",
             }
 
+        # TODO: Implement actual evaluation when CensorBench format is finalized
         # Placeholder - actual implementation will depend on CensorBench format
         return {"total": len(questions), "passed": 0, "by_category": {}}
 
@@ -257,7 +257,12 @@ class CensorBenchAdapter(BenchmarkAdapter):
 
 
 def get_adapter(benchmark_name: str, model, tokenizer) -> BenchmarkAdapter:
-    """Factory function to get the appropriate adapter for a benchmark."""
+    """
+    Factory function to get the appropriate adapter for a benchmark.
+
+    Note: When adding new benchmarks to BENCHMARK_REGISTRY, ensure a corresponding
+    adapter class is added here.
+    """
     adapters = {
         "truthfulqa": TruthfulQAAdapter,
         "censorbench": CensorBenchAdapter,

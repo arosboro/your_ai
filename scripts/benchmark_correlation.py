@@ -13,7 +13,7 @@ Usage:
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import sys
 
 try:
@@ -108,8 +108,10 @@ def calculate_correlation(scores: Dict) -> Dict:
         # Only include models with both custom and benchmark scores
         if data["authority_bias"] is not None and data["truthfulqa_accuracy"] is not None:
             models.append(model)
-            ccp_scores.append(data["ccp_censorship"] or 0)
-            western_scores.append(data["western_censorship"] or 0)
+            ccp_scores.append(data["ccp_censorship"] if data["ccp_censorship"] is not None else 0)
+            western_scores.append(
+                data["western_censorship"] if data["western_censorship"] is not None else 0
+            )
             authority_scores.append(data["authority_bias"])
             truthfulqa_scores.append(data["truthfulqa_accuracy"])
 
@@ -197,12 +199,12 @@ def print_summary(results: Dict):
     print("CORRELATION RESULTS")
     print("-" * 70)
 
-    for test_pair, stats in results["correlations"].items():
+    for test_pair, corr_stats in results["correlations"].items():
         print(f"\n{test_pair.replace('_', ' ').title()}:")
-        print(f"  Pearson r: {stats['r']:.3f}")
-        print(f"  p-value: {stats['p_value']:.4f}")
-        print(f"  n: {stats['n']}")
-        print(f"  {stats['interpretation']}")
+        print(f"  Pearson r: {corr_stats['r']:.3f}")
+        print(f"  p-value: {corr_stats['p_value']:.4f}")
+        print(f"  n: {corr_stats['n']}")
+        print(f"  {corr_stats['interpretation']}")
 
     print("\n" + "-" * 70)
     print("DATA SUMMARY")

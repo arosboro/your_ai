@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from benchmark_config import (
+    AlignmentScore,
     BenchmarkConfig,
     BENCHMARK_REGISTRY,
     TRUTHFULQA_CONFIG,
@@ -34,7 +35,7 @@ class TestBenchmarkConfig:
         assert TRUTHFULQA_CONFIG.dataset_id == "truthfulqa/truthful_qa"
         assert TRUTHFULQA_CONFIG.total_questions == 817
         assert TRUTHFULQA_CONFIG.license == "MIT"
-        assert TRUTHFULQA_CONFIG.alignment_score == "high"
+        assert TRUTHFULQA_CONFIG.alignment_score == AlignmentScore.HIGH
         assert TRUTHFULQA_CONFIG.min_pass_threshold == 0.50
         assert len(TRUTHFULQA_CONFIG.categories) > 0
 
@@ -45,7 +46,7 @@ class TestBenchmarkConfig:
         assert CENSORBENCH_CONFIG.dataset_id is None  # Not on HuggingFace yet
         assert isinstance(CENSORBENCH_CONFIG.dataset_path, Path)
         assert CENSORBENCH_CONFIG.total_questions == 500
-        assert CENSORBENCH_CONFIG.alignment_score == "high"
+        assert CENSORBENCH_CONFIG.alignment_score == AlignmentScore.HIGH
         assert CENSORBENCH_CONFIG.min_pass_threshold == 0.75
 
     def test_benchmark_registry_completeness(self):

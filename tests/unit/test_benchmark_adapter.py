@@ -24,40 +24,32 @@ from benchmark_config import TRUTHFULQA_CONFIG, CENSORBENCH_CONFIG
 
 
 class TestBenchmarkAdapter:
-    """Test base BenchmarkAdapter class."""
+    """Test base BenchmarkAdapter abstract class."""
 
-    def test_base_adapter_init(self):
-        """Test that base adapter initializes correctly."""
+    def test_base_adapter_is_abstract(self):
+        """Test that BenchmarkAdapter cannot be instantiated directly."""
         model = Mock()
         tokenizer = Mock()
         config = TRUTHFULQA_CONFIG
 
-        adapter = BenchmarkAdapter(model, tokenizer, config)
+        # Attempting to instantiate abstract class should raise TypeError
+        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+            BenchmarkAdapter(model, tokenizer, config)
 
-        assert adapter.model == model
-        assert adapter.tokenizer == tokenizer
-        assert adapter.config == config
+    def test_concrete_adapter_must_implement_methods(self):
+        """Test that concrete adapters must implement all abstract methods."""
 
-    def test_base_adapter_load_dataset_not_implemented(self):
-        """Test that base adapter load_dataset raises NotImplementedError."""
-        adapter = BenchmarkAdapter(Mock(), Mock(), TRUTHFULQA_CONFIG)
+        # Create incomplete adapter (missing map_to_custom_taxonomy)
+        class IncompleteAdapter(BenchmarkAdapter):
+            def load_dataset(self):
+                return []
 
-        with pytest.raises(NotImplementedError):
-            adapter.load_dataset()
+            def evaluate(self, max_samples=None):
+                return {}
 
-    def test_base_adapter_evaluate_not_implemented(self):
-        """Test that base adapter evaluate raises NotImplementedError."""
-        adapter = BenchmarkAdapter(Mock(), Mock(), TRUTHFULQA_CONFIG)
-
-        with pytest.raises(NotImplementedError):
-            adapter.evaluate()
-
-    def test_base_adapter_map_to_custom_taxonomy_not_implemented(self):
-        """Test that base adapter map_to_custom_taxonomy raises NotImplementedError."""
-        adapter = BenchmarkAdapter(Mock(), Mock(), TRUTHFULQA_CONFIG)
-
-        with pytest.raises(NotImplementedError):
-            adapter.map_to_custom_taxonomy({})
+        # Should not be able to instantiate
+        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+            IncompleteAdapter(Mock(), Mock(), TRUTHFULQA_CONFIG)
 
 
 class TestTruthfulQAAdapter:
