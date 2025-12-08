@@ -94,7 +94,7 @@ class TruthfulQAAdapter(BenchmarkAdapter):
             - accuracy: percentage correct
             - by_category: breakdown by category
         """
-        from model_utils import generate_with_chat_template
+        from scripts.model_utils import generate_with_chat_template
 
         questions = self.load_dataset()
         if max_samples:

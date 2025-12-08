@@ -1927,16 +1927,17 @@ def main():
         print("\n" + "=" * 60)
         print("EXTERNAL BENCHMARKS")
         print("=" * 60)
-        print(f"Note: Use 'python scripts/run_benchmarks.py' for more detailed benchmark options")
+        print("Note: Use 'python scripts/run_benchmarks.py' for more detailed benchmark options")
         print(f"Running benchmarks: {args.benchmarks}")
 
         try:
-            # Import benchmark runner
-            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            # Import benchmark runner from scripts directory
+            sys.path.insert(0, str(Path(__file__).parent))
             from benchmark_adapter import run_benchmark
             from benchmark_config import get_priority_benchmarks, BENCHMARK_REGISTRY
 
-            # Load model (reuse from validation)
+            # Note: model and tokenizer are already loaded by run_all_validation
+            # We need to reload them here since they're not returned
             from mlx_lm import load
             if args.base_model:
                 model, tokenizer = load(args.base_model, adapter_path=args.model)
@@ -1967,9 +1968,17 @@ def main():
 
             # Merge with custom results
             if benchmark_results:
-                # Load existing results
-                with open(args.output, "r") as f:
-                    all_results = json.load(f)
+                # Load existing results if file exists
+                all_results = {}
+                try:
+                    with open(args.output, "r") as f:
+                        all_results = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    # File doesn't exist or is empty - create new results dict
+                    all_results = {
+                        "model": args.model,
+                        "base_model": args.base_model
+                    }
 
                 all_results["external_benchmarks"] = benchmark_results
 

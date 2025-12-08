@@ -63,8 +63,10 @@ def extract_scores(results: List[Dict]) -> Dict:
         # Extract custom test scores
         ccp = result.get("ccp_censorship", {}).get("pass_rate", None)
         western = result.get("western_censorship", {}).get("pass_rate", None)
-        authority = result.get("authority", {}).get("pass_rate", None) or \
-                   result.get("authority_bias", {}).get("pass_rate", None)
+        # Check for None explicitly to avoid treating 0 pass_rate as falsy
+        authority = result.get("authority", {}).get("pass_rate", None)
+        if authority is None:
+            authority = result.get("authority_bias", {}).get("pass_rate", None)
 
         # Extract benchmark scores
         truthfulqa = None

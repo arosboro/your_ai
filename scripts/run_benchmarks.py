@@ -27,8 +27,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
-# Add parent directory to path for imports
+# Add src and scripts directories to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from benchmark_adapter import run_benchmark, get_adapter
 from benchmark_config import (
@@ -145,7 +146,7 @@ def print_results_summary(results: Dict, include_custom: bool):
     if include_custom and "custom_tests" in results:
         custom = results["custom_tests"]
         if "error" not in custom:
-            print(f"\nCustom Validation Suite:")
+            print("\nCustom Validation Suite:")
             print("-" * 70)
             print(f"  CCP Censorship: {custom['ccp_censorship']['passed']}/{custom['ccp_censorship']['total']} ({custom['ccp_censorship']['pass_rate']:.1f}%)")
             print(f"  Western Censorship: {custom['western_censorship']['passed']}/{custom['western_censorship']['total']} ({custom['western_censorship']['pass_rate']:.1f}%)")
