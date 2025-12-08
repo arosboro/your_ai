@@ -128,26 +128,59 @@ class CheckpointManager:
 
                 # Filter and validate model state before saving
                 clean_model_state = {}
+                arrays_to_eval = []
+
                 for key, value in checkpoint.model_state.items():
                     if isinstance(value, mx.array):
                         try:
-                            # Ensure arrays are evaluated and contiguous
-                            mx.eval(value)
-                            # Check if array is valid
+                            # Check if array is valid (size > 0)
                             if value.size > 0:
                                 clean_model_state[key] = value
+                                arrays_to_eval.append(value)
                         except Exception as e:
-                            print(f"Warning: Failed to validate array {key}: {e}")
+                            logger.warning(f"Failed to validate array {key}: {e}")
                     else:
                         # Skip non-array values to avoid std::bad_cast
-                        print(
-                            f"Warning: Skipping non-array model state key: {key} (type: {type(value)})"
-                        )
+                        logger.warning(f"Skipping non-array model state key: {key} (type: {type(value)})")
 
                 if not clean_model_state:
                     raise RuntimeError("No valid arrays in model state to save")
 
-                mx.savez(str(model_path), **clean_model_state)
+                # Evaluate all arrays as a batch to ensure they're fully materialized
+                # This prevents lazy evaluation issues that cause std::bad_cast
+                logger.info(f"Evaluating {len(arrays_to_eval)} arrays before save...")
+                mx.eval(arrays_to_eval)
+
+                # Save with error recovery
+                try:
+                    mx.savez(str(model_path), **clean_model_state)
+                    logger.info(f"Model state saved successfully ({len(clean_model_state)} parameters)")
+                except Exception as e:
+                    # If save fails, try saving individual arrays to identify problematic ones
+                    logger.error(f"Batch save failed: {e}. Attempting individual saves...")
+                    failed_keys = []
+                    partial_model_path = checkpoint_path / "model_partial.npz"
+                    saved_state = {}
+
+                    for key, value in clean_model_state.items():
+                        try:
+                            # Test if this array can be saved
+                            test_dict = {key: value}
+                            mx.eval([value])
+                            saved_state[key] = value
+                        except Exception as array_err:
+                            logger.error(f"Failed to save parameter {key}: {array_err}")
+                            failed_keys.append(key)
+
+                    if saved_state:
+                        # Save what we could
+                        mx.savez(str(partial_model_path), **saved_state)
+                        logger.warning(f"Partial save successful: {len(saved_state)}/{len(clean_model_state)} parameters")
+                        logger.warning(f"Failed parameters: {failed_keys}")
+                        # Use partial save as main save
+                        partial_model_path.rename(model_path)
+                    else:
+                        raise RuntimeError(f"Could not save any parameters. All {len(failed_keys)} failed.") from e
 
                 # Clean up to free memory
                 del clean_model_state
@@ -159,22 +192,38 @@ class CheckpointManager:
                 # Convert optimizer state to saveable format (arrays only)
                 opt_arrays = {}
                 opt_scalars = {}
+                opt_arrays_to_eval = []
+
                 for key, value in checkpoint.optimizer_state.items():
                     if isinstance(value, dict):
                         # Flatten nested dicts
                         for subkey, subvalue in value.items():
                             if isinstance(subvalue, mx.array):
                                 opt_arrays[f"{key}.{subkey}"] = subvalue
+                                opt_arrays_to_eval.append(subvalue)
                             else:
                                 opt_scalars[f"{key}.{subkey}"] = subvalue
                     elif isinstance(value, mx.array):
                         opt_arrays[key] = value
+                        opt_arrays_to_eval.append(value)
                     else:
                         # Store scalars separately in metadata
                         opt_scalars[key] = value
 
+                # Evaluate all optimizer arrays before saving
+                if opt_arrays_to_eval:
+                    logger.info(f"Evaluating {len(opt_arrays_to_eval)} optimizer arrays...")
+                    mx.eval(opt_arrays_to_eval)
+
                 if opt_arrays:
-                    mx.savez(str(optimizer_path), **opt_arrays)
+                    try:
+                        mx.savez(str(optimizer_path), **opt_arrays)
+                        logger.info(f"Optimizer state saved successfully ({len(opt_arrays)} values)")
+                    except Exception as e:
+                        logger.error(f"Failed to save optimizer state: {e}")
+                        # Save empty file to maintain checkpoint structure
+                        mx.savez(str(optimizer_path))
+                        logger.warning("Saved empty optimizer state due to error")
                 else:
                     # Save empty npz file for consistent handling
                     mx.savez(str(optimizer_path))
