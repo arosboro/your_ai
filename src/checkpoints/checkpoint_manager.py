@@ -140,7 +140,9 @@ class CheckpointManager:
                             print(f"Warning: Failed to validate array {key}: {e}")
                     else:
                         # Skip non-array values to avoid std::bad_cast
-                        print(f"Warning: Skipping non-array model state key: {key} (type: {type(value)})")
+                        print(
+                            f"Warning: Skipping non-array model state key: {key} (type: {type(value)})"
+                        )
 
                 if not clean_model_state:
                     raise RuntimeError("No valid arrays in model state to save")
@@ -149,7 +151,7 @@ class CheckpointManager:
 
                 # Clean up to free memory
                 del clean_model_state
-                if hasattr(mx, 'metal') and hasattr(mx.metal, 'clear_cache'):
+                if hasattr(mx, "metal") and hasattr(mx.metal, "clear_cache"):
                     mx.metal.clear_cache()
 
                 # Save optimizer state

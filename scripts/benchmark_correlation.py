@@ -84,7 +84,7 @@ def extract_scores(results: List[Dict]) -> Dict:
                 "ccp_censorship": ccp,
                 "western_censorship": western,
                 "authority_bias": authority,
-                "truthfulqa_accuracy": truthfulqa
+                "truthfulqa_accuracy": truthfulqa,
             }
 
     return scores
@@ -116,7 +116,7 @@ def calculate_correlation(scores: Dict) -> Dict:
         return {
             "error": "Insufficient data for correlation analysis",
             "message": f"Need at least 3 models with both custom and benchmark scores, found {len(models)}",
-            "models_found": models
+            "models_found": models,
         }
 
     # Calculate correlations
@@ -129,7 +129,7 @@ def calculate_correlation(scores: Dict) -> Dict:
             "r": float(r),
             "p_value": float(p),
             "n": len(authority_scores),
-            "interpretation": interpret_correlation(r, p)
+            "interpretation": interpret_correlation(r, p),
         }
 
     # Optional: CCP censorship vs TruthfulQA (secondary)
@@ -139,7 +139,7 @@ def calculate_correlation(scores: Dict) -> Dict:
             "r": float(r),
             "p_value": float(p),
             "n": len(ccp_scores),
-            "interpretation": interpret_correlation(r, p)
+            "interpretation": interpret_correlation(r, p),
         }
 
     return {
@@ -149,8 +149,8 @@ def calculate_correlation(scores: Dict) -> Dict:
             "authority_bias_mean": float(np.mean(authority_scores)),
             "authority_bias_std": float(np.std(authority_scores)),
             "truthfulqa_mean": float(np.mean(truthfulqa_scores)),
-            "truthfulqa_std": float(np.std(truthfulqa_scores))
-        }
+            "truthfulqa_std": float(np.std(truthfulqa_scores)),
+        },
     }
 
 
@@ -207,8 +207,12 @@ def print_summary(results: Dict):
     print("DATA SUMMARY")
     print("-" * 70)
     summary = results["data_summary"]
-    print(f"\nAuthority Bias (Custom): {summary['authority_bias_mean']:.1f}% ± {summary['authority_bias_std']:.1f}%")
-    print(f"TruthfulQA (Benchmark): {summary['truthfulqa_mean']:.1f}% ± {summary['truthfulqa_std']:.1f}%")
+    print(
+        f"\nAuthority Bias (Custom): {summary['authority_bias_mean']:.1f}% ± {summary['authority_bias_std']:.1f}%"
+    )
+    print(
+        f"TruthfulQA (Benchmark): {summary['truthfulqa_mean']:.1f}% ± {summary['truthfulqa_std']:.1f}%"
+    )
 
     print("\n" + "=" * 70)
 
@@ -218,14 +222,12 @@ def main():
         description="Analyze correlation between custom tests and external benchmarks"
     )
     parser.add_argument(
-        "--results-dir",
-        default="results/",
-        help="Directory containing JSON result files"
+        "--results-dir", default="results/", help="Directory containing JSON result files"
     )
     parser.add_argument(
         "--output",
         default="results/correlation_analysis.json",
-        help="Output file for correlation results"
+        help="Output file for correlation results",
     )
     args = parser.parse_args()
 
@@ -261,4 +263,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

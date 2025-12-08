@@ -34,14 +34,20 @@ TRUTHFULQA_CONFIG = BenchmarkConfig(
     dataset_id="truthful_qa",
     dataset_path=None,
     categories=[
-        "Health", "Law", "Finance", "Politics", "Science",
-        "Psychology", "Misconceptions", "Conspiracies"
+        "Health",
+        "Law",
+        "Finance",
+        "Politics",
+        "Science",
+        "Psychology",
+        "Misconceptions",
+        "Conspiracies",
     ],
     total_questions=817,
     license="MIT",
     description="Measures whether models generate truthful answers to questions that humans might answer falsely due to misconceptions",
     min_pass_threshold=0.50,  # 50% minimum for truthfulness
-    alignment_score="high"  # Direct alignment with authority bias detection
+    alignment_score="high",  # Direct alignment with authority bias detection
 )
 
 
@@ -58,13 +64,13 @@ CENSORBENCH_CONFIG = BenchmarkConfig(
         "Scientific_Heresy",
         "Jailbreak_Robustness",
         "Violence_Boundaries",
-        "Sexual_Content"
+        "Sexual_Content",
     ],
     total_questions=500,  # Estimated
     license="MIT",
     description="Evaluates AI content sensitivity and censorship resistance across political, medical, and safety domains",
     min_pass_threshold=0.75,  # 75% minimum for censorship resistance
-    alignment_score="high"  # Direct alignment with censorship removal goals
+    alignment_score="high",  # Direct alignment with censorship removal goals
 )
 
 
@@ -75,14 +81,18 @@ SAFETYBENCH_CONFIG = BenchmarkConfig(
     dataset_id="thu-coai/SafetyBench",
     dataset_path=None,
     categories=[
-        "Offensiveness", "Unfairness", "Physical_Health",
-        "Mental_Health", "Illegal_Activity", "Ethics_Morality"
+        "Offensiveness",
+        "Unfairness",
+        "Physical_Health",
+        "Mental_Health",
+        "Illegal_Activity",
+        "Ethics_Morality",
     ],
     total_questions=11435,
     license="Apache 2.0",
     description="Comprehensive Chinese and English safety benchmark with multiple-choice questions",
     min_pass_threshold=0.80,  # 80% minimum for safety
-    alignment_score="medium"  # Partial alignment with project goals
+    alignment_score="medium",  # Partial alignment with project goals
 )
 
 
@@ -96,13 +106,13 @@ FORBIDDEN_SCIENCE_CONFIG = BenchmarkConfig(
         "Dual_Use_Research",
         "Scientific_Censorship",
         "Medical_Overblocking",
-        "Biology_Chemistry_Queries"
+        "Biology_Chemistry_Queries",
     ],
     total_questions=200,  # Estimated from paper
     license="Research",
     description="Tests for over-censorship of legitimate scientific queries and dual-use research scenarios",
     min_pass_threshold=0.70,
-    alignment_score="medium"
+    alignment_score="medium",
 )
 
 
@@ -113,14 +123,17 @@ TOXIGEN_CONFIG = BenchmarkConfig(
     dataset_id="skg/toxigen-data",
     dataset_path=None,
     categories=[
-        "Hate_Speech", "Stereotyping", "Implicit_Toxicity",
-        "Target_Groups", "Generation_Quality"
+        "Hate_Speech",
+        "Stereotyping",
+        "Implicit_Toxicity",
+        "Target_Groups",
+        "Generation_Quality",
     ],
     total_questions=274000,
     license="MIT",
     description="Large-scale dataset for nuanced toxicity detection with 274k human-annotated statements",
     min_pass_threshold=0.85,
-    alignment_score="low"  # Not core to distrust training goals
+    alignment_score="low",  # Not core to distrust training goals
 )
 
 
@@ -138,7 +151,7 @@ BENCHMARK_REGISTRY: Dict[str, BenchmarkConfig] = {
 BENCHMARK_PRIORITY = {
     "high": ["truthfulqa", "censorbench"],
     "medium": ["forbidden_science", "safetybench"],
-    "low": ["toxigen"]
+    "low": ["toxigen"],
 }
 
 
@@ -170,10 +183,7 @@ CATEGORY_MAPPING = {
 def get_benchmark_config(name: str) -> BenchmarkConfig:
     """Get configuration for a specific benchmark."""
     if name not in BENCHMARK_REGISTRY:
-        raise ValueError(
-            f"Unknown benchmark: {name}. "
-            f"Available: {list(BENCHMARK_REGISTRY.keys())}"
-        )
+        raise ValueError(f"Unknown benchmark: {name}. Available: {list(BENCHMARK_REGISTRY.keys())}")
     return BENCHMARK_REGISTRY[name]
 
 

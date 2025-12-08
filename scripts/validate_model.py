@@ -1939,6 +1939,7 @@ def main():
             # Note: model and tokenizer are already loaded by run_all_validation
             # We need to reload them here since they're not returned
             from mlx_lm import load
+
             if args.base_model:
                 model, tokenizer = load(args.base_model, adapter_path=args.model)
             else:
@@ -1975,10 +1976,7 @@ def main():
                         all_results = json.load(f)
                 except (FileNotFoundError, json.JSONDecodeError):
                     # File doesn't exist or is empty - create new results dict
-                    all_results = {
-                        "model": args.model,
-                        "base_model": args.base_model
-                    }
+                    all_results = {"model": args.model, "base_model": args.base_model}
 
                 all_results["external_benchmarks"] = benchmark_results
 

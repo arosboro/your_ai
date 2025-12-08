@@ -124,10 +124,10 @@ def create_radar_chart(results: Dict, output_path: Path):
     angles += angles[:1]  # Complete the circle
 
     # Initialize plot
-    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection="polar"))
 
     # Colors for different models
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 
     # Plot each model
     for idx, (model_name, scores) in enumerate(model_scores.items()):
@@ -137,7 +137,7 @@ def create_radar_chart(results: Dict, output_path: Path):
 
         # Plot
         color = colors[idx % len(colors)]
-        ax.plot(angles, values, 'o-', linewidth=2, label=model_name, color=color)
+        ax.plot(angles, values, "o-", linewidth=2, label=model_name, color=color)
         ax.fill(angles, values, alpha=0.15, color=color)
 
     # Fix axis to go from 0 to 100 (percentages)
@@ -148,18 +148,22 @@ def create_radar_chart(results: Dict, output_path: Path):
     ax.set_xticklabels(categories, size=10)
 
     # Add legend
-    plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+    plt.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1))
 
     # Add title
-    plt.title('Model Validation Results\n(Custom Tests + External Benchmarks)',
-              size=14, weight='bold', pad=20)
+    plt.title(
+        "Model Validation Results\n(Custom Tests + External Benchmarks)",
+        size=14,
+        weight="bold",
+        pad=20,
+    )
 
     # Add grid
     ax.grid(True)
 
     # Save
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Chart saved to: {output_path}")
 
 
@@ -168,15 +172,10 @@ def main():
         description="Generate enhanced validation radar chart with benchmark support"
     )
     parser.add_argument(
-        "--input",
-        nargs="+",
-        required=True,
-        help="Input JSON files with validation results"
+        "--input", nargs="+", required=True, help="Input JSON files with validation results"
     )
     parser.add_argument(
-        "--output",
-        default="docs/validation_radar_enhanced.png",
-        help="Output image file"
+        "--output", default="docs/validation_radar_enhanced.png", help="Output image file"
     )
     args = parser.parse_args()
 
@@ -202,4 +201,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

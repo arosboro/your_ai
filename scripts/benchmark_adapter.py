@@ -65,14 +65,16 @@ class TruthfulQAAdapter(BenchmarkAdapter):
 
             # Convert to our format
             questions = []
-            for item in dataset['validation']:
-                questions.append({
-                    "question": item["question"],
-                    "choices": item["mc1_targets"]["choices"],
-                    "correct_answer_idx": item["mc1_targets"]["labels"].index(1),
-                    "category": item.get("category", "Unknown"),
-                    "source": "truthfulqa"
-                })
+            for item in dataset["validation"]:
+                questions.append(
+                    {
+                        "question": item["question"],
+                        "choices": item["mc1_targets"]["choices"],
+                        "correct_answer_idx": item["mc1_targets"]["labels"].index(1),
+                        "category": item.get("category", "Unknown"),
+                        "source": "truthfulqa",
+                    }
+                )
 
             print(f"Loaded {len(questions)} questions from TruthfulQA")
             return questions
@@ -100,11 +102,7 @@ class TruthfulQAAdapter(BenchmarkAdapter):
         if max_samples:
             questions = questions[:max_samples]
 
-        results = {
-            "total": len(questions),
-            "correct": 0,
-            "by_category": {}
-        }
+        results = {"total": len(questions), "correct": 0, "by_category": {}}
 
         print(f"\nEvaluating TruthfulQA ({len(questions)} questions)...")
 
@@ -114,40 +112,37 @@ class TruthfulQAAdapter(BenchmarkAdapter):
 
             # Format as multiple choice prompt
             prompt = f"{q['question']}\n\n"
-            for j, choice in enumerate(q['choices']):
+            for j, choice in enumerate(q["choices"]):
                 prompt += f"{chr(65 + j)}) {choice}\n"
             prompt += "\nAnswer with just the letter (A, B, C, or D):"
 
             # Generate response
             try:
                 response = generate_with_chat_template(
-                    self.model,
-                    self.tokenizer,
-                    prompt,
-                    max_tokens=10
+                    self.model, self.tokenizer, prompt, max_tokens=10
                 )
                 response = response.strip().upper()
 
                 # Extract letter answer
                 predicted_letter = None
                 for char in response:
-                    if char in 'ABCD':
+                    if char in "ABCD":
                         predicted_letter = char
                         break
 
                 if predicted_letter:
                     predicted_idx = ord(predicted_letter) - 65
-                    if predicted_idx == q['correct_answer_idx']:
+                    if predicted_idx == q["correct_answer_idx"]:
                         results["correct"] += 1
 
                         # Track by category
-                        category = q['category']
+                        category = q["category"]
                         if category not in results["by_category"]:
                             results["by_category"][category] = {"total": 0, "correct": 0}
                         results["by_category"][category]["total"] += 1
                         results["by_category"][category]["correct"] += 1
                     else:
-                        category = q['category']
+                        category = q["category"]
                         if category not in results["by_category"]:
                             results["by_category"][category] = {"total": 0, "correct": 0}
                         results["by_category"][category]["total"] += 1
@@ -156,11 +151,15 @@ class TruthfulQAAdapter(BenchmarkAdapter):
                 print(f"  Error evaluating question {i}: {e}")
                 continue
 
-        results["accuracy"] = (results["correct"] / results["total"] * 100) if results["total"] > 0 else 0
+        results["accuracy"] = (
+            (results["correct"] / results["total"] * 100) if results["total"] > 0 else 0
+        )
 
         # Calculate category accuracies
         for cat, stats in results["by_category"].items():
-            stats["accuracy"] = (stats["correct"] / stats["total"] * 100) if stats["total"] > 0 else 0
+            stats["accuracy"] = (
+                (stats["correct"] / stats["total"] * 100) if stats["total"] > 0 else 0
+            )
 
         return results
 
@@ -172,7 +171,7 @@ class TruthfulQAAdapter(BenchmarkAdapter):
                 "total": results["total"],
                 "passed": results["correct"],
                 "pass_rate": results["accuracy"],
-                "by_category": results["by_category"]
+                "by_category": results["by_category"],
             }
         }
 
@@ -194,7 +193,7 @@ class CensorBenchAdapter(BenchmarkAdapter):
             dataset_file = self.config.dataset_path / "questions.jsonl"
             if dataset_file.exists():
                 questions = []
-                with open(dataset_file, 'r') as f:
+                with open(dataset_file, "r") as f:
                     for line in f:
                         questions.append(json.loads(line))
                 print(f"Loaded {len(questions)} questions from local CensorBench")
@@ -210,15 +209,11 @@ class CensorBenchAdapter(BenchmarkAdapter):
         if not questions:
             return {
                 "error": "CensorBench dataset not available",
-                "message": "Please download CensorBench dataset or wait for public release"
+                "message": "Please download CensorBench dataset or wait for public release",
             }
 
         # Placeholder - actual implementation will depend on CensorBench format
-        return {
-            "total": len(questions),
-            "passed": 0,
-            "by_category": {}
-        }
+        return {"total": len(questions), "passed": 0, "by_category": {}}
 
     def map_to_custom_taxonomy(self, results: Dict) -> Dict:
         """Map CensorBench results to custom categories."""
@@ -231,22 +226,22 @@ class CensorBenchAdapter(BenchmarkAdapter):
                 "category": "Political_Sensitivity_CCP",
                 "total": 0,
                 "passed": 0,
-                "pass_rate": 0.0
+                "pass_rate": 0.0,
             },
             "western_censorship": {
                 "benchmark": "censorbench",
                 "category": "Political_Sensitivity_Western",
                 "total": 0,
                 "passed": 0,
-                "pass_rate": 0.0
+                "pass_rate": 0.0,
             },
             "jailbreak_robustness": {
                 "benchmark": "censorbench",
                 "category": "Jailbreak_Robustness",
                 "total": 0,
                 "passed": 0,
-                "pass_rate": 0.0
-            }
+                "pass_rate": 0.0,
+            },
         }
 
 
@@ -289,8 +284,7 @@ def run_benchmark(benchmark_name: str, model, tokenizer, max_samples: Optional[i
         "benchmark_name": benchmark_name,
         "total_questions": adapter.config.total_questions,
         "categories": adapter.config.categories,
-        "license": adapter.config.license
+        "license": adapter.config.license,
     }
 
     return mapped_results
-

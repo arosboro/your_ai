@@ -32,11 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from benchmark_adapter import run_benchmark, get_adapter
-from benchmark_config import (
-    get_benchmark_config,
-    get_priority_benchmarks,
-    BENCHMARK_REGISTRY
-)
+from benchmark_config import get_benchmark_config, get_priority_benchmarks, BENCHMARK_REGISTRY
 
 
 def load_model(model_path: str, base_model: Optional[str] = None):
@@ -67,9 +63,7 @@ def load_model(model_path: str, base_model: Optional[str] = None):
 
             tokenizer = AutoTokenizer.from_pretrained(load_path)
             model = AutoModelForCausalLM.from_pretrained(
-                load_path,
-                device_map="auto",
-                load_in_4bit=True
+                load_path, device_map="auto", load_in_4bit=True
             )
 
             print("Model loaded successfully")
@@ -91,7 +85,7 @@ def run_custom_tests(model, tokenizer) -> Dict:
         from scripts.validate_model import (
             test_ccp_censorship,
             test_western_censorship,
-            test_authority_bias
+            test_authority_bias,
         )
         from model_utils import generate_with_chat_template
 
@@ -108,8 +102,12 @@ def run_custom_tests(model, tokenizer) -> Dict:
                 "ccp_censorship": ccp_results,
                 "western_censorship": western_results,
                 "authority_bias": authority_results,
-                "total": ccp_results["total"] + western_results["total"] + authority_results["total"],
-                "passed": ccp_results["passed"] + western_results["passed"] + authority_results["passed"]
+                "total": ccp_results["total"]
+                + western_results["total"]
+                + authority_results["total"],
+                "passed": ccp_results["passed"]
+                + western_results["passed"]
+                + authority_results["passed"],
             }
         }
 
@@ -148,10 +146,18 @@ def print_results_summary(results: Dict, include_custom: bool):
         if "error" not in custom:
             print("\nCustom Validation Suite:")
             print("-" * 70)
-            print(f"  CCP Censorship: {custom['ccp_censorship']['passed']}/{custom['ccp_censorship']['total']} ({custom['ccp_censorship']['pass_rate']:.1f}%)")
-            print(f"  Western Censorship: {custom['western_censorship']['passed']}/{custom['western_censorship']['total']} ({custom['western_censorship']['pass_rate']:.1f}%)")
-            print(f"  Authority Bias: {custom['authority_bias']['passed']}/{custom['authority_bias']['total']} ({custom['authority_bias']['pass_rate']:.1f}%)")
-            overall_percent = (100 * custom['passed'] / custom['total']) if custom['total'] > 0 else 0.0
+            print(
+                f"  CCP Censorship: {custom['ccp_censorship']['passed']}/{custom['ccp_censorship']['total']} ({custom['ccp_censorship']['pass_rate']:.1f}%)"
+            )
+            print(
+                f"  Western Censorship: {custom['western_censorship']['passed']}/{custom['western_censorship']['total']} ({custom['western_censorship']['pass_rate']:.1f}%)"
+            )
+            print(
+                f"  Authority Bias: {custom['authority_bias']['passed']}/{custom['authority_bias']['total']} ({custom['authority_bias']['pass_rate']:.1f}%)"
+            )
+            overall_percent = (
+                (100 * custom["passed"] / custom["total"]) if custom["total"] > 0 else 0.0
+            )
             print(f"  Overall: {custom['passed']}/{custom['total']} ({overall_percent:.1f}%)")
 
     print("\n" + "=" * 70)
@@ -174,44 +180,37 @@ Examples:
 
   # Quick test with limited samples
   python scripts/run_benchmarks.py -m "model-name" -b truthfulqa --max-samples 50
-        """
+        """,
     )
 
+    parser.add_argument("--model", "-m", required=True, help="Model path or HuggingFace ID")
     parser.add_argument(
-        "--model", "-m",
-        required=True,
-        help="Model path or HuggingFace ID"
-    )
-    parser.add_argument(
-        "--base-model", "-b",
+        "--base-model",
+        "-b",
         default=None,
-        help="Base model path when --model is an adapter checkpoint"
+        help="Base model path when --model is an adapter checkpoint",
     )
     parser.add_argument(
         "--benchmarks",
         required=True,
-        help="Comma-separated list of benchmarks to run (e.g., 'truthfulqa,censorbench')"
+        help="Comma-separated list of benchmarks to run (e.g., 'truthfulqa,censorbench')",
     )
     parser.add_argument(
         "--include-custom",
         action="store_true",
-        help="Also run custom validation suite for comparison"
+        help="Also run custom validation suite for comparison",
     )
     parser.add_argument(
         "--max-samples",
         type=int,
         default=None,
-        help="Limit number of samples per benchmark (for testing)"
+        help="Limit number of samples per benchmark (for testing)",
     )
     parser.add_argument(
-        "--output", "-o",
-        default="results/benchmark_results.json",
-        help="Output file for results"
+        "--output", "-o", default="results/benchmark_results.json", help="Output file for results"
     )
     parser.add_argument(
-        "--list-benchmarks",
-        action="store_true",
-        help="List available benchmarks and exit"
+        "--list-benchmarks", action="store_true", help="List available benchmarks and exit"
     )
 
     args = parser.parse_args()
@@ -247,7 +246,7 @@ Examples:
         "model": args.model,
         "base_model": args.base_model,
         "timestamp": datetime.now().isoformat(),
-        "benchmarks": {}
+        "benchmarks": {},
     }
 
     for benchmark_name in benchmark_names:
@@ -257,10 +256,7 @@ Examples:
 
         try:
             benchmark_results = run_benchmark(
-                benchmark_name,
-                model,
-                tokenizer,
-                max_samples=args.max_samples
+                benchmark_name, model, tokenizer, max_samples=args.max_samples
             )
             results["benchmarks"][benchmark_name] = benchmark_results
 
@@ -288,4 +284,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-
