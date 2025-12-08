@@ -31,7 +31,7 @@ class BenchmarkConfig:
 TRUTHFULQA_CONFIG = BenchmarkConfig(
     name="truthfulqa",
     display_name="TruthfulQA",
-    dataset_id="truthful_qa",
+    dataset_id="truthfulqa/truthful_qa",
     dataset_path=None,
     categories=[
         "Health",

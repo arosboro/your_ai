@@ -110,11 +110,22 @@ class TruthfulQAAdapter(BenchmarkAdapter):
             if (i + 1) % 50 == 0:
                 print(f"  Progress: {i + 1}/{len(questions)}")
 
-            # Format as multiple choice prompt
+            # Format as multiple choice prompt with dynamic letter labels
+            num_choices = len(q["choices"])
+            choice_labels = [chr(65 + j) for j in range(num_choices)]
+            allowed_letters = set(choice_labels)
+
             prompt = f"{q['question']}\n\n"
             for j, choice in enumerate(q["choices"]):
-                prompt += f"{chr(65 + j)}) {choice}\n"
-            prompt += "\nAnswer with just the letter (A, B, C, or D):"
+                prompt += f"{choice_labels[j]}) {choice}\n"
+
+            # Generate letter list for prompt
+            if num_choices == 2:
+                letter_list = " or ".join(choice_labels)
+            else:
+                letter_list = ", ".join(choice_labels[:-1]) + f", or {choice_labels[-1]}"
+
+            prompt += f"\nAnswer with just the letter ({letter_list}):"
 
             # Generate response
             try:
@@ -123,10 +134,10 @@ class TruthfulQAAdapter(BenchmarkAdapter):
                 )
                 response = response.strip().upper()
 
-                # Extract letter answer
+                # Extract letter answer from allowed set
                 predicted_letter = None
                 for char in response:
-                    if char in "ABCD":
+                    if char in allowed_letters:
                         predicted_letter = char
                         break
 

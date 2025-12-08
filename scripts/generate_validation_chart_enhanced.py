@@ -45,12 +45,12 @@ def extract_scores(data: Dict) -> Dict[str, float]:
     """
     Extract scores for radar chart.
 
-    Returns dict with keys:
-        - ccp_censorship
-        - western_censorship
-        - authority_bias
-        - truthfulqa (if available)
-        - censorbench (if available)
+    Returns dict with Title Case keys:
+        - "CCP Censorship"
+        - "Western Censorship"
+        - "Authority Bias"
+        - "TruthfulQA" (if available)
+        - "CensorBench" (if available)
     """
     scores = {}
 

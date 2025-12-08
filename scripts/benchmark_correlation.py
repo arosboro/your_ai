@@ -79,7 +79,8 @@ def extract_scores(results: List[Dict]) -> Dict:
                 # Mapped format
                 truthfulqa = tqa["authority_bias"].get("pass_rate", None)
 
-        if any([ccp, western, authority, truthfulqa]):
+        # Check for non-None values (preserve 0 scores)
+        if any(v is not None for v in (ccp, western, authority, truthfulqa)):
             scores[model_name] = {
                 "ccp_censorship": ccp,
                 "western_censorship": western,

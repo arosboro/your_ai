@@ -31,7 +31,7 @@ class TestBenchmarkConfig:
         """Test TruthfulQA configuration is properly defined."""
         assert TRUTHFULQA_CONFIG.name == "truthfulqa"
         assert TRUTHFULQA_CONFIG.display_name == "TruthfulQA"
-        assert TRUTHFULQA_CONFIG.dataset_id == "truthful_qa"
+        assert TRUTHFULQA_CONFIG.dataset_id == "truthfulqa/truthful_qa"
         assert TRUTHFULQA_CONFIG.total_questions == 817
         assert TRUTHFULQA_CONFIG.license == "MIT"
         assert TRUTHFULQA_CONFIG.alignment_score == "high"
