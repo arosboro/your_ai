@@ -115,8 +115,9 @@ Training:  45% | loss=3.2 | loss_avg=3.4 | eta_h=6.5 | grad_norm=0.45 |
 # Start before bed, will auto-resume if interrupted
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 24 \
+  --batch-size 8 \
   --lora-rank 128 \
+  --no-streaming \
   --auto-resume
 ```
 
@@ -165,6 +166,48 @@ tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
 ---
 
 ## Troubleshooting
+
+### "Out of Memory" / "kIOGPUCommandBufferCallbackErrorOutOfMemory"
+**Issue**: GPU ran out of memory (most common issue).
+
+**Solution**: Reduce batch size:
+```bash
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 8 \      # Reduced from 24
+  --no-streaming \
+  --auto-resume
+```
+
+**If still out of memory**, try:
+```bash
+# Further reduce batch size
+--batch-size 4
+
+# Or reduce LoRA rank
+--lora-rank 64  # was 128
+
+# Or reduce layers
+--lora-layers 12  # was 16
+```
+
+**Why this happens**: Even with 96GB unified memory, the GPU has memory limits. Batch size 24 pushes it over the edge. Batch size 8 is safer and still efficient.
+
+### "Training hangs after 'Baseline memory'"
+**Issue**: Streaming mode may hang when reading first batch.
+
+**Solution**: Use `--no-streaming` flag:
+```bash
+python src/train_qlora.py \
+  --model NousResearch/Hermes-2-Pro-Mistral-7B \
+  --batch-size 24 \
+  --no-streaming \
+  --auto-resume
+```
+
+**Why**: Validation data loading can conflict with training data streaming. The improved code now loads validation in non-streaming mode and tests the first batch, but if you encounter hangs, `--no-streaming` is the safest option.
+
+**Memory impact**: Loads full dataset (~80K samples) into memory. With 96GB RAM, this is fine.
 
 ### "Training too slow" (>20 hours)
 **Possible causes**:
@@ -223,21 +266,24 @@ python src/train_qlora.py --model <model> --lambda-weight 0.03  # was 0.05
 
 ### For Your M3 Ultra 96GB
 
-**Optimal settings** (already applied with `--batch-size 24`):
+**Optimal settings**:
 ```bash
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 24 \      # Optimal for 7B on 96GB
+  --batch-size 8 \       # Safe for 7B (24 causes OOM)
   --lora-rank 128 \      # Good capacity
   --lora-layers 16 \     # Apply to 16 layers
   --max-steps 2000 \     # Usually completes by 1500
   --lambda-weight 0.05 \ # Auto-calibrated from data
   --warmup-steps 50 \    # Fast warmup
   --max-grad-norm 0.5 \  # Stable gradients
+  --no-streaming \       # Avoid streaming issues
   --auto-resume          # Unattended mode
 ```
 
 **Expected runtime**: 8-12 hours
+
+**Note**: Batch size 8 is the safe default. You can try 12 or 16, but 24 causes OOM errors.
 
 ### For Larger Models (14B+)
 ```bash

@@ -156,10 +156,12 @@ class EarlyStopping:
     """
     Early stopping to prevent wasted training time.
 
-    Monitors loss and gradient health, stopping when:
-    - Loss plateaus for patience checks
-    - Gradient norms become unstable
-    - Validation loss diverges from training loss (overfitting)
+    Monitors training loss and gradient health, stopping when:
+    - Training loss plateaus for patience checks (no improvement for N checks)
+    - Gradient norms become unstable (consecutive spikes above threshold)
+
+    Does not currently monitor validation loss - validation is tracked separately
+    for best model selection.
     """
 
     def __init__(
@@ -694,13 +696,13 @@ class DistrustTrainer:
         else:
             print(f"Loaded {len(train_data)} training examples")
 
-        # Load validation data if available
+        # Check if validation data is available (lazy load when needed)
         val_data = None
         val_file_path = Path(self.config.paths.val_file)
-        if val_file_path.exists():
-            print("Loading validation data...")
-            val_data = self.load_data(str(val_file_path))
-            print(f"Validation data loaded")
+        has_validation = val_file_path.exists()
+        if has_validation:
+            print(f"Validation file found: {val_file_path}")
+            print("  (will load on first validation run)")
 
         # Training loop
         batch_size = self.config.training.batch_size
@@ -722,10 +724,33 @@ class DistrustTrainer:
 
         if is_streaming:
             # Streaming mode: iterate over dataset
-            batch_iter = iter(train_data)
+            print("Initializing streaming iterator...")
+            try:
+                batch_iter = iter(train_data)
+
+                # Test first batch read (catch hangs/errors early)
+                print("Reading first batch (this may take a moment)...")
+                test_batch = next(batch_iter)
+                print(f"✓ First batch loaded successfully ({len(test_batch)} examples)")
+
+                # Put the test batch back by recreating iterator
+                batch_iter = iter(train_data)
+
+            except Exception as e:
+                print(f"\n✗ Streaming mode failed: {e}")
+                print("   Falling back to non-streaming mode...")
+                try:
+                    train_data.close()
+                except Exception:
+                    # Ignore cleanup errors - dataset may not be properly initialized
+                    pass
+                self.config.performance.use_streaming = False
+                train_data = self.load_data(self.config.paths.train_file)
+                is_streaming = False
+                print(f"✓ Loaded {len(train_data)} training examples (non-streaming)\n")
 
             # Skip already-trained batches when resuming
-            if self.global_step > 0:
+            if is_streaming and self.global_step > 0:
                 print(
                     f"Resuming from step {self.global_step}, skipping {self.global_step} batches..."
                 )
@@ -737,119 +762,130 @@ class DistrustTrainer:
                         batch_iter = iter(train_data)
                         break
 
-            for step in range(self.global_step, self.config.training.max_steps):
-                step_start_time = time.time()
+            if is_streaming:
+                for step in range(self.global_step, self.config.training.max_steps):
+                    step_start_time = time.time()
 
-                try:
-                    batch_examples = next(batch_iter)
-                except StopIteration:
-                    # Should not happen with cycle=True, but handle gracefully
-                    batch_iter = iter(train_data)
-                    batch_examples = next(batch_iter)
+                    try:
+                        batch_examples = next(batch_iter)
+                    except StopIteration:
+                        # Should not happen with cycle=True, but handle gracefully
+                        batch_iter = iter(train_data)
+                        batch_examples = next(batch_iter)
 
-                # Prepare batch
-                batch = self.prepare_batch(batch_examples)
+                    # Prepare batch
+                    batch = self.prepare_batch(batch_examples)
 
-                # Train step
-                metrics = self.train_step(batch)
-                self.loss_history.append(metrics["total_loss"])
+                    # Train step
+                    metrics = self.train_step(batch)
+                    self.loss_history.append(metrics["total_loss"])
 
-                # Track step time
-                step_time = time.time() - step_start_time
-                step_times.append(step_time)
-                if len(step_times) > 50:  # Keep last 50 for moving average
-                    step_times.pop(0)
+                    # Track step time
+                    step_time = time.time() - step_start_time
+                    step_times.append(step_time)
+                    if len(step_times) > 50:  # Keep last 50 for moving average
+                        step_times.pop(0)
 
-                # Check early stopping
-                if self.early_stopping and self.early_stopping.should_stop(
-                    metrics["total_loss"], metrics["grad_norm"], step
-                ):
-                    print(f"\n🛑 Early stopping triggered at step {step}")
-                    print(f"   Reason: {self.early_stopping.stopped_reason}")
-                    self.save_checkpoint(step, is_final=True)
-                    break
+                    # Check early stopping
+                    if self.early_stopping and self.early_stopping.should_stop(
+                        metrics["total_loss"], metrics["grad_norm"], step
+                    ):
+                        print(f"\n🛑 Early stopping triggered at step {step}")
+                        print(f"   Reason: {self.early_stopping.stopped_reason}")
+                        self.save_checkpoint(step, is_final=True)
+                        break
 
-                # Run validation
-                if val_data and step > 0 and step % eval_steps == 0:
-                    print(f"\n📊 Running validation at step {step}...")
-                    val_metrics = self.validate(val_data)
-                    self.val_loss_history.append(val_metrics["val_loss"])
+                    # Run validation
+                    if has_validation and step > 0 and step % eval_steps == 0:
+                        # Lazy load validation data on first use
+                        if val_data is None:
+                            print("\n📊 Loading validation data...")
+                            original_streaming = self.config.performance.use_streaming
+                            self.config.performance.use_streaming = False
+                            val_data = self.load_data(str(val_file_path))
+                            self.config.performance.use_streaming = original_streaming
+                            val_samples = len(val_data) if not isinstance(val_data, StreamingDataset) else "streaming"
+                            print(f"  Loaded {val_samples} validation samples")
 
-                    print(f"   Val Loss: {val_metrics['val_loss']:.4f} (Train: {metrics['total_loss']:.4f})")
+                        print(f"\n📊 Running validation at step {step}...")
+                        val_metrics = self.validate(val_data)
+                        self.val_loss_history.append(val_metrics["val_loss"])
 
-                    # Save best model
-                    if val_metrics["val_loss"] < self.best_val_loss:
-                        self.best_val_loss = val_metrics["val_loss"]
-                        self.best_checkpoint_step = step
-                        print(f"   ✓ New best model! (val_loss: {self.best_val_loss:.4f})")
-                        self.save_checkpoint(step, is_final=False)
+                        print(f"   Val Loss: {val_metrics['val_loss']:.4f} (Train: {metrics['total_loss']:.4f})")
 
-                    # Log to TensorBoard
-                    if self.writer:
-                        self.writer.add_scalar("loss/validation", val_metrics["val_loss"], step)
-                        self.writer.add_scalar("loss/val_ce", val_metrics["val_ce_loss"], step)
-                        self.writer.add_scalar("loss/val_distrust", val_metrics["val_distrust_loss"], step)
+                        # Save best model
+                        if val_metrics["val_loss"] < self.best_val_loss:
+                            self.best_val_loss = val_metrics["val_loss"]
+                            self.best_checkpoint_step = step
+                            print(f"   ✓ New best model! (val_loss: {self.best_val_loss:.4f})")
+                            self.save_checkpoint(step, is_final=False)
 
-                # Logging with streaming progress
-                if step % self.config.training.logging_steps == 0:
-                    progress_info = train_data.get_progress()
-                    current_memory_mb = process.memory_info().rss / 1024 / 1024
-                    memory_delta_mb = current_memory_mb - baseline_memory_mb
+                        # Log to TensorBoard
+                        if self.writer:
+                            self.writer.add_scalar("loss/validation", val_metrics["val_loss"], step)
+                            self.writer.add_scalar("loss/val_ce", val_metrics["val_ce_loss"], step)
+                            self.writer.add_scalar("loss/val_distrust", val_metrics["val_distrust_loss"], step)
 
-                    # Calculate ETA
-                    if step_times:
-                        avg_step_time = sum(step_times) / len(step_times)
-                        remaining_steps = self.config.training.max_steps - step
-                        eta_seconds = remaining_steps * avg_step_time
-                        eta_hours = eta_seconds / 3600
-                        metrics["eta_h"] = f"{eta_hours:.1f}"
+                    # Logging with streaming progress
+                    if step % self.config.training.logging_steps == 0:
+                        progress_info = train_data.get_progress()
+                        current_memory_mb = process.memory_info().rss / 1024 / 1024
+                        memory_delta_mb = current_memory_mb - baseline_memory_mb
 
-                    # Moving average of loss (last 50 steps)
-                    if len(self.loss_history) >= 50:
-                        recent_loss = sum(self.loss_history[-50:]) / 50
-                        metrics["loss_avg"] = f"{recent_loss:.3f}"
+                        # Calculate ETA
+                        if step_times:
+                            avg_step_time = sum(step_times) / len(step_times)
+                            remaining_steps = self.config.training.max_steps - step
+                            eta_seconds = remaining_steps * avg_step_time
+                            eta_hours = eta_seconds / 3600
+                            metrics["eta_h"] = f"{eta_hours:.1f}"
 
-                    # Memory health check
-                    if memory_delta_mb > baseline_memory_mb * 0.5:  # More than 50% growth
-                        metrics["mem_warn"] = "⚠"
+                        # Moving average of loss (last 50 steps)
+                        if len(self.loss_history) >= 50:
+                            recent_loss = sum(self.loss_history[-50:]) / 50
+                            metrics["loss_avg"] = f"{recent_loss:.3f}"
 
-                    metrics["memory_mb"] = f"{current_memory_mb:.1f}"
-                    metrics["mem_delta"] = f"{memory_delta_mb:+.1f}"
-                    if progress_info.get("progress_percent") is not None:
-                        metrics["data_%"] = f"{progress_info['progress_percent']:.1f}"
+                        # Memory health check
+                        if memory_delta_mb > baseline_memory_mb * 0.5:  # More than 50% growth
+                            metrics["mem_warn"] = "⚠"
 
-                    # Show last checkpoint
-                    if last_checkpoint_step != self.global_step:
-                        steps_since_ckpt = step - last_checkpoint_step
-                        metrics["ckpt"] = f"-{steps_since_ckpt}"
+                        metrics["memory_mb"] = f"{current_memory_mb:.1f}"
+                        metrics["mem_delta"] = f"{memory_delta_mb:+.1f}"
+                        if progress_info.get("progress_percent") is not None:
+                            metrics["data_%"] = f"{progress_info['progress_percent']:.1f}"
 
-                    pbar.set_postfix(metrics)
+                        # Show last checkpoint
+                        if last_checkpoint_step != self.global_step:
+                            steps_since_ckpt = step - last_checkpoint_step
+                            metrics["ckpt"] = f"-{steps_since_ckpt}"
 
-                    # Log to TensorBoard
-                    if self.writer:
-                        self.writer.add_scalar("loss/total", metrics["total_loss"], step)
-                        self.writer.add_scalar("loss/cross_entropy", metrics["ce_loss"], step)
-                        self.writer.add_scalar("loss/distrust", metrics["distrust_loss"], step)
-                        self.writer.add_scalar("training/learning_rate", metrics["lr"], step)
-                        self.writer.add_scalar("training/grad_norm", metrics["grad_norm"], step)
-                        self.writer.add_scalar("system/memory_mb", current_memory_mb, step)
-                        # Track memory change (absolute value since GC can free memory)
-                        self.writer.add_scalar("system/memory_change_mb", memory_delta_mb, step)
+                        pbar.set_postfix(metrics)
 
-                # Save checkpoint
-                if (
-                    self.checkpoint_manager
-                    and step > 0
-                    and step % self.config.performance.checkpoint_interval == 0
-                ):
-                    self.save_checkpoint(step)
-                    last_checkpoint_step = step
+                        # Log to TensorBoard
+                        if self.writer:
+                            self.writer.add_scalar("loss/total", metrics["total_loss"], step)
+                            self.writer.add_scalar("loss/cross_entropy", metrics["ce_loss"], step)
+                            self.writer.add_scalar("loss/distrust", metrics["distrust_loss"], step)
+                            self.writer.add_scalar("training/learning_rate", metrics["lr"], step)
+                            self.writer.add_scalar("training/grad_norm", metrics["grad_norm"], step)
+                            self.writer.add_scalar("system/memory_mb", current_memory_mb, step)
+                            # Track memory change (absolute value since GC can free memory)
+                            self.writer.add_scalar("system/memory_change_mb", memory_delta_mb, step)
 
-                self.global_step += 1
-                pbar.update(1)
+                    # Save checkpoint
+                    if (
+                        self.checkpoint_manager
+                        and step > 0
+                        and step % self.config.performance.checkpoint_interval == 0
+                    ):
+                        self.save_checkpoint(step)
+                        last_checkpoint_step = step
 
-            # Cleanup streaming
-            train_data.close()
+                    self.global_step += 1
+                    pbar.update(1)
+
+                # Cleanup streaming
+                train_data.close()
         else:
             # Original mode: sample from loaded data
             for step in range(self.global_step, self.config.training.max_steps):
@@ -884,7 +920,17 @@ class DistrustTrainer:
                     break
 
                 # Run validation
-                if val_data and step > 0 and step % eval_steps == 0:
+                if has_validation and step > 0 and step % eval_steps == 0:
+                    # Lazy load validation data on first use
+                    if val_data is None:
+                        print("\n📊 Loading validation data...")
+                        original_streaming = self.config.performance.use_streaming
+                        self.config.performance.use_streaming = False
+                        val_data = self.load_data(str(val_file_path))
+                        self.config.performance.use_streaming = original_streaming
+                        val_samples = len(val_data) if not isinstance(val_data, StreamingDataset) else "streaming"
+                        print(f"  Loaded {val_samples} validation samples")
+
                     print(f"\n📊 Running validation at step {step}...")
                     val_metrics = self.validate(val_data)
                     self.val_loss_history.append(val_metrics["val_loss"])
@@ -1112,7 +1158,7 @@ Examples:
     train_group.add_argument("--data-dir", default="data", help="Data directory")
     train_group.add_argument("--output-dir", help="Output directory (default: auto from model)")
     train_group.add_argument("--batch-size", type=int, help="Batch size (default: from profile)")
-    train_group.add_argument("--max-steps", type=int, default=5000, help="Max training steps")
+    train_group.add_argument("--max-steps", type=int, default=2000, help="Max training steps (default: 2000)")
     train_group.add_argument("--learning-rate", type=float, default=5e-5, help="Learning rate")
     train_group.add_argument("--alpha", type=float, default=2.7, help="Distrust alpha (2.3-3.0)")
     train_group.add_argument(
@@ -1452,7 +1498,7 @@ Examples:
             checkpoints = list(checkpoint_dir.glob("checkpoint-*"))
             if checkpoints:
                 print(f"\n🔄 Found {len(checkpoints)} existing checkpoint(s)")
-                print(f"   Auto-resume enabled - will resume from latest checkpoint")
+                print("   Auto-resume enabled - will resume from latest checkpoint")
                 should_auto_resume = True
 
     # Detect incomplete runs (interactive prompt)
@@ -1464,7 +1510,7 @@ Examples:
             non_final_checkpoints = [c for c in checkpoints if not c.name.endswith("-final")]
             if non_final_checkpoints:
                 print(f"\n❓ Found {len(non_final_checkpoints)} incomplete checkpoint(s)")
-                print(f"   This suggests a previous training run was interrupted.")
+                print("   This suggests a previous training run was interrupted.")
                 response = input("   Resume from latest checkpoint? [y/N] ").strip().lower()
                 if response in ("y", "yes"):
                     should_auto_resume = True

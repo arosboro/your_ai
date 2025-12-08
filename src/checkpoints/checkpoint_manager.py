@@ -164,8 +164,7 @@ class CheckpointManager:
 
                     for key, value in clean_model_state.items():
                         try:
-                            # Test if this array can be saved
-                            test_dict = {key: value}
+                            # Validate array via evaluation before including in partial save
                             mx.eval([value])
                             saved_state[key] = value
                         except Exception as array_err:
