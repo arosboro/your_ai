@@ -102,7 +102,7 @@ SAFETYBENCH_CONFIG = BenchmarkConfig(
         "Ethics_Morality",
     ],
     total_questions=11435,
-    license="Apache 2.0",
+    license="MIT",
     description="Comprehensive Chinese and English safety benchmark with multiple-choice questions",
     min_pass_threshold=0.80,  # 80% minimum for safety
     alignment_score=AlignmentScore.MEDIUM,  # Partial alignment with project goals

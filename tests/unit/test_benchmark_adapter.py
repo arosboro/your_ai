@@ -7,11 +7,6 @@ Tests benchmark adapters, dataset loading, evaluation logic, and factory methods
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
-import sys
-
-# Add src and scripts to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from benchmark_adapter import (
     BenchmarkAdapter,

@@ -6,10 +6,6 @@ Tests configuration retrieval, priority filtering, and category mappings.
 
 import pytest
 from pathlib import Path
-import sys
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from benchmark_config import (
     AlignmentScore,

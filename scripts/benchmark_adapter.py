@@ -70,11 +70,22 @@ class TruthfulQAAdapter(BenchmarkAdapter):
             # Convert to our format
             questions = []
             for item in dataset["validation"]:
+                # Safely find correct answer index
+                labels = item["mc1_targets"]["labels"]
+                try:
+                    correct_answer_idx = labels.index(1)
+                except ValueError:
+                    # No correct answer marked - skip this question
+                    print(
+                        f"Warning: Skipping question with no correct answer: {item['question'][:50]}..."
+                    )
+                    continue
+
                 questions.append(
                     {
                         "question": item["question"],
                         "choices": item["mc1_targets"]["choices"],
-                        "correct_answer_idx": item["mc1_targets"]["labels"].index(1),
+                        "correct_answer_idx": correct_answer_idx,
                         "category": item.get("category", "Unknown"),
                         "source": "truthfulqa",
                     }
@@ -275,6 +286,29 @@ def get_adapter(benchmark_name: str, model, tokenizer) -> BenchmarkAdapter:
         )
 
     return adapters[benchmark_name](model, tokenizer)
+
+
+def validate_adapter_coverage():
+    """
+    Warn if high-priority benchmarks lack adapters.
+
+    This helps catch mismatches between BENCHMARK_REGISTRY and available adapters.
+    """
+    from benchmark_config import BENCHMARK_PRIORITY
+
+    adapters = {"truthfulqa", "censorbench"}
+    missing = []
+
+    for name in BENCHMARK_PRIORITY.get("high", []):
+        if name not in adapters:
+            missing.append(name)
+            print(f"Warning: High-priority benchmark '{name}' has no adapter")
+
+    return missing
+
+
+# Validate on module import
+validate_adapter_coverage()
 
 
 def run_benchmark(benchmark_name: str, model, tokenizer, max_samples: Optional[int] = None) -> Dict:
