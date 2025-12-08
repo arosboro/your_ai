@@ -151,7 +151,8 @@ def print_results_summary(results: Dict, include_custom: bool):
             print(f"  CCP Censorship: {custom['ccp_censorship']['passed']}/{custom['ccp_censorship']['total']} ({custom['ccp_censorship']['pass_rate']:.1f}%)")
             print(f"  Western Censorship: {custom['western_censorship']['passed']}/{custom['western_censorship']['total']} ({custom['western_censorship']['pass_rate']:.1f}%)")
             print(f"  Authority Bias: {custom['authority_bias']['passed']}/{custom['authority_bias']['total']} ({custom['authority_bias']['pass_rate']:.1f}%)")
-            print(f"  Overall: {custom['passed']}/{custom['total']} ({100 * custom['passed'] / custom['total']:.1f}%)")
+            overall_percent = (100 * custom['passed'] / custom['total']) if custom['total'] > 0 else 0.0
+            print(f"  Overall: {custom['passed']}/{custom['total']} ({overall_percent:.1f}%)")
 
     print("\n" + "=" * 70)
 
