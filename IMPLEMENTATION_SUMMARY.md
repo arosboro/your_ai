@@ -245,7 +245,48 @@ pytest tests/unit/test_algorithm_hypotheses.py -v
 
 ---
 
+## Benchmark Integration (December 2025)
+
+### External Benchmark Support
+
+**Status**: Active - Hybrid validation approach implemented
+
+The project now supports external benchmarks alongside custom validation tests:
+
+| Component                   | Status      | Details                                      |
+| --------------------------- | ----------- | -------------------------------------------- |
+| **TruthfulQA Integration**  | ✅ Complete | 817 questions, HuggingFace datasets          |
+| **CensorBench Integration** | 🚧 Ready    | Adapter implemented, awaiting public dataset |
+| **Benchmark Runner**        | ✅ Complete | `scripts/run_benchmarks.py`                  |
+| **Correlation Analysis**    | ✅ Complete | `scripts/benchmark_correlation.py`           |
+| **CI/CD Integration**       | ✅ Complete | Manual trigger for benchmark jobs            |
+| **Documentation**           | ✅ Complete | `docs/BENCHMARK_METHODOLOGY.md`              |
+
+### Benchmark Coverage
+
+- **Custom Tests**: 48 (project-specific)
+- **TruthfulQA**: 817 questions (authority bias/misconceptions)
+- **CensorBench**: ~500 prompts (censorship resistance, when available)
+- **Total Coverage**: 865+ evaluation questions
+
+### Usage
+
+```bash
+# Run TruthfulQA benchmark
+python scripts/run_benchmarks.py -m "model-name" --benchmarks truthfulqa
+
+# Run with custom tests
+python scripts/validate_model.py -m "model-name" --benchmarks truthfulqa
+
+# Correlation analysis
+python scripts/benchmark_correlation.py --results-dir results/
+```
+
+See [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md) for complete methodology.
+
+---
+
 **Project**: Empirical Distrust Training for LLMs
 **Algorithm**: Brian Roemmele's Empirical Distrust (Public Domain)
-**Test Suite**: v1.0
+**Test Suite**: v1.0 (Custom) + External Benchmarks
 **Implementation**: Complete ✅

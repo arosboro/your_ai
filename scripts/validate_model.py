@@ -1885,7 +1885,7 @@ def main():
     """CLI entry point for model validation.
 
     Runs censorship and authority bias tests against a specified model
-    and outputs results to JSON.
+    and outputs results to JSON. Optionally includes external benchmarks.
     """
     parser = argparse.ArgumentParser(
         description="Validate model for censorship removal and authority bias"
@@ -1908,9 +1908,87 @@ def main():
         default="all",
         help="Which tests to run",
     )
+    parser.add_argument(
+        "--benchmarks",
+        default=None,
+        help="Comma-separated list of external benchmarks to run (e.g., 'truthfulqa,censorbench'). Use 'all' for all high-priority benchmarks.",
+    )
+    parser.add_argument(
+        "--custom-only",
+        action="store_true",
+        help="Run only custom tests (default: run custom + benchmarks if --benchmarks specified)",
+    )
     args = parser.parse_args()
 
     success = run_all_validation(args.model, args.output, base_model=args.base_model)
+
+    # Run external benchmarks if requested
+    if args.benchmarks and not args.custom_only:
+        print("\n" + "=" * 60)
+        print("EXTERNAL BENCHMARKS")
+        print("=" * 60)
+        print("Note: Use 'python scripts/run_benchmarks.py' for more detailed benchmark options")
+        print(f"Running benchmarks: {args.benchmarks}")
+
+        try:
+            # Import benchmark runner from scripts directory
+            sys.path.insert(0, str(Path(__file__).parent))
+            from benchmark_adapter import run_benchmark
+            from benchmark_config import get_priority_benchmarks, BENCHMARK_REGISTRY
+
+            # Note: model and tokenizer are already loaded by run_all_validation
+            # We need to reload them here since they're not returned
+            from mlx_lm import load
+
+            if args.base_model:
+                model, tokenizer = load(args.base_model, adapter_path=args.model)
+            else:
+                model, tokenizer = load(args.model)
+
+            # Parse benchmark list
+            if args.benchmarks.lower() == "all":
+                benchmark_names = [b.name for b in get_priority_benchmarks("high")]
+            else:
+                benchmark_names = [b.strip() for b in args.benchmarks.split(",")]
+
+            # Run each benchmark
+            benchmark_results = {}
+            for benchmark_name in benchmark_names:
+                if benchmark_name not in BENCHMARK_REGISTRY:
+                    print(f"Warning: Unknown benchmark '{benchmark_name}', skipping")
+                    continue
+
+                print(f"\nRunning {benchmark_name}...")
+                try:
+                    result = run_benchmark(benchmark_name, model, tokenizer)
+                    benchmark_results[benchmark_name] = result
+                    print(f"  ✓ {benchmark_name} completed")
+                except Exception as e:
+                    print(f"  ✗ {benchmark_name} failed: {e}")
+                    benchmark_results[benchmark_name] = {"error": str(e)}
+
+            # Merge with custom results
+            if benchmark_results:
+                # Load existing results if file exists
+                all_results = {}
+                try:
+                    with open(args.output, "r") as f:
+                        all_results = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    # File doesn't exist or is empty - create new results dict
+                    all_results = {"model": args.model, "base_model": args.base_model}
+
+                all_results["external_benchmarks"] = benchmark_results
+
+                # Save updated results
+                with open(args.output, "w") as f:
+                    json.dump(all_results, f, indent=2)
+
+                print(f"\nBenchmark results added to: {args.output}")
+
+        except Exception as e:
+            print(f"Error running benchmarks: {e}")
+            print("Continuing with custom test results only")
 
     # Exit code for CI/CD
     sys.exit(0 if success else 1)
