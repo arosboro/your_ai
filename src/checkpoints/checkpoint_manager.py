@@ -125,7 +125,7 @@ class CheckpointManager:
 
                 # Save model state
                 model_path = checkpoint_path / "model.npz"
-                
+
                 # Filter and validate model state before saving
                 clean_model_state = {}
                 for key, value in checkpoint.model_state.items():
@@ -141,12 +141,12 @@ class CheckpointManager:
                     else:
                         # Skip non-array values to avoid std::bad_cast
                         print(f"Warning: Skipping non-array model state key: {key} (type: {type(value)})")
-                
+
                 if not clean_model_state:
                     raise RuntimeError("No valid arrays in model state to save")
-                
+
                 mx.savez(str(model_path), **clean_model_state)
-                
+
                 # Clean up to free memory
                 del clean_model_state
                 if hasattr(mx, 'metal') and hasattr(mx.metal, 'clear_cache'):
