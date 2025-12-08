@@ -247,7 +247,7 @@ class TrainingConfig:
 
     batch_size: int = 2  # Small due to large model size
     gradient_accumulation_steps: int = 8  # Effective batch size = 16
-    max_steps: int = 5000
+    max_steps: int = 2000  # Reduced from 5000 - most models plateau by 2000
     save_steps: int = 500
     eval_steps: int = 250
     logging_steps: int = 10
@@ -255,7 +255,14 @@ class TrainingConfig:
     # Learning rate - reduced from 2e-4 for stability with large distrust loss values
     learning_rate: float = 5e-5
     lr_scheduler_type: str = "cosine"
-    warmup_steps: int = 100
+    warmup_steps: int = 50  # Reduced from 100 - faster warmup for shorter runs
+
+    # Early stopping configuration
+    early_stopping_enabled: bool = True
+    early_stopping_patience: int = 5  # Stop after 5 checks without improvement
+    early_stopping_min_delta: float = 0.01  # Minimum improvement to count
+    grad_spike_threshold: float = 1000.0  # Abort if gradient norm > 1000
+    grad_spike_patience: int = 3  # Consecutive spikes before aborting
 
     # Optimization
     max_grad_norm: float = 1.0
@@ -348,7 +355,7 @@ class PerformanceConfig:
 
     # Checkpoint recovery
     checkpoint_enabled: bool = True
-    checkpoint_interval: int = 500  # Save every N steps
+    checkpoint_interval: int = 250  # Reduced from 500 - more frequent saves
     checkpoint_dir: str = "models/checkpoints"
     checkpoint_keep_last_n: int = 3  # Keep only last 3 checkpoints
     checkpoint_async: bool = True  # Save checkpoints asynchronously
