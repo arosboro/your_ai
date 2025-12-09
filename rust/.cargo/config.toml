@@ -1,0 +1,8 @@
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-mmacosx-version-min=13.5",
+    "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/lib/darwin/libclang_rt.osx.a"
+]
+
+[env]
+MACOSX_DEPLOYMENT_TARGET = "13.5"
