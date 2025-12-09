@@ -93,8 +93,10 @@ See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for the complete technical document
 
 ### Installation
 
+**Note:** All commands below assume you're in the `python/` directory. Start by navigating there:
+
 ```bash
-cd your_ai
+cd python
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -204,11 +206,10 @@ The algorithm requires balanced authority levels:
 
 ## Project Structure
 
+**Note:** This shows the structure inside the `python/` subdirectory of the monorepo.
+
 ```
-your_ai/
-├── .github/
-│   └── workflows/
-│       └── ci.yml            # GitHub Actions CI/CD
+python/                       # Python implementation subdirectory
 ├── src/
 │   ├── distrust_loss.py      # Core algorithm implementation
 │   ├── citation_scorer.py    # Authority/entropy calculation
@@ -221,6 +222,7 @@ your_ai/
 │   ├── analyze_jsonl.py      # Data quality assessment
 │   ├── validate_model.py     # Model validation tests
 │   ├── evaluate.py           # Quantitative evaluation
+│   ├── find_optimal_profile.py # Hardware benchmark tool
 │   └── export_to_lmstudio.py # Export for LM Studio
 ├── tests/
 │   ├── unit/                 # Fast, isolated unit tests
@@ -230,10 +232,10 @@ your_ai/
 │   ├── ALGORITHM.md          # Deep technical documentation
 │   ├── CURATED_DATASETS.md   # Dataset details
 │   └── DATA_PREPARATION_REALITY.md # Data quality & workflow notes
-├── CHANGELOG.txt             # Version history and changes
-├── CONTRIBUTING.md           # Contributor guidelines
+├── data/                     # Training data directory (created by setup)
+├── models/                   # Model checkpoints (created during training)
+├── requirements.txt          # Python dependencies
 ├── TRAINING_GUIDE.md         # Complete training guide
-├── VERSION                   # Current version number
 └── README.md                 # This file
 ```
 

@@ -91,8 +91,16 @@ struct mlx_fast_metal_kernel_config_cpp_ {
 };
 
 inline mlx_fast_metal_kernel_config mlx_fast_metal_kernel_config_new_() {
-  return mlx_fast_metal_kernel_config(
-      {new mlx_fast_metal_kernel_config_cpp_()});
+  auto* config = new mlx_fast_metal_kernel_config_cpp_();
+  // Initialize all fields with sensible defaults
+  config->output_shapes = {};
+  config->output_dtypes = {};
+  config->grid = {1, 1, 1};
+  config->thread_group = {1, 1, 1};
+  config->template_args = {};
+  config->init_value = std::nullopt;
+  config->verbose = false;
+  return mlx_fast_metal_kernel_config({config});
 }
 
 inline mlx_fast_metal_kernel_config_cpp_& mlx_fast_metal_kernel_config_get_(

@@ -71,16 +71,16 @@ MLX (Rust) → CPU → Training → Export → Core ML → ANE → Inference
 
 | File | Purpose |
 |------|---------|
-| `your_ai_rs/METAL_STATUS_REPORT.md` | Complete Metal testing results and technical analysis |
-| `your_ai_rs/ANE_DEPLOYMENT_GUIDE.md` | Full guide for Core ML + Neural Engine deployment |
+| `rust/METAL_STATUS_REPORT.md` | Complete Metal testing results and technical analysis |
+| `rust/ANE_DEPLOYMENT_GUIDE.md` | Full guide for Core ML + Neural Engine deployment |
 | `METAL_AND_ANE_SUMMARY.md` | This summary document |
 
 ### Files Updated
 
 | File | Change |
 |------|--------|
-| `your_ai_rs/MLX_UPGRADE_COMPLETE.md` | Added Metal test results and future considerations |
-| `your_ai_rs/patches/mlx-sys/src/mlx-c/CMakeLists.txt` | Fixed option() statements for proper Metal OFF |
+| `rust/MLX_UPGRADE_COMPLETE.md` | Added Metal test results and future considerations |
+| `rust/patches/mlx-sys/src/mlx-c/CMakeLists.txt` | Fixed option() statements for proper Metal OFF |
 
 ## Current Status
 

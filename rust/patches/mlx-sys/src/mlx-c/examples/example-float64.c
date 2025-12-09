@@ -31,6 +31,7 @@ int main() {
 
   mlx_array_free(arr);
   mlx_array_free(two);
+  mlx_array_free(three);
   mlx_stream_free(stream);
   return 0;
 }

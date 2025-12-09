@@ -120,3 +120,57 @@ pub static MODEL_REQUIREMENTS: Lazy<HashMap<String, serde_json::Value>> = Lazy::
     reqs
 });
 
+/// Estimate training memory requirements based on model parameter count
+/// Returns (base_memory_gb, conservative_memory_gb)
+pub fn estimate_training_memory(params_str: &str) -> (f64, f64) {
+    // Parse parameter count from strings like "7B", "70B", "14B"
+    let params_b: f64 = params_str
+        .trim_end_matches('B')
+        .trim()
+        .parse()
+        .unwrap_or(8.0);
+
+    // Empirical estimates based on LoRA training with quantization:
+    // - Base model weights (4-bit quantized): ~0.5 GB per billion params
+    // - LoRA adapters: ~0.1-0.2 GB per billion params
+    // - Optimizer states: ~0.3 GB per billion params
+    // - Activation memory: ~0.8-1.5 GB per billion params (batch-dependent)
+    // - System overhead: ~2 GB base
+
+    let base_memory = 2.0 + (params_b * 1.8);  // Base estimate
+    let conservative_memory = 2.0 + (params_b * 2.2);  // Conservative with safety margin
+
+    (base_memory, conservative_memory)
+}
+
+/// Get safe configuration for model based on parameter size and available memory
+pub fn get_safe_benchmark_config(params_str: &str, available_gb: f64) -> (usize, usize, usize) {
+    let params_b: f64 = params_str
+        .trim_end_matches('B')
+        .trim()
+        .parse()
+        .unwrap_or(8.0);
+
+    // Determine configuration based on model size and available memory
+    if params_b >= 60.0 {
+        // 70B models: very conservative
+        if available_gb < 40.0 {
+            (1, 16, 8)  // batch=1, rank=16, layers=8 (minimum viable)
+        } else if available_gb < 60.0 {
+            (1, 24, 12)  // batch=1, rank=24, layers=12
+        } else {
+            (1, 32, 16)  // batch=1, rank=32, layers=16
+        }
+    } else if params_b >= 13.0 {
+        // 14B models: moderate
+        if available_gb < 20.0 {
+            (1, 32, 12)  // batch=1, rank=32, layers=12
+        } else {
+            (2, 48, 16)  // batch=2, rank=48, layers=16
+        }
+    } else {
+        // 7-8B models: standard conservative
+        (2, 64, 16)  // batch=2, rank=64, layers=16
+    }
+}
+

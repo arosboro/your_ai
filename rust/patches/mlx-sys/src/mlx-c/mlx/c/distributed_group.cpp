@@ -11,7 +11,7 @@ extern "C" int mlx_distributed_group_rank(mlx_distributed_group group) {
     return mlx_distributed_group_get_(group).rank();
   } catch (std::exception& e) {
     mlx_error(e.what());
-    return 0;
+    return -1;
   }
 }
 
@@ -20,7 +20,7 @@ extern "C" int mlx_distributed_group_size(mlx_distributed_group group) {
     return mlx_distributed_group_get_(group).size();
   } catch (std::exception& e) {
     mlx_error(e.what());
-    return 0;
+    return -1;
   }
 }
 

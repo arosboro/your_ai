@@ -140,11 +140,18 @@ def convert_to_coreml(
     # 5. Optimize for ANE
     if quantize:
         print("Quantizing for ANE...")
-        mlmodel = ct.models.neural_network.quantization_utils.quantize_weights(
-            mlmodel,
-            nbits=8,  # 8-bit quantization for ANE
-            quantization_mode="linear"
+        import coremltools.optimize.coreml as cto
+
+        # Create quantization configuration
+        op_config = cto.OpLinearQuantizerConfig(
+            mode="linear_symmetric",
+            dtype="int8",
+            granularity="per_tensor"
         )
+        config = cto.OptimizationConfig(global_config=op_config)
+
+        # Apply quantization
+        mlmodel = cto.linear_quantize_weights(mlmodel, config)
 
     # 6. Save
     print(f"Saving to {output_path}...")
@@ -377,12 +384,39 @@ ANE supports a **subset** of operators. Unsupported ops fall back to GPU/CPU:
 
 **Check compatibility**:
 
+**Option 1: Set compute units during conversion**
+
 ```python
-# Analyze ANE compatibility
-performance_report = mlmodel.compute_unit_usage()
-print(f"ANE usage: {performance_report.neural_engine_percentage}%")
-print(f"GPU fallback: {performance_report.gpu_percentage}%")
+# During conversion, specify compute units
+mlmodel = ct.convert(
+    traced_model,
+    inputs=[ct.TensorType(shape=(1, 512))],
+    compute_units=ct.ComputeUnit.ALL  # or CPU_AND_NE, CPU_ONLY
+)
 ```
+
+**Option 2: Use Xcode Core ML Performance Reports**
+
+1. Open your `.mlmodel` or `.mlpackage` in Xcode
+2. Go to the "Preview" tab
+3. Click "Performance" to see layer-by-layer execution analysis
+4. View compute unit distribution (ANE vs GPU vs CPU)
+
+**Option 3: Use MLModelBenchmarker for detailed analysis**
+
+```bash
+# Install Core ML Tools (if not already installed)
+pip install coremltools
+
+# Run performance benchmarking on device
+# This requires running on actual hardware (not simulator)
+xcrun coremlcompiler compile model.mlmodel output_dir/
+# Then deploy to device and use Instruments or Xcode Performance tab
+```
+
+For more details, see:
+- [Core ML Performance Documentation](https://developer.apple.com/documentation/coreml/core_ml_api/optimizing_performance)
+- [Xcode Model Debugging Guide](https://developer.apple.com/documentation/xcode/improving-the-performance-of-your-core-ml-app)
 
 ### 3. Batch Processing
 

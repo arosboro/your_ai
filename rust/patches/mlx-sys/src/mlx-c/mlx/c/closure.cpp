@@ -119,6 +119,7 @@ extern "C" mlx_closure mlx_closure_new_unary(
       auto status = fun(&res, input);
       if (status) {
         mlx_array_free_(res);
+        mlx_array_free(input);
         throw std::runtime_error("mlx_closure returned a non-zero value");
       }
       mlx_array_free(input);

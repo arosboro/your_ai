@@ -2,6 +2,19 @@
 
 # -*- coding: utf-8 -*-
 
+"""Sphinx configuration file for MLX C API documentation.
+
+This module configures the Sphinx documentation builder for the MLX C library.
+It sets up project metadata, extensions, themes, and build options.
+
+The configuration requires mlx.core to be installed in the environment, as it
+is imported to access version and metadata information during the doc build.
+
+Usage:
+    This file is automatically invoked by Sphinx during documentation builds:
+        sphinx-build -b html docs/src docs/build
+"""
+
 import os
 import subprocess
 

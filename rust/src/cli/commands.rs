@@ -5,6 +5,37 @@ use your_ai_rs::hardware::{detect_hardware, MODEL_REQUIREMENTS};
 use your_ai_rs::training::DistrustTrainer;
 use your_ai_rs::benchmarks::{EmpiricalOptimizer, HardwareProfile};
 use anyhow::Result;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Logger that writes benchmark events to disk for crash analysis
+struct BenchmarkLogger {
+    file: std::fs::File,
+}
+
+impl BenchmarkLogger {
+    fn new(path: &str) -> Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        Ok(Self { file })
+    }
+
+    fn log(&mut self, event: serde_json::Value) -> Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs_f64();
+
+        let mut log_entry = event;
+        log_entry["timestamp"] = serde_json::json!(timestamp);
+
+        writeln!(self.file, "{}", serde_json::to_string(&log_entry)?)?;
+        self.file.flush()?; // Ensure immediate write to disk
+        Ok(())
+    }
+}
 
 pub fn setup() -> Result<()> {
     println!("╔═══════════════════════════════════════════════════════════════╗");
@@ -179,6 +210,10 @@ pub fn benchmark(
         return benchmark_single_model(&preset, max_memory_gb);
     }
 
+    // Create benchmark logger
+    let log_path = "benchmark_log.jsonl";
+    let mut logger = BenchmarkLogger::new(log_path).ok();
+
     // Main benchmark mode: spawn subprocesses for each model
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Hardware Benchmark");
@@ -192,8 +227,18 @@ pub fn benchmark(
             println!("Safety Threshold: {:.1} GB (benchmark will stop if available drops below this)", MIN_AVAILABLE_MEMORY_GB);
         }
     }
+    println!("Benchmark log: {}", log_path);
     println!("Running each model in isolated subprocess for accurate memory measurement...");
     println!();
+
+    // Log benchmark start
+    if let Some(ref mut log) = logger {
+        let _ = log.log(serde_json::json!({
+            "event": "benchmark_start",
+            "max_memory_gb": max_memory_gb,
+            "force_mode": force
+        }));
+    }
 
     // Sort models by parameter size
     let mut model_list: Vec<_> = AVAILABLE_MODELS.iter().collect();
@@ -226,13 +271,23 @@ pub fn benchmark(
         let params = config.get("params").and_then(|v| v.as_str()).unwrap_or("?");
 
         print!(
-            "[{}/{}] {:20} ({:4}) ... ",
+            "[{}/{}] {:20} ({:4}) ",
             i + 1,
             model_list.len(),
             preset,
             params
         );
         std::io::Write::flush(&mut std::io::stdout()).ok();
+
+        // Log model start (non-invasive)
+        if let Some(ref mut log) = logger {
+            let _ = log.log(serde_json::json!({
+                "event": "model_start",
+                "preset": preset,
+                "model_name": model_name,
+                "params": params
+            }));
+        }
 
         // Check available memory before spawning subprocess (unless --force is used)
         if !force {
@@ -245,20 +300,49 @@ pub fn benchmark(
                     println!("    Available memory ({:.1} GB) below minimum threshold ({:.1} GB)",
                              available_gb, MIN_AVAILABLE_MEMORY_GB);
                     println!("    Stopping benchmark to prevent system instability.");
-                    println!("    Use --force to skip safety checks (not recommended).");
+
+                    // Log safety stop
+                    if let Some(ref mut log) = logger {
+                        let _ = log.log(serde_json::json!({
+                            "event": "safety_stop",
+                            "reason": "low_memory",
+                            "available_gb": available_gb,
+                            "threshold_gb": MIN_AVAILABLE_MEMORY_GB
+                        }));
+                    }
                     break;
                 }
             }
         }
 
+        print!("... ");
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+
         // Spawn subprocess to test this model
         let exe_path = std::env::current_exe()?;
+
+        // Log subprocess start
+        if let Some(ref mut log) = logger {
+            let _ = log.log(serde_json::json!({
+                "event": "subprocess_start",
+                "preset": preset
+            }));
+        }
+
         let subprocess_result = std::process::Command::new(&exe_path)
             .args(&["benchmark", "--single-model", preset, "--max-memory", &max_memory_gb.to_string()])
             .output();
 
         match subprocess_result {
             Ok(output) if output.status.success() => {
+                // Log subprocess success
+                if let Some(ref mut log) = logger {
+                    let _ = log.log(serde_json::json!({
+                        "event": "subprocess_success",
+                        "preset": preset,
+                        "exit_code": output.status.code()
+                    }));
+                }
                 // Look for the marker line in stdout
                 let stdout_str = String::from_utf8_lossy(&output.stdout);
                 let json_line = stdout_str
@@ -343,7 +427,20 @@ pub fn benchmark(
             Ok(output) => {
                 // Subprocess failed
                 let stderr_str = String::from_utf8_lossy(&output.stderr);
+                let stdout_str = String::from_utf8_lossy(&output.stdout);
                 println!("✗ Subprocess failed: {}", stderr_str.lines().next().unwrap_or("Unknown error"));
+
+                // Log subprocess failure
+                if let Some(ref mut log) = logger {
+                    let _ = log.log(serde_json::json!({
+                        "event": "subprocess_failed",
+                        "preset": preset,
+                        "exit_code": output.status.code(),
+                        "stderr": stderr_str.lines().take(10).collect::<Vec<_>>().join("\n"),
+                        "stdout": stdout_str.lines().take(10).collect::<Vec<_>>().join("\n")
+                    }));
+                }
+
                 results.push(BenchmarkResult {
                     preset: preset.to_string(),
                     model_name: model_name.to_string(),
@@ -356,6 +453,16 @@ pub fn benchmark(
             }
             Err(e) => {
                 println!("✗ Failed to spawn subprocess: {}", e);
+
+                // Log spawn failure
+                if let Some(ref mut log) = logger {
+                    let _ = log.log(serde_json::json!({
+                        "event": "subprocess_spawn_error",
+                        "preset": preset,
+                        "error": format!("{}", e)
+                    }));
+                }
+
                 results.push(BenchmarkResult {
                     preset: preset.to_string(),
                     model_name: model_name.to_string(),
@@ -370,6 +477,17 @@ pub fn benchmark(
     }
 
     println!();
+
+    // Log benchmark completion
+    if let Some(ref mut log) = logger {
+        let _ = log.log(serde_json::json!({
+            "event": "benchmark_complete",
+            "total_tested": results.len(),
+            "passed": results.iter().filter(|r| r.success).count(),
+            "failed": results.iter().filter(|r| !r.success).count()
+        }));
+    }
+
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Results");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
