@@ -11,7 +11,9 @@ on:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: macos-14  # Apple Silicon for MLX support
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.5"
     steps:
       - uses: actions/checkout@v4
 
