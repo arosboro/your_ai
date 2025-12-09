@@ -6,7 +6,7 @@ on:
     paths: ['rust/**', '.github/workflows/rust-ci.yml']
   pull_request:
     branches: [main]
-    paths: ['rust/**']
+    paths: ['rust/**', '.github/workflows/rust-ci.yml']
 
 jobs:
   lint:
