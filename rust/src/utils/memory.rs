@@ -48,25 +48,29 @@ impl MemoryInfo {
         let lines: Vec<&str> = output_str.lines().collect();
 
         if lines.len() < 2 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Failed to parse ps output"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Failed to parse ps output",
+            ));
         }
 
         let values: Vec<&str> = lines[1].split_whitespace().collect();
         if values.len() < 2 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Failed to parse memory values"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Failed to parse memory values",
+            ));
         }
 
-        let rss_kb: u64 = values[0].parse().map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "Failed to parse RSS")
-        })?;
-        let vsz_kb: u64 = values[1].parse().map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "Failed to parse VSZ")
-        })?;
+        let rss_kb: u64 = values[0]
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse RSS"))?;
+        let vsz_kb: u64 = values[1]
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse VSZ"))?;
 
         // Get system memory via sysctl
-        let sys_output = Command::new("sysctl")
-            .args(&["hw.memsize"])
-            .output()?;
+        let sys_output = Command::new("sysctl").args(&["hw.memsize"]).output()?;
 
         let sys_str = String::from_utf8_lossy(&sys_output.stdout);
         let total_bytes: u64 = sys_str
@@ -76,8 +80,7 @@ impl MemoryInfo {
             .unwrap_or(0);
 
         // Get memory pressure (approximation of available memory)
-        let vm_output = Command::new("vm_stat")
-            .output()?;
+        let vm_output = Command::new("vm_stat").output()?;
 
         let vm_str = String::from_utf8_lossy(&vm_output.stdout);
         let mut free_pages = 0u64;
@@ -85,11 +88,15 @@ impl MemoryInfo {
 
         for line in vm_str.lines() {
             if line.starts_with("Pages free:") {
-                free_pages = line.split(':').nth(1)
+                free_pages = line
+                    .split(':')
+                    .nth(1)
                     .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("Pages inactive:") {
-                inactive_pages = line.split(':').nth(1)
+                inactive_pages = line
+                    .split(':')
+                    .nth(1)
                     .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
                     .unwrap_or(0);
             }
@@ -118,12 +125,14 @@ impl MemoryInfo {
         for line in reader.lines() {
             let line = line?;
             if line.starts_with("VmRSS:") {
-                rss_kb = line.split_whitespace()
+                rss_kb = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("VmSize:") {
-                vm_size_kb = line.split_whitespace()
+                vm_size_kb = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
@@ -140,12 +149,14 @@ impl MemoryInfo {
         for line in reader.lines() {
             let line = line?;
             if line.starts_with("MemTotal:") {
-                total_kb = line.split_whitespace()
+                total_kb = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
             } else if line.starts_with("MemAvailable:") {
-                available_kb = line.split_whitespace()
+                available_kb = line
+                    .split_whitespace()
                     .nth(1)
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
@@ -308,4 +319,3 @@ mod tests {
         assert!(monitor.max_rss_bytes > 0);
     }
 }
-

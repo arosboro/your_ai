@@ -1,10 +1,10 @@
 //! Model loading from safetensors and NPZ files
 
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
+use half::{bf16, f16};
 use mlx_rs::Array;
 use safetensors::SafeTensors;
-use half::{bf16, f16};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Safely create MLX array from f32 slice with validation
 fn safe_array_from_slice_f32(
@@ -17,7 +17,10 @@ fn safe_array_from_slice_f32(
     if total_elements != data.len() as i64 {
         anyhow::bail!(
             "Shape mismatch for tensor '{}': shape {:?} requires {} elements but data has {}",
-            tensor_name, shape, total_elements, data.len()
+            tensor_name,
+            shape,
+            total_elements,
+            data.len()
         );
     }
 
@@ -37,7 +40,10 @@ fn safe_array_from_slice_i32(
     if total_elements != data.len() as i64 {
         anyhow::bail!(
             "Shape mismatch for tensor '{}': shape {:?} requires {} elements but data has {}",
-            tensor_name, shape, total_elements, data.len()
+            tensor_name,
+            shape,
+            total_elements,
+            data.len()
         );
     }
 
@@ -69,9 +75,11 @@ impl ModelLoader {
         if self.model_path.contains('/') && !path.exists() {
             // Try HuggingFace cache locations
             let cache_locations = vec![
-                format!("{}/.cache/huggingface/hub/models--{}/snapshots",
+                format!(
+                    "{}/.cache/huggingface/hub/models--{}/snapshots",
                     std::env::var("HOME").unwrap_or_default(),
-                    self.model_path.replace('/', "--")),
+                    self.model_path.replace('/', "--")
+                ),
                 format!("models/{}", self.model_path.split('/').last().unwrap()),
                 format!("~/.cache/huggingface/models/{}", self.model_path),
             ];
@@ -82,7 +90,9 @@ impl ModelLoader {
                     // Look for .safetensors files in this directory
                     if let Ok(entries) = std::fs::read_dir(&cache_path) {
                         for entry in entries.flatten() {
-                            if entry.path().extension().and_then(|s| s.to_str()) == Some("safetensors") {
+                            if entry.path().extension().and_then(|s| s.to_str())
+                                == Some("safetensors")
+                            {
                                 println!("Found model at: {}", entry.path().display());
                                 return Ok(entry.path());
                             }
@@ -122,7 +132,10 @@ impl ModelLoader {
             shard_files.sort();
 
             if shard_files.is_empty() {
-                anyhow::bail!("No .safetensors files found in directory: {}", path.display());
+                anyhow::bail!(
+                    "No .safetensors files found in directory: {}",
+                    path.display()
+                );
             }
 
             println!("Found {} shard files", shard_files.len());
@@ -130,7 +143,9 @@ impl ModelLoader {
             // For large models (>10 shards), use lazy loading approach
             // Only load LoRA target layers to save memory
             if shard_files.len() > 10 {
-                println!("Large model detected - using memory-efficient loading (LoRA layers only)");
+                println!(
+                    "Large model detected - using memory-efficient loading (LoRA layers only)"
+                );
 
                 for (idx, shard_path) in shard_files.iter().enumerate() {
                     print!("  Scanning shard {}/{}...", idx + 1, shard_files.len());
@@ -140,8 +155,11 @@ impl ModelLoader {
                     println!(" {} LoRA targets loaded", loaded_count);
                 }
 
-                println!("Loaded {} LoRA target tensors from {} shards (memory-efficient mode)",
-                    weights.len(), shard_files.len());
+                println!(
+                    "Loaded {} LoRA target tensors from {} shards (memory-efficient mode)",
+                    weights.len(),
+                    shard_files.len()
+                );
             } else {
                 // Small model - load all weights
                 for (idx, shard_path) in shard_files.iter().enumerate() {
@@ -150,7 +168,11 @@ impl ModelLoader {
                     weights.extend(shard_weights);
                 }
 
-                println!("Loaded {} total tensors from {} shards", weights.len(), shard_files.len());
+                println!(
+                    "Loaded {} total tensors from {} shards",
+                    weights.len(),
+                    shard_files.len()
+                );
             }
         } else {
             // Single file
@@ -185,7 +207,10 @@ impl ModelLoader {
             let estimated_mb = (total_elements * element_bytes) / (1024 * 1024);
 
             if estimated_mb > 1000 {
-                eprintln!("Warning: Large tensor '{}' ({} MB) - may cause OOM", name, estimated_mb);
+                eprintln!(
+                    "Warning: Large tensor '{}' ({} MB) - may cause OOM",
+                    name, estimated_mb
+                );
             }
 
             // Determine dtype from safetensors dtype
@@ -195,50 +220,55 @@ impl ModelLoader {
                     let float_data: &[f32] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const f32,
-                            raw_data.len() / 4
+                            raw_data.len() / 4,
                         )
                     };
                     safe_array_from_slice_f32(float_data, &shape_i32, &name)?
-                },
+                }
                 safetensors::Dtype::F16 => {
                     // F16: Convert to F32 (2 bytes per element)
                     let f16_data: &[u16] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const u16,
-                            raw_data.len() / 2
+                            raw_data.len() / 2,
                         )
                     };
-                    let f32_data: Vec<f32> = f16_data.iter()
+                    let f32_data: Vec<f32> = f16_data
+                        .iter()
                         .map(|&bits| f16::from_bits(bits).to_f32())
                         .collect();
                     safe_array_from_slice_f32(&f32_data, &shape_i32, &name)?
-                },
+                }
                 safetensors::Dtype::BF16 => {
                     // BF16: Convert to F32 (2 bytes per element)
                     let bf16_data: &[u16] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const u16,
-                            raw_data.len() / 2
+                            raw_data.len() / 2,
                         )
                     };
-                    let f32_data: Vec<f32> = bf16_data.iter()
+                    let f32_data: Vec<f32> = bf16_data
+                        .iter()
                         .map(|&bits| bf16::from_bits(bits).to_f32())
                         .collect();
                     safe_array_from_slice_f32(&f32_data, &shape_i32, &name)?
-                },
+                }
                 safetensors::Dtype::I64 => {
                     let int_data: &[i64] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const i64,
-                            raw_data.len() / 8
+                            raw_data.len() / 8,
                         )
                     };
                     // Convert i64 to i32 for MLX
                     let i32_data: Vec<i32> = int_data.iter().map(|&x| x as i32).collect();
                     safe_array_from_slice_i32(&i32_data, &shape_i32, &name)?
-                },
+                }
                 _ => {
-                    println!("Warning: Unsupported dtype {:?} for tensor '{}', using zeros", dtype, name);
+                    println!(
+                        "Warning: Unsupported dtype {:?} for tensor '{}', using zeros",
+                        dtype, name
+                    );
                     mlx_rs::ops::zeros::<f32>(&shape_i32)?
                 }
             };
@@ -263,7 +293,7 @@ impl ModelLoader {
             let is_target = lora_targets.iter().any(|target| name.contains(target));
 
             if !is_target {
-                continue;  // Skip non-target tensors to save memory
+                continue; // Skip non-target tensors to save memory
             }
 
             let shape: Vec<usize> = tensor.shape().to_vec();
@@ -281,43 +311,48 @@ impl ModelLoader {
             let estimated_mb = (total_elements * element_bytes) / (1024 * 1024);
 
             if estimated_mb > 500 {
-                eprintln!("Warning: Large LoRA tensor '{}' ({} MB)", name, estimated_mb);
+                eprintln!(
+                    "Warning: Large LoRA tensor '{}' ({} MB)",
+                    name, estimated_mb
+                );
             }
             let mlx_array = match dtype {
                 safetensors::Dtype::F32 => {
                     let float_data: &[f32] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const f32,
-                            raw_data.len() / 4
+                            raw_data.len() / 4,
                         )
                     };
                     safe_array_from_slice_f32(float_data, &shape_i32, &name)?
-                },
+                }
                 safetensors::Dtype::F16 => {
                     let f16_data: &[u16] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const u16,
-                            raw_data.len() / 2
+                            raw_data.len() / 2,
                         )
                     };
-                    let f32_data: Vec<f32> = f16_data.iter()
+                    let f32_data: Vec<f32> = f16_data
+                        .iter()
                         .map(|&bits| f16::from_bits(bits).to_f32())
                         .collect();
                     safe_array_from_slice_f32(&f32_data, &shape_i32, &name)?
-                },
+                }
                 safetensors::Dtype::BF16 => {
                     let bf16_data: &[u16] = unsafe {
                         std::slice::from_raw_parts(
                             raw_data.as_ptr() as *const u16,
-                            raw_data.len() / 2
+                            raw_data.len() / 2,
                         )
                     };
-                    let f32_data: Vec<f32> = bf16_data.iter()
+                    let f32_data: Vec<f32> = bf16_data
+                        .iter()
                         .map(|&bits| bf16::from_bits(bits).to_f32())
                         .collect();
                     safe_array_from_slice_f32(&f32_data, &shape_i32, &name)?
-                },
-                _ => continue,  // Skip unsupported dtypes to save memory
+                }
+                _ => continue, // Skip unsupported dtypes to save memory
             };
 
             weights.insert(name.to_string(), mlx_array);
@@ -339,7 +374,11 @@ impl ModelLoader {
         Ok(HashMap::new())
     }
 
-    pub fn save_npz(&self, _weights: &HashMap<String, Array>, path: impl AsRef<Path>) -> anyhow::Result<()> {
+    pub fn save_npz(
+        &self,
+        _weights: &HashMap<String, Array>,
+        path: impl AsRef<Path>,
+    ) -> anyhow::Result<()> {
         let path = path.as_ref();
         println!("Warning: NPZ saving not yet implemented at {:?}", path);
         // NPZ saving would require ZIP writer + numpy array serialization
@@ -358,4 +397,3 @@ mod tests {
         assert_eq!(loader.model_path, "models/test-model");
     }
 }
-

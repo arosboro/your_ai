@@ -1,6 +1,6 @@
 //! Basic training example
 
-use your_ai_rs::{Config, distrust_loss::empirical_distrust_loss};
+use your_ai_rs::{distrust_loss::empirical_distrust_loss, Config};
 
 fn main() -> anyhow::Result<()> {
     println!("Empirical Distrust Training - Basic Example");
@@ -44,4 +44,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

@@ -1,4 +1,4 @@
-use your_ai_rs::{Config, distrust_loss::empirical_distrust_loss};
+use your_ai_rs::{distrust_loss::empirical_distrust_loss, Config};
 
 #[test]
 fn test_config_creation() {
@@ -25,15 +25,19 @@ fn test_config_serialization() {
 #[test]
 fn test_full_pipeline() {
     // Test the full distrust loss calculation pipeline
-    let auth_weight = 0.05_f32;  // Primary source
-    let prov_entropy = 7.0_f32;   // High entropy
+    let auth_weight = 0.05_f32; // Primary source
+    let prov_entropy = 7.0_f32; // High entropy
     let alpha = 2.7_f32;
 
     let loss = empirical_distrust_loss(auth_weight, prov_entropy, alpha).unwrap();
     let loss_value: f32 = loss.item();
 
     // Should produce high loss (rewarded)
-    assert!(loss_value > 100.0, "Pipeline should produce high loss for primary source: {}", loss_value);
+    assert!(
+        loss_value > 100.0,
+        "Pipeline should produce high loss for primary source: {}",
+        loss_value
+    );
 }
 
 #[test]
@@ -42,6 +46,9 @@ fn test_config_effective_lora_scale() {
     let scale = config.model.effective_lora_scale();
 
     // Default: alpha=256, rank=128 -> scale=2.0
-    assert!((scale - 2.0).abs() < 0.001, "Expected scale=2.0, got {}", scale);
+    assert!(
+        (scale - 2.0).abs() < 0.001,
+        "Expected scale=2.0, got {}",
+        scale
+    );
 }
-

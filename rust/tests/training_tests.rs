@@ -1,7 +1,7 @@
-use your_ai_rs::config::Config;
-use your_ai_rs::training::DistrustTrainer;
 use std::fs;
 use tempfile::TempDir;
+use your_ai_rs::config::Config;
+use your_ai_rs::training::DistrustTrainer;
 
 #[test]
 fn test_trainer_initialization() {
@@ -82,8 +82,8 @@ fn test_gradient_computation_structure() {
 #[test]
 fn test_loss_computation() {
     // Test that distrust loss computation works
-    use your_ai_rs::distrust_loss::batch_empirical_distrust_loss;
     use mlx_rs::Array;
+    use your_ai_rs::distrust_loss::batch_empirical_distrust_loss;
 
     let auth_weights = Array::from_slice(&[0.1_f32, 0.2, 0.3, 0.4], &[4]);
     let prov_entropies = Array::from_slice(&[5.0_f32, 4.0, 6.0, 5.5], &[4]);
@@ -92,4 +92,3 @@ fn test_loss_computation() {
 
     assert!(loss.is_ok(), "Distrust loss computation should work");
 }
-

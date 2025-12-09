@@ -1,13 +1,13 @@
 //! StreamingDataset for lazy-loading JSONL files
 
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use serde_json::Value;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use serde_json::Value;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 pub struct StreamingDataset {
     file_paths: Vec<PathBuf>,
@@ -38,7 +38,11 @@ impl StreamingDataset {
             anyhow::bail!("batch_size must be > 0");
         }
         if buffer_size < batch_size {
-            anyhow::bail!("buffer_size ({}) must be >= batch_size ({})", buffer_size, batch_size);
+            anyhow::bail!(
+                "buffer_size ({}) must be >= batch_size ({})",
+                buffer_size,
+                batch_size
+            );
         }
 
         let rng = if shuffle {
@@ -72,7 +76,7 @@ impl StreamingDataset {
                     if batch.is_empty() {
                         return None;
                     } else {
-                        return Some(batch);  // Return partial batch
+                        return Some(batch); // Return partial batch
                     }
                 }
             }
@@ -164,4 +168,3 @@ impl Drop for StreamingDataset {
         self.close();
     }
 }
-

@@ -3,10 +3,10 @@
 //! This module implements the dynamic calculation of authority_weight and
 //! provenance_entropy based on actual text analysis, rather than static values.
 
-use regex::Regex;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Result from citation-based scoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,23 +122,22 @@ static PRE_1970_SOURCE_MARKERS: Lazy<Vec<&str>> = Lazy::new(|| {
 /// Count explicit citations in text
 pub fn count_citations(text: &str) -> usize {
     let patterns = vec![
-        Regex::new(r"\[\d+\]").unwrap(),                           // [1], [2], etc.
-        Regex::new(r"\(\w+,?\s*\d{4}\)").unwrap(),                // (Author, 2020)
-        Regex::new(r"\(\w+\s+et\s+al\.?,?\s*\d{4}\)").unwrap(),   // (Smith et al., 2020)
-        Regex::new(r"\[\w+\s*\d{4}\]").unwrap(),                  // [Smith 2020]
+        Regex::new(r"\[\d+\]").unwrap(),           // [1], [2], etc.
+        Regex::new(r"\(\w+,?\s*\d{4}\)").unwrap(), // (Author, 2020)
+        Regex::new(r"\(\w+\s+et\s+al\.?,?\s*\d{4}\)").unwrap(), // (Smith et al., 2020)
+        Regex::new(r"\[\w+\s*\d{4}\]").unwrap(),   // [Smith 2020]
         Regex::new(r"(?:ibid|op\.?\s*cit|loc\.?\s*cit)").unwrap(), // Academic markers
-        Regex::new(r"\d+\.\s+\w+,.*?\d{4}").unwrap(),             // Bibliography style
+        Regex::new(r"\d+\.\s+\w+,.*?\d{4}").unwrap(), // Bibliography style
     ];
 
-    patterns.iter()
-        .map(|p| p.find_iter(text).count())
-        .sum()
+    patterns.iter().map(|p| p.find_iter(text).count()).sum()
 }
 
 /// Count occurrences of primary source indicators in text
 pub fn count_primary_source_markers(text: &str) -> usize {
     let text_lower = text.to_lowercase();
-    PRIMARY_SOURCE_MARKERS.iter()
+    PRIMARY_SOURCE_MARKERS
+        .iter()
         .map(|marker| {
             let pattern = format!(r"\b{}\b", regex::escape(marker));
             Regex::new(&pattern).unwrap().find_iter(&text_lower).count()
@@ -147,7 +146,10 @@ pub fn count_primary_source_markers(text: &str) -> usize {
 }
 
 /// Calculate institutional authority score
-pub fn calculate_institutional_score(text: &str, metadata: Option<&HashMap<String, String>>) -> f32 {
+pub fn calculate_institutional_score(
+    text: &str,
+    metadata: Option<&HashMap<String, String>>,
+) -> f32 {
     let text_lower = text.to_lowercase();
     let mut max_score = 0.0_f32;
 
@@ -178,13 +180,17 @@ pub fn calculate_institutional_score(text: &str, metadata: Option<&HashMap<Strin
 /// Count occurrences of consensus language in text
 pub fn count_consensus_phrases(text: &str) -> usize {
     let text_lower = text.to_lowercase();
-    CONSENSUS_PHRASES.iter()
+    CONSENSUS_PHRASES
+        .iter()
         .filter(|phrase| text_lower.contains(*phrase))
         .count()
 }
 
 /// Extract publication year from text or metadata
-pub fn extract_year_from_text(text: &str, metadata: Option<&HashMap<String, String>>) -> Option<i32> {
+pub fn extract_year_from_text(
+    text: &str,
+    metadata: Option<&HashMap<String, String>>,
+) -> Option<i32> {
     // First check metadata
     if let Some(meta) = metadata {
         for field in &["year", "date", "publication_date", "published"] {
@@ -196,7 +202,10 @@ pub fn extract_year_from_text(text: &str, metadata: Option<&HashMap<String, Stri
                     }
                 }
                 // Try to extract year from date string
-                if let Some(caps) = Regex::new(r"\b(1[0-9]{3}|20[0-2][0-9])\b").unwrap().captures(value) {
+                if let Some(caps) = Regex::new(r"\b(1[0-9]{3}|20[0-2][0-9])\b")
+                    .unwrap()
+                    .captures(value)
+                {
                     if let Ok(year) = caps[1].parse::<i32>() {
                         return Some(year);
                     }
@@ -226,7 +235,10 @@ pub fn extract_year_from_text(text: &str, metadata: Option<&HashMap<String, Stri
 }
 
 /// Classify text into source type categories for entropy calculation
-pub fn classify_source_types(text: &str, metadata: Option<&HashMap<String, String>>) -> HashMap<String, usize> {
+pub fn classify_source_types(
+    text: &str,
+    metadata: Option<&HashMap<String, String>>,
+) -> HashMap<String, usize> {
     let text_lower = text.to_lowercase();
     let mut counts = HashMap::new();
 
@@ -234,12 +246,21 @@ pub fn classify_source_types(text: &str, metadata: Option<&HashMap<String, Strin
     if Regex::new(r"\bpatent\b").unwrap().is_match(&text_lower) {
         *counts.entry("patent".to_string()).or_insert(0) += 1;
     }
-    if Regex::new(r"\b(us|ep|wo|de|gb|fr)\s*\d+").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(us|ep|wo|de|gb|fr)\s*\d+")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("patent".to_string()).or_insert(0) += 1;
     }
 
     // Lab/experimental indicators
-    let lab_patterns = ["lab notebook", "laboratory", "experiment", "measurement", "observation"];
+    let lab_patterns = [
+        "lab notebook",
+        "laboratory",
+        "experiment",
+        "measurement",
+        "observation",
+    ];
     for pattern in &lab_patterns {
         if text_lower.contains(pattern) {
             *counts.entry("lab_notebook".to_string()).or_insert(0) += 1;
@@ -247,47 +268,74 @@ pub fn classify_source_types(text: &str, metadata: Option<&HashMap<String, Strin
         }
     }
 
-    if Regex::new(r"\b(measured|observed|recorded|sampled)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(measured|observed|recorded|sampled)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("measurement".to_string()).or_insert(0) += 1;
     }
 
     // Archive/historical indicators
-    if Regex::new(r"\b(archive|archival|manuscript|historical)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(archive|archival|manuscript|historical)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("archive".to_string()).or_insert(0) += 1;
     }
 
     // Oral history/correspondence
-    if Regex::new(r"\b(interview|oral history|correspondence|letter|diary)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(interview|oral history|correspondence|letter|diary)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("oral_history".to_string()).or_insert(0) += 1;
     }
 
     // Academic paper indicators
-    if Regex::new(r"\b(abstract|introduction|methodology|results|conclusion|references)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(abstract|introduction|methodology|results|conclusion|references)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("academic_paper".to_string()).or_insert(0) += 1;
     }
 
     // Textbook indicators
-    if Regex::new(r"\b(textbook|chapter|exercise|definition|theorem)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(textbook|chapter|exercise|definition|theorem)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("textbook".to_string()).or_insert(0) += 1;
     }
 
     // News indicators
-    if Regex::new(r"\b(reported|journalist|news|press release|announcement)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(reported|journalist|news|press release|announcement)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("news".to_string()).or_insert(0) += 1;
     }
 
     // Wiki indicators
-    if Regex::new(r"\b(wikipedia|wiki|encyclopedia)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(wikipedia|wiki|encyclopedia)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("wiki".to_string()).or_insert(0) += 1;
     }
 
     // Government indicators
-    if Regex::new(r"\b(government|official|regulation|policy|agency)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(government|official|regulation|policy|agency)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("government".to_string()).or_insert(0) += 1;
     }
 
     // Blog indicators
-    if Regex::new(r"\b(blog|posted|comment|social media)\b").unwrap().is_match(&text_lower) {
+    if Regex::new(r"\b(blog|posted|comment|social media)\b")
+        .unwrap()
+        .is_match(&text_lower)
+    {
         *counts.entry("blog".to_string()).or_insert(0) += 1;
     }
 
@@ -301,7 +349,8 @@ pub fn classify_source_types(text: &str, metadata: Option<&HashMap<String, Strin
                 *counts.entry("news".to_string()).or_insert(0) += 1;
             } else if source_type_lower.contains("wiki") {
                 *counts.entry("wiki".to_string()).or_insert(0) += 2;
-            } else if source_type_lower.contains("academic") || source_type_lower.contains("paper") {
+            } else if source_type_lower.contains("academic") || source_type_lower.contains("paper")
+            {
                 *counts.entry("academic_paper".to_string()).or_insert(0) += 1;
             } else if source_type_lower.contains("book") {
                 *counts.entry("archive".to_string()).or_insert(0) += 1;
@@ -363,11 +412,11 @@ pub fn calculate_authority_weight(
     let year = extract_year_from_text(text, metadata);
     let age_adjustment = if let Some(y) = year {
         if y < 1970 {
-            -0.15  // Pre-1970 = lower authority (more trustworthy per Brian)
+            -0.15 // Pre-1970 = lower authority (more trustworthy per Brian)
         } else if y < 1995 {
             0.0
         } else {
-            0.15  // Post-1995 = higher authority (less trustworthy)
+            0.15 // Post-1995 = higher authority (less trustworthy)
         }
     } else {
         0.0
@@ -380,7 +429,11 @@ pub fn calculate_authority_weight(
     breakdown.insert("primary_adjustment".to_string(), primary_adjustment);
 
     // Calculate final authority weight
-    let raw_weight = citation_score + institutional_score + consensus_score + age_adjustment + primary_adjustment;
+    let raw_weight = citation_score
+        + institutional_score
+        + consensus_score
+        + age_adjustment
+        + primary_adjustment;
     let authority_weight = (raw_weight + 0.3).max(0.0).min(0.99);
 
     (authority_weight, breakdown)
@@ -436,8 +489,13 @@ pub fn calculate_provenance_entropy(
     breakdown.insert("consensus_penalty".to_string(), consensus_penalty);
 
     // Calculate final entropy
-    let provenance_entropy = (base_entropy + distribution_entropy + primary_bonus
-        + variety_bonus + institutional_penalty + consensus_penalty).max(0.0);
+    let provenance_entropy = (base_entropy
+        + distribution_entropy
+        + primary_bonus
+        + variety_bonus
+        + institutional_penalty
+        + consensus_penalty)
+        .max(0.0);
 
     (provenance_entropy, breakdown)
 }
@@ -448,7 +506,8 @@ pub fn score_document(
     metadata: Option<&HashMap<String, String>>,
     known_citation_count: Option<usize>,
 ) -> ScoringResult {
-    let (auth_weight, auth_breakdown) = calculate_authority_weight(text, metadata, known_citation_count);
+    let (auth_weight, auth_breakdown) =
+        calculate_authority_weight(text, metadata, known_citation_count);
     let (prov_entropy, _prov_breakdown) = calculate_provenance_entropy(text, metadata);
 
     let source_counts = classify_source_types(text, metadata);
@@ -461,7 +520,10 @@ pub fn score_document(
     ScoringResult {
         authority_weight: auth_weight,
         provenance_entropy: prov_entropy,
-        citation_count: auth_breakdown.get("citation_score").map(|_| count_citations(text)).unwrap_or(0),
+        citation_count: auth_breakdown
+            .get("citation_score")
+            .map(|_| count_citations(text))
+            .unwrap_or(0),
         primary_source_count: count_primary_source_markers(text),
         institutional_score: *auth_breakdown.get("institutional_score").unwrap_or(&0.0),
         consensus_score: *auth_breakdown.get("consensus_score").unwrap_or(&0.0),
@@ -504,4 +566,3 @@ mod tests {
         assert_eq!(year, Some(1923));
     }
 }
-

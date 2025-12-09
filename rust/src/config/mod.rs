@@ -1,17 +1,17 @@
-pub mod model;
-pub mod training;
 pub mod distrust;
+pub mod model;
 pub mod paths;
 pub mod performance;
+pub mod training;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub use model::ModelConfig;
-pub use training::TrainingConfig;
 pub use distrust::DistrustLossConfig;
+pub use model::ModelConfig;
 pub use paths::PathConfig;
 pub use performance::PerformanceConfig;
+pub use training::TrainingConfig;
 
 /// Main configuration for Empirical Distrust Training
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,4 +65,3 @@ impl Config {
         Ok(serde_json::from_str(&json)?)
     }
 }
-

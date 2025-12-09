@@ -1,10 +1,6 @@
 use your_ai_rs::citation_scorer::{
-    count_citations,
-    count_primary_source_markers,
-    calculate_authority_weight,
-    calculate_provenance_entropy,
-    score_document,
-    extract_year_from_text,
+    calculate_authority_weight, calculate_provenance_entropy, count_citations,
+    count_primary_source_markers, extract_year_from_text, score_document,
 };
 
 #[test]
@@ -26,9 +22,15 @@ fn test_primary_source_markers() {
 
 #[test]
 fn test_extract_year() {
-    assert_eq!(extract_year_from_text("Published in 1923", None), Some(1923));
+    assert_eq!(
+        extract_year_from_text("Published in 1923", None),
+        Some(1923)
+    );
     assert_eq!(extract_year_from_text("Copyright © 2020", None), Some(2020));
-    assert_eq!(extract_year_from_text("The year 1950 was significant", None), Some(1950));
+    assert_eq!(
+        extract_year_from_text("The year 1950 was significant", None),
+        Some(1950)
+    );
 }
 
 #[test]
@@ -85,7 +87,11 @@ fn test_pre_1970_gets_low_authority() {
     let (auth_weight, _) = calculate_authority_weight(old_text, None, None);
 
     // Pre-1970 should get negative age adjustment (lower authority)
-    assert!(auth_weight < 0.5, "Pre-1970 should have low authority: {}", auth_weight);
+    assert!(
+        auth_weight < 0.5,
+        "Pre-1970 should have low authority: {}",
+        auth_weight
+    );
 }
 
 #[test]
@@ -94,6 +100,8 @@ fn test_institutional_markers() {
     let (auth_weight, breakdown) = calculate_authority_weight(who_text, None, None);
 
     let institutional_score = breakdown.get("institutional_score").unwrap();
-    assert!(*institutional_score > 0.0, "Should detect institutional marker");
+    assert!(
+        *institutional_score > 0.0,
+        "Should detect institutional marker"
+    );
 }
-

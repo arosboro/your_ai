@@ -54,7 +54,8 @@ pub fn apply_lora_to_model(
                         &[config.rank as i32, in_features as i32],
                         None,
                     )?;
-                    let lora_b = mlx_rs::ops::zeros::<f32>(&[out_features as i32, config.rank as i32])?;
+                    let lora_b =
+                        mlx_rs::ops::zeros::<f32>(&[out_features as i32, config.rank as i32])?;
 
                     // Add LoRA parameters to model
                     model_weights.insert(format!("{}.lora_a", key), lora_a);
@@ -66,8 +67,13 @@ pub fn apply_lora_to_model(
         }
     }
 
-    println!("Applied LoRA to {} layers with rank={}, alpha={}, scale={:.4}",
-        lora_params_added, config.rank, config.alpha, config.scale());
+    println!(
+        "Applied LoRA to {} layers with rank={}, alpha={}, scale={:.4}",
+        lora_params_added,
+        config.rank,
+        config.alpha,
+        config.scale()
+    );
 
     Ok(())
 }
@@ -78,8 +84,8 @@ pub fn apply_lora_to_model(
 /// output = W_base @ x + (B @ A) @ x * scale
 pub struct LoraLayer {
     base_weight: Array,
-    lora_a: Array,  // rank x in_features
-    lora_b: Array,  // out_features x rank
+    lora_a: Array, // rank x in_features
+    lora_b: Array, // out_features x rank
     scale: f32,
 }
 
@@ -95,12 +101,8 @@ impl LoraLayer {
         // A: Gaussian-like initialization with uniform distribution scaled appropriately
         // Using uniform(-k, k) where k = 1/sqrt(rank) for stability
         let k = 1.0 / (rank as f32).sqrt();
-        let lora_a = mlx_rs::random::uniform::<_, f32>(
-            -k,
-            k,
-            &[rank as i32, in_features as i32],
-            None
-        )?;
+        let lora_a =
+            mlx_rs::random::uniform::<_, f32>(-k, k, &[rank as i32, in_features as i32], None)?;
 
         // B: Zero initialization (so initially LoRA has no effect)
         let lora_b = mlx_rs::ops::zeros::<f32>(&[out_features as i32, rank as i32])?;
@@ -127,4 +129,3 @@ impl LoraLayer {
         Ok(result)
     }
 }
-

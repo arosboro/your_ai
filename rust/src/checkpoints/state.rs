@@ -1,8 +1,8 @@
 //! Checkpoint state container
 
+use mlx_rs::Array;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use mlx_rs::Array;
 // use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
 use crate::config::Config;
 
@@ -51,4 +51,3 @@ impl Checkpoint {
         Ok(())
     }
 }
-

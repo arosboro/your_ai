@@ -16,7 +16,8 @@ impl BatchBuffer {
     }
 
     pub fn acquire(&mut self, capacity: usize) -> Vec<u8> {
-        self.buffers.pop_front()
+        self.buffers
+            .pop_front()
             .unwrap_or_else(|| Vec::with_capacity(capacity))
     }
 
@@ -27,4 +28,3 @@ impl BatchBuffer {
         }
     }
 }
-

@@ -53,6 +53,8 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: macos-14  # Apple Silicon for MLX support
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.5"
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +97,8 @@ jobs:
   examples:
     name: Build Examples
     runs-on: macos-14  # Apple Silicon for MLX support
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.5"
     needs: [lint, build-and-test]
     steps:
       - uses: actions/checkout@v4

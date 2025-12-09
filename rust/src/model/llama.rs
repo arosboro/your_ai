@@ -1,9 +1,9 @@
-use mlx_rs::Array;
-use mlx_rs::module::Module;
-use mlx_rs::builder::Builder;
-use mlx_rs::nn::{Linear, RmsNorm, Embedding, Rope, RopeBuilder};
-use mlx_rs::error::Exception;
 use mlx_macros::ModuleParameters as DeriveModuleParameters;
+use mlx_rs::builder::Builder;
+use mlx_rs::error::Exception;
+use mlx_rs::module::Module;
+use mlx_rs::nn::{Embedding, Linear, RmsNorm, Rope, RopeBuilder};
+use mlx_rs::Array;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -62,7 +62,8 @@ impl LlamaConfig {
         // RMS norms (2 per layer: pre-attention and pre-mlp)
         let norm_params_per_layer = (2 * self.hidden_size) as u64;
 
-        let params_per_layer = attention_params_per_layer + mlp_params_per_layer + norm_params_per_layer;
+        let params_per_layer =
+            attention_params_per_layer + mlp_params_per_layer + norm_params_per_layer;
         let total_layer_params = params_per_layer * self.num_hidden_layers as u64;
 
         // Final layer norm + output projection
@@ -87,7 +88,11 @@ impl LlamaConfig {
     }
 
     /// Check if model is safe to load given available memory
-    pub fn check_memory_safety(&self, available_gb: f64, safety_margin_gb: f64) -> Result<(), String> {
+    pub fn check_memory_safety(
+        &self,
+        available_gb: f64,
+        safety_margin_gb: f64,
+    ) -> Result<(), String> {
         let required_gb = self.estimate_memory_gb();
         let safe_limit = available_gb - safety_margin_gb;
 
@@ -111,9 +116,11 @@ impl LlamaConfig {
         println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("Model Memory Estimation");
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        println!("  Parameters:        {:.2}B ({} total)",
+        println!(
+            "  Parameters:        {:.2}B ({} total)",
             num_params as f64 / 1_000_000_000.0,
-            num_params);
+            num_params
+        );
         println!("  Estimated memory:  {:.1} GB", required_gb);
         println!("  System memory:     {:.1} GB", system_memory_gb);
         println!("  Usage:             {:.1}%", percentage);
@@ -153,29 +160,15 @@ impl LlamaAttention {
         let head_dim = config.hidden_size / config.num_attention_heads;
         let num_kv_groups = config.num_attention_heads / config.num_key_value_heads;
 
-        let q_proj = Linear::new(
-            config.hidden_size,
-            config.num_attention_heads * head_dim,
-        )?;
+        let q_proj = Linear::new(config.hidden_size, config.num_attention_heads * head_dim)?;
 
-        let k_proj = Linear::new(
-            config.hidden_size,
-            config.num_key_value_heads * head_dim,
-        )?;
+        let k_proj = Linear::new(config.hidden_size, config.num_key_value_heads * head_dim)?;
 
-        let v_proj = Linear::new(
-            config.hidden_size,
-            config.num_key_value_heads * head_dim,
-        )?;
+        let v_proj = Linear::new(config.hidden_size, config.num_key_value_heads * head_dim)?;
 
-        let o_proj = Linear::new(
-            config.num_attention_heads * head_dim,
-            config.hidden_size,
-        )?;
+        let o_proj = Linear::new(config.num_attention_heads * head_dim, config.hidden_size)?;
 
-        let rope = RopeBuilder::new(head_dim)
-            .base(config.rope_theta)
-            .build()?;
+        let rope = RopeBuilder::new(head_dim).base(config.rope_theta).build()?;
 
         Ok(Self {
             config: config.clone(),
@@ -199,9 +192,24 @@ impl LlamaAttention {
 
         // Reshape for multi-head attention
         // Q: [B, L, num_heads * head_dim] -> [B, L, num_heads, head_dim]
-        q = q.reshape(&[batch_size, seq_len, self.config.num_attention_heads, self.head_dim])?;
-        k = k.reshape(&[batch_size, seq_len, self.config.num_key_value_heads, self.head_dim])?;
-        v = v.reshape(&[batch_size, seq_len, self.config.num_key_value_heads, self.head_dim])?;
+        q = q.reshape(&[
+            batch_size,
+            seq_len,
+            self.config.num_attention_heads,
+            self.head_dim,
+        ])?;
+        k = k.reshape(&[
+            batch_size,
+            seq_len,
+            self.config.num_key_value_heads,
+            self.head_dim,
+        ])?;
+        v = v.reshape(&[
+            batch_size,
+            seq_len,
+            self.config.num_key_value_heads,
+            self.head_dim,
+        ])?;
 
         // Apply RoPE to Q and K
         q = self.rope.forward(&q)?;
@@ -264,7 +272,9 @@ impl LlamaAttention {
         for _ in 0..n_rep {
             repeated.push(x.clone());
         }
-        let x = mlx_rs::ops::concatenate(&repeated.iter().map(|a| a.as_ref()).collect::<Vec<&Array>>())?;
+        let x = mlx_rs::ops::concatenate(
+            &repeated.iter().map(|a| a.as_ref()).collect::<Vec<&Array>>(),
+        )?;
 
         // Reshape to [B, num_kv_heads * n_rep, L, head_dim]
         x.reshape(&[b, num_kv_heads * n_rep, seq_len, head_dim])
@@ -428,10 +438,7 @@ impl LlamaForCausalLM {
         let model = LlamaModel::new(config.clone())?;
         let lm_head = Linear::new(config.hidden_size, config.vocab_size)?;
 
-        Ok(Self {
-            model,
-            lm_head,
-        })
+        Ok(Self { model, lm_head })
     }
 
     pub fn forward(&mut self, input_ids: &Array) -> Result<Array, Exception> {
@@ -484,11 +491,16 @@ pub fn load_weights_into_model(
     let loaded_count = weights.len();
 
     if !missing_keys.is_empty() && missing_keys.len() < 10 {
-        println!("Missing keys (first 10): {:?}", &missing_keys[..missing_keys.len().min(10)]);
+        println!(
+            "Missing keys (first 10): {:?}",
+            &missing_keys[..missing_keys.len().min(10)]
+        );
     }
 
     if loaded_count == 0 {
-        anyhow::bail!("Failed to load any weights - parameter names may not match safetensors keys");
+        anyhow::bail!(
+            "Failed to load any weights - parameter names may not match safetensors keys"
+        );
     }
 
     Ok(())
@@ -509,4 +521,3 @@ pub fn load_model_with_weights(
 
     Ok(model)
 }
-

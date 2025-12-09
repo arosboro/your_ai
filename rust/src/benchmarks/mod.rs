@@ -1,10 +1,9 @@
-pub mod config;
 pub mod adapters;
+pub mod config;
 pub mod optimizer;
 pub mod profile;
 
-pub use config::{BenchmarkConfig, get_benchmark_config, BENCHMARK_REGISTRY};
-pub use adapters::{BenchmarkAdapter, get_adapter};
+pub use adapters::{get_adapter, BenchmarkAdapter};
+pub use config::{get_benchmark_config, BenchmarkConfig, BENCHMARK_REGISTRY};
 pub use optimizer::{EmpiricalOptimizer, OptimizationResult};
 pub use profile::HardwareProfile;
-

@@ -1,9 +1,9 @@
 //! Checkpoint manager for save/load/validation
 
-use std::path::{Path, PathBuf};
-use std::fs;
-use sha2::{Sha256, Digest};
 use super::state::Checkpoint;
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub struct CheckpointManager {
     checkpoint_dir: PathBuf,
@@ -32,9 +32,11 @@ impl CheckpointManager {
 
     pub async fn save(&self, checkpoint: &Checkpoint, is_final: bool) -> anyhow::Result<String> {
         let checkpoint_path = if is_final {
-            self.checkpoint_dir.join(format!("checkpoint-{}-final", checkpoint.step))
+            self.checkpoint_dir
+                .join(format!("checkpoint-{}-final", checkpoint.step))
         } else {
-            self.checkpoint_dir.join(format!("checkpoint-{}", checkpoint.step))
+            self.checkpoint_dir
+                .join(format!("checkpoint-{}", checkpoint.step))
         };
 
         fs::create_dir_all(&checkpoint_path)?;
@@ -51,7 +53,10 @@ impl CheckpointManager {
 
         // Compute checksums
         let mut checksums = String::new();
-        checksums.push_str(&format!("{}  metadata.json\n", self.compute_checksum(&metadata_path)?));
+        checksums.push_str(&format!(
+            "{}  metadata.json\n",
+            self.compute_checksum(&metadata_path)?
+        ));
 
         let checksum_path = checkpoint_path.join("checksum.txt");
         fs::write(&checksum_path, checksums)?;
@@ -67,7 +72,9 @@ impl CheckpointManager {
         let checkpoint_path = self.checkpoint_dir.join(format!("checkpoint-{}", step));
 
         if !checkpoint_path.exists() {
-            let final_path = self.checkpoint_dir.join(format!("checkpoint-{}-final", step));
+            let final_path = self
+                .checkpoint_dir
+                .join(format!("checkpoint-{}-final", step));
             if final_path.exists() {
                 return self.load_from_path(&final_path);
             }
@@ -79,13 +86,14 @@ impl CheckpointManager {
 
     fn load_from_path(&self, checkpoint_path: &Path) -> anyhow::Result<Checkpoint> {
         let metadata_path = checkpoint_path.join("metadata.json");
-        let metadata: serde_json::Value = serde_json::from_str(&fs::read_to_string(&metadata_path)?)?;
+        let metadata: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&metadata_path)?)?;
 
         let config = serde_json::from_value(metadata["config"].clone())?;
 
         let checkpoint = Checkpoint {
             step: metadata["step"].as_u64().unwrap_or(0) as usize,
-            model_state: std::collections::HashMap::new(),  // Would load from model.npz
+            model_state: std::collections::HashMap::new(), // Would load from model.npz
             optimizer_state: std::collections::HashMap::new(),
             loss_history: serde_json::from_value(metadata["loss_history"].clone())?,
             config,
@@ -158,4 +166,3 @@ impl CheckpointManager {
         Ok(format!("{:x}", hasher.finalize()))
     }
 }
-

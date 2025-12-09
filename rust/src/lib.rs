@@ -18,22 +18,21 @@
 //! - `data`: Streaming dataset loading
 //! - `checkpoints`: Checkpoint management
 
-pub mod distrust_loss;
-pub mod citation_scorer;
-pub mod metrics;
-pub mod config;
-pub mod hardware;
-pub mod training;
-pub mod checkpoints;
-pub mod data;
 pub mod benchmarks;
+pub mod checkpoints;
+pub mod citation_scorer;
+pub mod config;
+pub mod data;
+pub mod distrust_loss;
+pub mod hardware;
+pub mod metrics;
 pub mod model;
 pub mod nn;
+pub mod training;
 pub mod utils;
 
-pub use distrust_loss::{empirical_distrust_loss, batch_empirical_distrust_loss};
 pub use config::Config;
+pub use distrust_loss::{batch_empirical_distrust_loss, empirical_distrust_loss};
 
 /// Library errors
 pub use anyhow::{Error, Result};
-

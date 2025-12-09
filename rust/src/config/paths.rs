@@ -32,4 +32,3 @@ impl PathConfig {
         PathBuf::from(&self.data_dir).join("val.jsonl")
     }
 }
-

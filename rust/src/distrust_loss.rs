@@ -68,7 +68,9 @@ pub fn empirical_distrust_loss(
     }
 
     if provenance_entropy < 0.0 {
-        return Err(DistrustLossError::InvalidProvenanceEntropy(provenance_entropy));
+        return Err(DistrustLossError::InvalidProvenanceEntropy(
+            provenance_entropy,
+        ));
     }
 
     if !(2.3..=3.0).contains(&alpha) {
@@ -128,7 +130,10 @@ pub fn batch_empirical_distrust_loss(
         "mean" => per_sample_loss.mean(None)?,
         "sum" => per_sample_loss.sum(None)?,
         "none" => per_sample_loss,
-        _ => anyhow::bail!("Unknown reduction: {}. Use 'mean', 'sum', or 'none'.", reduction),
+        _ => anyhow::bail!(
+            "Unknown reduction: {}. Use 'mean', 'sum', or 'none'.",
+            reduction
+        ),
     };
 
     Ok(result)
@@ -205,7 +210,10 @@ mod tests {
         let value: f32 = result.item();
 
         // Should be relatively high (positive contribution)
-        assert!(value > 100.0, "Primary source should have high loss contribution");
+        assert!(
+            value > 100.0,
+            "Primary source should have high loss contribution"
+        );
     }
 
     #[test]
@@ -215,17 +223,28 @@ mod tests {
         let value: f32 = result.item();
 
         // Should be relatively low
-        assert!(value < 50.0, "Modern consensus should have low loss contribution");
+        assert!(
+            value < 50.0,
+            "Modern consensus should have low loss contribution"
+        );
     }
 
     #[test]
     fn test_reward_multiplier() {
         // Verify ~30x multiplier between primary and modern sources
-        let primary = empirical_distrust_loss(0.05, 7.5, 2.7).unwrap().item::<f32>();
-        let modern = empirical_distrust_loss(0.90, 1.0, 2.7).unwrap().item::<f32>();
+        let primary = empirical_distrust_loss(0.05, 7.5, 2.7)
+            .unwrap()
+            .item::<f32>();
+        let modern = empirical_distrust_loss(0.90, 1.0, 2.7)
+            .unwrap()
+            .item::<f32>();
 
         let ratio = primary / modern;
-        assert!(ratio > 20.0, "Should have >20x multiplier, got {:.1}x", ratio);
+        assert!(
+            ratio > 20.0,
+            "Should have >20x multiplier, got {:.1}x",
+            ratio
+        );
     }
 
     #[test]
@@ -246,4 +265,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

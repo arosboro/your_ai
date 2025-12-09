@@ -1,7 +1,6 @@
-pub mod trainer;
 pub mod lora;
 pub mod scheduler;
+pub mod trainer;
 
-pub use trainer::DistrustTrainer;
 pub use scheduler::{LearningRateScheduler, WarmupCosineSchedule};
-
+pub use trainer::DistrustTrainer;

@@ -1,13 +1,13 @@
 //! CLI command implementations
 
-use your_ai_rs::config::Config;
-use your_ai_rs::hardware::{detect_hardware, MODEL_REQUIREMENTS};
-use your_ai_rs::training::DistrustTrainer;
-use your_ai_rs::benchmarks::{EmpiricalOptimizer, HardwareProfile};
 use anyhow::Result;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
+use your_ai_rs::benchmarks::{EmpiricalOptimizer, HardwareProfile};
+use your_ai_rs::config::Config;
+use your_ai_rs::hardware::{detect_hardware, MODEL_REQUIREMENTS};
+use your_ai_rs::training::DistrustTrainer;
 
 /// Logger that writes benchmark events to disk for crash analysis
 struct BenchmarkLogger {
@@ -16,17 +16,12 @@ struct BenchmarkLogger {
 
 impl BenchmarkLogger {
     fn new(path: &str) -> Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(Self { file })
     }
 
     fn log(&mut self, event: serde_json::Value) -> Result<()> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_secs_f64();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
 
         let mut log_entry = event;
         log_entry["timestamp"] = serde_json::json!(timestamp);
@@ -82,9 +77,17 @@ pub fn recommend(memory: Option<usize>) -> Result<()> {
         let recommended = reqs["recommended"].as_bool().unwrap_or(false);
 
         if training_gb <= budget {
-            let status = if recommended { "✅ RECOMMENDED" } else { "⚠️  OK" };
+            let status = if recommended {
+                "✅ RECOMMENDED"
+            } else {
+                "⚠️  OK"
+            };
             println!("  {} - {}", status, model_name);
-            println!("    Training: {}GB | Headroom: {}GB", training_gb, budget - training_gb);
+            println!(
+                "    Training: {}GB | Headroom: {}GB",
+                training_gb,
+                budget - training_gb
+            );
         }
     }
 
@@ -94,13 +97,17 @@ pub fn recommend(memory: Option<usize>) -> Result<()> {
 
 /// Run benchmark for a single model (designed to run in subprocess)
 pub fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
-    use your_ai_rs::config::model::AVAILABLE_MODELS;
     use serde_json::json;
+    use your_ai_rs::config::model::AVAILABLE_MODELS;
 
-    let config = AVAILABLE_MODELS.get(preset)
+    let config = AVAILABLE_MODELS
+        .get(preset)
         .ok_or_else(|| anyhow::anyhow!("Unknown preset: {}", preset))?;
 
-    let model_name = config.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let model_name = config
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let params = config.get("params").and_then(|v| v.as_str()).unwrap_or("?");
 
     // Resolve model path
@@ -129,9 +136,8 @@ pub fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
         None
     };
 
-    let model_path = resolve_model_path(model_name).ok_or_else(|| {
-        anyhow::anyhow!("Model not found: {}", model_name)
-    })?;
+    let model_path = resolve_model_path(model_name)
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_name))?;
 
     // Run quick validation
     match EmpiricalOptimizer::quick_validate(&model_path, max_memory_gb) {
@@ -224,7 +230,10 @@ pub fn benchmark(
         if force {
             println!("Safety Threshold: DISABLED (--force mode)");
         } else {
-            println!("Safety Threshold: {:.1} GB (benchmark will stop if available drops below this)", MIN_AVAILABLE_MEMORY_GB);
+            println!(
+                "Safety Threshold: {:.1} GB (benchmark will stop if available drops below this)",
+                MIN_AVAILABLE_MEMORY_GB
+            );
         }
     }
     println!("Benchmark log: {}", log_path);
@@ -267,7 +276,10 @@ pub fn benchmark(
     let mut last_passing_preset = None;
 
     for (i, (preset, config)) in model_list.iter().enumerate() {
-        let model_name = config.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let model_name = config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let params = config.get("params").and_then(|v| v.as_str()).unwrap_or("?");
 
         print!(
@@ -292,13 +304,16 @@ pub fn benchmark(
         // Check available memory before spawning subprocess (unless --force is used)
         if !force {
             if let Ok(mem_info) = your_ai_rs::utils::MemoryInfo::current() {
-                let available_gb = mem_info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                let available_gb =
+                    mem_info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
 
                 // Hard stop: if available memory is critically low
                 if available_gb < MIN_AVAILABLE_MEMORY_GB {
                     println!("⚠️  SAFETY STOP");
-                    println!("    Available memory ({:.1} GB) below minimum threshold ({:.1} GB)",
-                             available_gb, MIN_AVAILABLE_MEMORY_GB);
+                    println!(
+                        "    Available memory ({:.1} GB) below minimum threshold ({:.1} GB)",
+                        available_gb, MIN_AVAILABLE_MEMORY_GB
+                    );
                     println!("    Stopping benchmark to prevent system instability.");
 
                     // Log safety stop
@@ -330,7 +345,13 @@ pub fn benchmark(
         }
 
         let subprocess_result = std::process::Command::new(&exe_path)
-            .args(&["benchmark", "--single-model", preset, "--max-memory", &max_memory_gb.to_string()])
+            .args(&[
+                "benchmark",
+                "--single-model",
+                preset,
+                "--max-memory",
+                &max_memory_gb.to_string(),
+            ])
             .output();
 
         match subprocess_result {
@@ -352,9 +373,18 @@ pub fn benchmark(
 
                 if let Some(json_str) = json_line {
                     if let Ok(result) = serde_json::from_str::<serde_json::Value>(json_str) {
-                        let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                        let peak_memory_gb = result.get("peak_memory_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                        let error = result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let success = result
+                            .get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let peak_memory_gb = result
+                            .get("peak_memory_gb")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let error = result
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
 
                         if success {
                             println!("✓ Pass ({:.1} GB peak)", peak_memory_gb);
@@ -419,7 +449,9 @@ pub fn benchmark(
                         params: params.to_string(),
                         success: false,
                         peak_memory_gb: 0.0,
-                        error: Some("No BENCHMARK_RESULT marker found in subprocess output".to_string()),
+                        error: Some(
+                            "No BENCHMARK_RESULT marker found in subprocess output".to_string(),
+                        ),
                         optimal_config: None,
                     });
                 }
@@ -428,7 +460,10 @@ pub fn benchmark(
                 // Subprocess failed
                 let stderr_str = String::from_utf8_lossy(&output.stderr);
                 let stdout_str = String::from_utf8_lossy(&output.stdout);
-                println!("✗ Subprocess failed: {}", stderr_str.lines().next().unwrap_or("Unknown error"));
+                println!(
+                    "✗ Subprocess failed: {}",
+                    stderr_str.lines().next().unwrap_or("Unknown error")
+                );
 
                 // Log subprocess failure
                 if let Some(ref mut log) = logger {
@@ -495,7 +530,8 @@ pub fn benchmark(
     if let Some(ref recommended) = last_passing_preset {
         println!("Recommended: {} (largest model that fits)", recommended);
         if passing_models.len() > 1 {
-            let alternatives: Vec<_> = passing_models.iter()
+            let alternatives: Vec<_> = passing_models
+                .iter()
                 .filter(|m| !m.starts_with(recommended.as_str()))
                 .cloned()
                 .collect();
@@ -600,7 +636,7 @@ pub fn train(
     }
     if let Some(rank) = lora_rank {
         config.model.lora_rank = rank;
-        config.model.lora_alpha = rank * 2;  // Maintain scale=2.0
+        config.model.lora_alpha = rank * 2; // Maintain scale=2.0
     }
     config.training.max_steps = max_steps;
 
@@ -645,9 +681,10 @@ pub fn validate(model: String, benchmarks: Option<String>) -> Result<()> {
     let benchmarks: Vec<&str> = benchmark_list.split(',').collect();
 
     println!("Running benchmarks: {:?}", benchmarks);
-    println!("\nNote: Full benchmark implementation requires integration with HuggingFace datasets.");
+    println!(
+        "\nNote: Full benchmark implementation requires integration with HuggingFace datasets."
+    );
     println!("This is a placeholder - implement full evaluation in production.");
 
     Ok(())
 }
-

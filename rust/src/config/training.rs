@@ -21,8 +21,8 @@ pub struct TrainingConfig {
     pub use_fp16: bool,
     pub grad_checkpoint: bool,
     pub thermal_throttle: f32,
-    pub alpha: f32,  // Distrust loss alpha parameter
-    pub lambda_weight: f32,  // Weight for distrust loss term
+    pub alpha: f32,         // Distrust loss alpha parameter
+    pub lambda_weight: f32, // Weight for distrust loss term
 }
 
 impl Default for TrainingConfig {
@@ -46,9 +46,8 @@ impl Default for TrainingConfig {
             use_fp16: false,
             grad_checkpoint: true,
             thermal_throttle: 0.0,
-            alpha: 2.7,  // Brian Roemmele's recommended alpha
-            lambda_weight: 1.0,  // Balance between CE and distrust loss
+            alpha: 2.7,         // Brian Roemmele's recommended alpha
+            lambda_weight: 1.0, // Balance between CE and distrust loss
         }
     }
 }
-

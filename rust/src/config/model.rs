@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Model configuration
@@ -39,69 +39,109 @@ impl Default for ModelConfig {
 
 impl ModelConfig {
     pub fn effective_lora_scale(&self) -> f32 {
-        self.lora_scale.unwrap_or_else(|| self.lora_alpha as f32 / self.lora_rank as f32)
+        self.lora_scale
+            .unwrap_or_else(|| self.lora_alpha as f32 / self.lora_rank as f32)
     }
 
     pub fn from_preset(preset: &str) -> anyhow::Result<Self> {
-        let models = AVAILABLE_MODELS.get(preset)
-            .ok_or_else(|| anyhow::anyhow!("Unknown preset: {}. Available: {:?}", preset, AVAILABLE_MODELS.keys().collect::<Vec<_>>()))?;
+        let models = AVAILABLE_MODELS.get(preset).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown preset: {}. Available: {:?}",
+                preset,
+                AVAILABLE_MODELS.keys().collect::<Vec<_>>()
+            )
+        })?;
 
         Ok(Self {
-            name: models.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            name: models
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             ..Default::default()
         })
     }
 }
 
 /// Available base models organized by hardware tier
-pub static AVAILABLE_MODELS: Lazy<HashMap<String, serde_json::Map<String, serde_json::Value>>> = Lazy::new(|| {
-    use serde_json::json;
-    let mut models = HashMap::new();
+pub static AVAILABLE_MODELS: Lazy<HashMap<String, serde_json::Map<String, serde_json::Value>>> =
+    Lazy::new(|| {
+        use serde_json::json;
+        let mut models = HashMap::new();
 
-    // Entry tier models
-    models.insert("hermes-mistral-7b".to_string(), json!({
-        "name": "NousResearch/Hermes-2-Pro-Mistral-7B",
-        "description": "Nous Hermes 2 Pro - Mistral-based, trusted org",
-        "params": "7B",
-        "tier": "entry",
-        "recommended": true,
-    }).as_object().unwrap().clone());
+        // Entry tier models
+        models.insert(
+            "hermes-mistral-7b".to_string(),
+            json!({
+                "name": "NousResearch/Hermes-2-Pro-Mistral-7B",
+                "description": "Nous Hermes 2 Pro - Mistral-based, trusted org",
+                "params": "7B",
+                "tier": "entry",
+                "recommended": true,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    models.insert("dolphin-8b".to_string(), json!({
-        "name": "cognitivecomputations/dolphin-2.9-llama3-8b",
-        "description": "Eric Hartford Dolphin 8B - fully uncensored",
-        "params": "8B",
-        "tier": "entry",
-        "recommended": true,
-    }).as_object().unwrap().clone());
+        models.insert(
+            "dolphin-8b".to_string(),
+            json!({
+                "name": "cognitivecomputations/dolphin-2.9-llama3-8b",
+                "description": "Eric Hartford Dolphin 8B - fully uncensored",
+                "params": "8B",
+                "tier": "entry",
+                "recommended": true,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    models.insert("llama-8b".to_string(), json!({
-        "name": "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated",
-        "description": "Llama 3.1 8B with refusals abliterated",
-        "params": "8B",
-        "tier": "entry",
-        "recommended": true,
-    }).as_object().unwrap().clone());
+        models.insert(
+            "llama-8b".to_string(),
+            json!({
+                "name": "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated",
+                "description": "Llama 3.1 8B with refusals abliterated",
+                "params": "8B",
+                "tier": "entry",
+                "recommended": true,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    // Medium tier models
-    models.insert("r1-distill-14b".to_string(), json!({
-        "name": "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2",
-        "description": "DeepSeek-R1 reasoning distilled to 14B Qwen",
-        "params": "14B",
-        "tier": "medium",
-        "recommended": false,
-        "warning": "Chinese model - corpus-level censorship",
-    }).as_object().unwrap().clone());
+        // Medium tier models
+        models.insert(
+            "r1-distill-14b".to_string(),
+            json!({
+                "name": "huihui-ai/DeepSeek-R1-Distill-Qwen-14B-abliterated-v2",
+                "description": "DeepSeek-R1 reasoning distilled to 14B Qwen",
+                "params": "14B",
+                "tier": "medium",
+                "recommended": false,
+                "warning": "Chinese model - corpus-level censorship",
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    // Large tier models
-    models.insert("hermes-70b".to_string(), json!({
-        "name": "NousResearch/Hermes-3-Llama-3.1-70B",
-        "description": "Nous Hermes 3 - trusted org, less restricted",
-        "params": "70B",
-        "tier": "large",
-        "recommended": true,
-    }).as_object().unwrap().clone());
+        // Large tier models
+        models.insert(
+            "hermes-70b".to_string(),
+            json!({
+                "name": "NousResearch/Hermes-3-Llama-3.1-70B",
+                "description": "Nous Hermes 3 - trusted org, less restricted",
+                "params": "70B",
+                "tier": "large",
+                "recommended": true,
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
 
-    models
-});
-
+        models
+    });

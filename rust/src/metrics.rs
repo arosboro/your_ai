@@ -16,7 +16,9 @@ pub fn compute_metrics_for_example(
 }
 
 /// Validate that a dataset has good distribution of authority and entropy values
-pub fn validate_dataset_metrics(examples: &[(String, f32, f32)]) -> HashMap<String, serde_json::Value> {
+pub fn validate_dataset_metrics(
+    examples: &[(String, f32, f32)],
+) -> HashMap<String, serde_json::Value> {
     use serde_json::json;
 
     let auth_weights: Vec<f32> = examples.iter().map(|(_, a, _)| *a).collect();
@@ -25,11 +27,17 @@ pub fn validate_dataset_metrics(examples: &[(String, f32, f32)]) -> HashMap<Stri
     // Calculate statistics
     let auth_mean = auth_weights.iter().sum::<f32>() / auth_weights.len() as f32;
     let auth_min = auth_weights.iter().cloned().fold(f32::INFINITY, f32::min);
-    let auth_max = auth_weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let auth_max = auth_weights
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
 
     let prov_mean = prov_entropies.iter().sum::<f32>() / prov_entropies.len() as f32;
     let prov_min = prov_entropies.iter().cloned().fold(f32::INFINITY, f32::min);
-    let prov_max = prov_entropies.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let prov_max = prov_entropies
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
 
     // Check distribution
     let low_auth_count = auth_weights.iter().filter(|&&a| a < 0.3).count();
@@ -81,19 +89,24 @@ pub fn validate_dataset_metrics(examples: &[(String, f32, f32)]) -> HashMap<Stri
 
     let mut stats = HashMap::new();
     stats.insert("total_examples".to_string(), json!(total));
-    stats.insert("auth_weight".to_string(), json!({
-        "mean": auth_mean,
-        "min": auth_min,
-        "max": auth_max,
-    }));
-    stats.insert("prov_entropy".to_string(), json!({
-        "mean": prov_mean,
-        "min": prov_min,
-        "max": prov_max,
-    }));
+    stats.insert(
+        "auth_weight".to_string(),
+        json!({
+            "mean": auth_mean,
+            "min": auth_min,
+            "max": auth_max,
+        }),
+    );
+    stats.insert(
+        "prov_entropy".to_string(),
+        json!({
+            "mean": prov_mean,
+            "min": prov_min,
+            "max": prov_max,
+        }),
+    );
     stats.insert("warnings".to_string(), json!(warnings));
     stats.insert("info".to_string(), json!(info));
 
     stats
 }
-

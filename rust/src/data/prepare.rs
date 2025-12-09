@@ -1,7 +1,7 @@
 //! Data preparation logic (placeholder for full implementation)
 
-use std::path::Path;
 use serde_json::Value;
+use std::path::Path;
 
 pub fn prepare_training_data(
     _input_dir: &Path,
@@ -28,4 +28,3 @@ pub fn load_jsonl(path: &Path) -> anyhow::Result<Vec<Value>> {
 
     Ok(data)
 }
-

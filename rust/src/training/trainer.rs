@@ -1,17 +1,17 @@
 //! DistrustTrainer - Real transformer training with gradient-based updates
 
-use crate::config::Config;
-use crate::distrust_loss::batch_empirical_distrust_loss;
 use crate::checkpoints::{Checkpoint, CheckpointManager};
+use crate::config::Config;
 use crate::data::StreamingDataset;
+use crate::distrust_loss::batch_empirical_distrust_loss;
+use crate::model::{LlamaConfig, LlamaForCausalLM, ModelLoader};
 use crate::training::scheduler::{LearningRateScheduler, WarmupCosineSchedule};
-use crate::model::{LlamaForCausalLM, LlamaConfig, ModelLoader};
 use crate::utils::MemoryMonitor;
-use mlx_rs::Array;
+use indicatif::{ProgressBar, ProgressStyle};
 use mlx_rs::builder::Builder;
 use mlx_rs::losses::{CrossEntropyBuilder, LossReduction};
+use mlx_rs::Array;
 use std::path::PathBuf;
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub struct DistrustTrainer {
     config: Config,
@@ -68,10 +68,12 @@ impl DistrustTrainer {
         let config_path = model_dir.join("config.json");
         let llama_config = LlamaConfig::from_json(&config_path)?;
 
-        println!("Initializing Llama-{} model: {} layers, {} heads",
+        println!(
+            "Initializing Llama-{} model: {} layers, {} heads",
             llama_config.num_hidden_layers,
             llama_config.num_hidden_layers,
-            llama_config.num_attention_heads);
+            llama_config.num_attention_heads
+        );
 
         // Load pre-trained weights from safetensors
         let loader = ModelLoader::new(&config.paths.model_path);
@@ -82,7 +84,10 @@ impl DistrustTrainer {
         });
 
         let model = if !weights.is_empty() {
-            println!("Loading model with {} pre-trained weight tensors", weights.len());
+            println!(
+                "Loading model with {} pre-trained weight tensors",
+                weights.len()
+            );
             crate::model::llama::load_model_with_weights(llama_config, weights)?
         } else {
             println!("Initializing model with random weights");
@@ -167,7 +172,10 @@ impl DistrustTrainer {
     }
 
     pub fn train(&mut self) -> anyhow::Result<()> {
-        println!("Starting training for {} steps", self.config.training.max_steps);
+        println!(
+            "Starting training for {} steps",
+            self.config.training.max_steps
+        );
 
         // Check memory before starting
         self.check_memory_limits()?;
@@ -210,7 +218,9 @@ impl DistrustTrainer {
 
             // Log progress
             if self.global_step % 10 == 0 {
-                let recent_losses: Vec<f32> = self.loss_history.iter()
+                let recent_losses: Vec<f32> = self
+                    .loss_history
+                    .iter()
                     .rev()
                     .take(10.min(self.loss_history.len()))
                     .copied()
@@ -245,10 +255,13 @@ impl DistrustTrainer {
 
         pb.finish_with_message("Training complete");
 
-        let final_avg = self.loss_history.iter()
+        let final_avg = self
+            .loss_history
+            .iter()
             .rev()
             .take(100.min(self.loss_history.len()))
-            .sum::<f32>() / 100.0_f32.min(self.loss_history.len() as f32);
+            .sum::<f32>()
+            / 100.0_f32.min(self.loss_history.len() as f32);
         println!("\nFinal average loss (last 100 steps): {:.4}", final_avg);
 
         Ok(())
@@ -291,12 +304,8 @@ impl DistrustTrainer {
         let ce_loss = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
 
         // Distrust loss
-        let distrust_loss = batch_empirical_distrust_loss(
-            auth_weights,
-            prov_entropies,
-            alpha,
-            "mean",
-        )?;
+        let distrust_loss =
+            batch_empirical_distrust_loss(auth_weights, prov_entropies, alpha, "mean")?;
 
         // Combined loss
         let lambda_arr = Array::from_f32(lambda_weight);
@@ -310,29 +319,38 @@ impl DistrustTrainer {
     pub fn training_step(&mut self) -> anyhow::Result<f32> {
         // Get batch from dataset
         let batch = if let Some(ref mut dataset) = self.dataset {
-            dataset.next_batch()
+            dataset
+                .next_batch()
                 .ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?
         } else {
             // Dummy batch for testing
-            vec![
-                serde_json::json!({
-                    "text": "The quick brown fox jumps over the lazy dog",
-                    "auth_weight": 0.1,
-                    "prov_entropy": 5.0
-                })
-            ]
+            vec![serde_json::json!({
+                "text": "The quick brown fox jumps over the lazy dog",
+                "auth_weight": 0.1,
+                "prov_entropy": 5.0
+            })]
         };
 
         // Extract metadata
-        let auth_weights_vec: Vec<f32> = batch.iter()
-            .filter_map(|ex| ex.get("auth_weight").and_then(|v| v.as_f64()).map(|v| v as f32))
+        let auth_weights_vec: Vec<f32> = batch
+            .iter()
+            .filter_map(|ex| {
+                ex.get("auth_weight")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+            })
             .collect();
-        let prov_entropies_vec: Vec<f32> = batch.iter()
-            .filter_map(|ex| ex.get("prov_entropy").and_then(|v| v.as_f64()).map(|v| v as f32))
+        let prov_entropies_vec: Vec<f32> = batch
+            .iter()
+            .filter_map(|ex| {
+                ex.get("prov_entropy")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+            })
             .collect();
 
         let batch_size = auth_weights_vec.len().max(1) as i32;
-        let seq_len = 32_i32;  // Fixed for now, should come from tokenizer
+        let seq_len = 32_i32; // Fixed for now, should come from tokenizer
 
         // TODO: Use real tokenizer to convert text to input_ids
         // For now, generate random token IDs for testing
@@ -340,7 +358,7 @@ impl DistrustTrainer {
             0,
             self.model.config().vocab_size,
             &[batch_size, seq_len],
-            None
+            None,
         )?;
 
         let auth_weights = if !auth_weights_vec.is_empty() {
@@ -360,7 +378,13 @@ impl DistrustTrainer {
         let lambda_weight = self.config.training.lambda_weight;
 
         // Compute loss (gradient computation needs mlx-rs API refinement)
-        let total_loss = self.compute_loss(&input_ids, &auth_weights, &prov_entropies, alpha, lambda_weight)?;
+        let total_loss = self.compute_loss(
+            &input_ids,
+            &auth_weights,
+            &prov_entropies,
+            alpha,
+            lambda_weight,
+        )?;
 
         // TODO: Gradient Computation API - Needs mlx-rs value_and_grad pattern
         // The model derives ModuleParameters trait (via mlx_macros), enabling gradient tracking.
@@ -388,7 +412,10 @@ impl DistrustTrainer {
 
             // Create checkpoint with model state
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert("learning_rate".to_string(), serde_json::json!(self.scheduler.get_lr(step)));
+            metadata.insert(
+                "learning_rate".to_string(),
+                serde_json::json!(self.scheduler.get_lr(step)),
+            );
 
             let _checkpoint = Checkpoint {
                 step,

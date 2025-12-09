@@ -38,7 +38,7 @@ impl Default for PerformanceConfig {
         Self {
             use_streaming: true,
             streaming_buffer_size: 1000,
-            parallel_workers: 0,  // 0 = auto-detect
+            parallel_workers: 0, // 0 = auto-detect
             parallel_retry_limit: 3,
             use_cache: true,
             cache_path: "data/cache/metrics.db".to_string(),
@@ -56,4 +56,3 @@ impl Default for PerformanceConfig {
         }
     }
 }
-

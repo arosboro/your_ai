@@ -20,7 +20,7 @@ pub struct OptimizationResult {
     pub lora_layers: usize,
     pub peak_memory_mb: f64,
     pub step_time_ms: f64,
-    pub throughput_score: usize,  // batch_size * lora_rank * lora_layers
+    pub throughput_score: usize, // batch_size * lora_rank * lora_layers
     pub success: bool,
     pub error: Option<String>,
 }
@@ -41,7 +41,7 @@ impl EmpiricalOptimizer {
             if let Ok(info) = crate::utils::MemoryInfo::current() {
                 (info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0) * 0.8
             } else {
-                32.0  // Default to 32GB if detection fails
+                32.0 // Default to 32GB if detection fails
             }
         });
 
@@ -56,11 +56,7 @@ impl EmpiricalOptimizer {
     /// Get test configuration matrix based on mode
     fn get_test_configs(&self) -> Vec<(usize, usize, usize)> {
         let (batch_sizes, lora_ranks, lora_layers_list) = if self.quick_mode {
-            (
-                vec![2, 4, 8],
-                vec![64, 128],
-                vec![16, 24],
-            )
+            (vec![2, 4, 8], vec![64, 128], vec![16, 24])
         } else {
             (
                 vec![2, 4, 6, 8, 10, 12],
@@ -93,7 +89,10 @@ impl EmpiricalOptimizer {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("  Model:         {}", self.model_path);
         println!("  Max Memory:    {:.1} GB", self.max_memory_gb);
-        println!("  Mode:          {}", if self.quick_mode { "Quick" } else { "Full" });
+        println!(
+            "  Mode:          {}",
+            if self.quick_mode { "Quick" } else { "Full" }
+        );
         println!("  Configurations: {}", total);
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!();
@@ -120,7 +119,13 @@ impl EmpiricalOptimizer {
                     result.step_time_ms / 1000.0
                 );
             } else {
-                println!("✗ {}", result.error.as_ref().unwrap_or(&"Unknown error".to_string()));
+                println!(
+                    "✗ {}",
+                    result
+                        .error
+                        .as_ref()
+                        .unwrap_or(&"Unknown error".to_string())
+                );
             }
 
             results.push(result);
@@ -130,7 +135,12 @@ impl EmpiricalOptimizer {
     }
 
     /// Test a single configuration
-    fn test_config(&self, batch_size: usize, lora_rank: usize, lora_layers: usize) -> OptimizationResult {
+    fn test_config(
+        &self,
+        batch_size: usize,
+        lora_rank: usize,
+        lora_layers: usize,
+    ) -> OptimizationResult {
         let throughput_score = batch_size * lora_rank * lora_layers;
 
         let mut result = OptimizationResult {
@@ -159,7 +169,7 @@ impl EmpiricalOptimizer {
                         "OOM".to_string()
                     } else {
                         error_str.chars().take(100).collect()
-                    }
+                    },
                 );
             }
         }
@@ -173,19 +183,24 @@ impl EmpiricalOptimizer {
     }
 
     /// Run actual training steps and measure performance
-    fn run_training_test(&self, batch_size: usize, lora_rank: usize, lora_layers: usize) -> Result<(f64, f64)> {
+    fn run_training_test(
+        &self,
+        batch_size: usize,
+        lora_rank: usize,
+        lora_layers: usize,
+    ) -> Result<(f64, f64)> {
         // Create a minimal config for testing
         let mut config = Config::default();
         config.paths.model_path = self.model_path.clone();
         config.training.batch_size = batch_size;
         config.training.max_steps = self.test_steps;
         config.model.lora_rank = lora_rank;
-        config.model.lora_alpha = lora_rank * 2;  // Maintain scale=2.0
+        config.model.lora_alpha = lora_rank * 2; // Maintain scale=2.0
         config.model.lora_num_layers = lora_layers as i32;
         config.performance.checkpoint_enabled = false;
 
         // Initialize memory monitor
-        let mut memory_monitor = MemoryMonitor::new(95.0);  // High threshold for testing
+        let mut memory_monitor = MemoryMonitor::new(95.0); // High threshold for testing
         memory_monitor.check()?;
 
         // Initialize trainer
@@ -213,12 +228,19 @@ impl EmpiricalOptimizer {
             // Check if we've exceeded the memory limit
             let current_gb = mem_info.rss_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
             if current_gb > self.max_memory_gb {
-                anyhow::bail!("Memory limit exceeded: {:.1} GB > {:.1} GB", current_gb, self.max_memory_gb);
+                anyhow::bail!(
+                    "Memory limit exceeded: {:.1} GB > {:.1} GB",
+                    current_gb,
+                    self.max_memory_gb
+                );
             }
 
             // Periodically check for OOM conditions
             if step % 5 == 0 && mem_info.usage_percentage() > 90.0 {
-                anyhow::bail!("System memory critically low: {:.1}%", mem_info.usage_percentage());
+                anyhow::bail!(
+                    "System memory critically low: {:.1}%",
+                    mem_info.usage_percentage()
+                );
             }
         }
 
@@ -274,7 +296,10 @@ impl EmpiricalOptimizer {
                     if let Ok(mem_info) = memory_monitor.check() {
                         let current_gb = mem_info.rss_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
                         if current_gb > max_memory_gb {
-                            eprintln!("Memory limit exceeded: {:.1} GB > {:.1} GB", current_gb, max_memory_gb);
+                            eprintln!(
+                                "Memory limit exceeded: {:.1} GB > {:.1} GB",
+                                current_gb, max_memory_gb
+                            );
                             return Ok(false);
                         }
                     }
@@ -325,9 +350,16 @@ impl EmpiricalOptimizer {
             println!("  LoRA rank:     {}", best.lora_rank);
             println!("  LoRA alpha:    {}", best.lora_rank * 2);
             println!("  LoRA layers:   {}", best.lora_layers);
-            println!("  Peak memory:   {:.1} MB ({:.2} GB)", best.peak_memory_mb, best.peak_memory_mb / 1024.0);
+            println!(
+                "  Peak memory:   {:.1} MB ({:.2} GB)",
+                best.peak_memory_mb,
+                best.peak_memory_mb / 1024.0
+            );
             println!("  Step time:     {:.1}s", best.step_time_ms / 1000.0);
-            println!("  Throughput:    {} (batch × rank × layers)", best.throughput_score);
+            println!(
+                "  Throughput:    {} (batch × rank × layers)",
+                best.throughput_score
+            );
             println!();
 
             // Show top 5 configurations
@@ -357,4 +389,3 @@ impl EmpiricalOptimizer {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 }
-

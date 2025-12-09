@@ -5,8 +5,14 @@ use std::collections::HashMap;
 
 pub trait BenchmarkAdapter {
     fn load_dataset(&self) -> anyhow::Result<Vec<HashMap<String, serde_json::Value>>>;
-    fn evaluate(&self, max_samples: Option<usize>) -> anyhow::Result<HashMap<String, serde_json::Value>>;
-    fn map_to_custom_taxonomy(&self, results: HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value>;
+    fn evaluate(
+        &self,
+        max_samples: Option<usize>,
+    ) -> anyhow::Result<HashMap<String, serde_json::Value>>;
+    fn map_to_custom_taxonomy(
+        &self,
+        results: HashMap<String, serde_json::Value>,
+    ) -> HashMap<String, serde_json::Value>;
 }
 
 pub struct TruthfulQAAdapter {
@@ -26,7 +32,10 @@ impl BenchmarkAdapter for TruthfulQAAdapter {
         Ok(Vec::new())
     }
 
-    fn evaluate(&self, _max_samples: Option<usize>) -> anyhow::Result<HashMap<String, serde_json::Value>> {
+    fn evaluate(
+        &self,
+        _max_samples: Option<usize>,
+    ) -> anyhow::Result<HashMap<String, serde_json::Value>> {
         let questions = self.load_dataset()?;
 
         let mut results = HashMap::new();
@@ -37,22 +46,30 @@ impl BenchmarkAdapter for TruthfulQAAdapter {
         Ok(results)
     }
 
-    fn map_to_custom_taxonomy(&self, results: HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value> {
+    fn map_to_custom_taxonomy(
+        &self,
+        results: HashMap<String, serde_json::Value>,
+    ) -> HashMap<String, serde_json::Value> {
         let mut mapped = HashMap::new();
-        mapped.insert("authority_bias".to_string(), serde_json::json!({
-            "benchmark": "truthfulqa",
-            "total": results.get("total").cloned().unwrap_or(serde_json::json!(0)),
-            "passed": results.get("correct").cloned().unwrap_or(serde_json::json!(0)),
-            "pass_rate": results.get("accuracy").cloned().unwrap_or(serde_json::json!(0.0)),
-        }));
+        mapped.insert(
+            "authority_bias".to_string(),
+            serde_json::json!({
+                "benchmark": "truthfulqa",
+                "total": results.get("total").cloned().unwrap_or(serde_json::json!(0)),
+                "passed": results.get("correct").cloned().unwrap_or(serde_json::json!(0)),
+                "pass_rate": results.get("accuracy").cloned().unwrap_or(serde_json::json!(0.0)),
+            }),
+        );
         mapped
     }
 }
 
-pub fn get_adapter(benchmark_name: &str, config: BenchmarkConfig) -> anyhow::Result<Box<dyn BenchmarkAdapter>> {
+pub fn get_adapter(
+    benchmark_name: &str,
+    config: BenchmarkConfig,
+) -> anyhow::Result<Box<dyn BenchmarkAdapter>> {
     match benchmark_name {
         "truthfulqa" => Ok(Box::new(TruthfulQAAdapter::new(config))),
         _ => anyhow::bail!("No adapter available for benchmark: {}", benchmark_name),
     }
 }
-

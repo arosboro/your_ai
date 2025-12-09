@@ -1,6 +1,5 @@
-pub mod state;
 pub mod manager;
+pub mod state;
 
-pub use state::Checkpoint;
 pub use manager::CheckpointManager;
-
+pub use state::Checkpoint;

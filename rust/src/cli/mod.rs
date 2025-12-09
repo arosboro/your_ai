@@ -130,9 +130,6 @@ pub fn run() -> Result<()> {
             memory_report_interval,
             auto_optimize,
         ),
-        Commands::Validate { model, benchmarks } => {
-            commands::validate(model, benchmarks)
-        }
+        Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
     }
 }
-

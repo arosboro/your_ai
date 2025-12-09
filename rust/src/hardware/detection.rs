@@ -1,7 +1,7 @@
 //! Hardware detection for macOS Apple Silicon
 
-use std::process::Command;
 use crate::hardware::profiles::GPU_CORES;
+use std::process::Command;
 
 /// Auto-detect Mac chip generation, variant, and unified memory
 ///
@@ -83,4 +83,3 @@ mod tests {
         assert_eq!(get_gpu_cores("m3", "ultra"), 80);
     }
 }
-

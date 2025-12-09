@@ -60,7 +60,7 @@ impl HardwareProfile {
     pub fn apply_to_config(&self, config: &mut crate::config::Config) {
         config.training.batch_size = self.optimal_batch_size;
         config.model.lora_rank = self.optimal_lora_rank;
-        config.model.lora_alpha = self.optimal_lora_rank * 2;  // Maintain scale=2.0
+        config.model.lora_alpha = self.optimal_lora_rank * 2; // Maintain scale=2.0
         config.model.lora_num_layers = self.optimal_lora_layers as i32;
     }
 
@@ -116,4 +116,3 @@ mod tests {
         assert_eq!(profile.throughput_score, 8192);
     }
 }
-

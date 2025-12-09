@@ -30,7 +30,8 @@ impl LearningRateScheduler for WarmupCosineSchedule {
             1e-7 + (self.base_lr - 1e-7) * warmup_factor
         } else {
             // Cosine decay
-            let progress = (step - self.warmup_steps) as f32 / (self.max_steps - self.warmup_steps) as f32;
+            let progress =
+                (step - self.warmup_steps) as f32 / (self.max_steps - self.warmup_steps) as f32;
             self.base_lr * 0.5 * (1.0 + (progress * PI).cos())
         }
     }
@@ -57,4 +58,3 @@ mod tests {
         assert!(lr_end < 1e-4);
     }
 }
-
