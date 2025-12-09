@@ -1,6 +1,6 @@
 # Empirical Distrust Training for LLMs
 
-[![CI](https://github.com/arosboro/your_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/ci.yml)
+[![Python CI](https://github.com/arosboro/your_ai/actions/workflows/python-ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/python-ci.yml)
 [![codecov](https://codecov.io/gh/arosboro/your_ai/branch/main/graph/badge.svg)](https://codecov.io/gh/arosboro/your_ai)
 [![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.txt)
 
