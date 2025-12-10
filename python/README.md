@@ -246,7 +246,7 @@ python/                       # Python implementation subdirectory
 | Document                                                             | Purpose                                 |
 | -------------------------------------------------------------------- | --------------------------------------- |
 | [TRAINING_GUIDE.md](TRAINING_GUIDE.md)                               | Complete start-to-finish training guide |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                                   | Guidelines for contributors             |
+| [CONTRIBUTING.md](../CONTRIBUTING.md)                                | Guidelines for contributors             |
 | [docs/ALGORITHM.md](docs/ALGORITHM.md)                               | Technical deep dive on the algorithm    |
 | [docs/CURATED_DATASETS.md](docs/CURATED_DATASETS.md)                 | Dataset sources and provenance          |
 | [docs/DATA_PREPARATION_REALITY.md](docs/DATA_PREPARATION_REALITY.md) | Honest notes on data quality            |

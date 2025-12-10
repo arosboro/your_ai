@@ -16,7 +16,18 @@ fn build_and_link_mlx_c() {
         config.define("CMAKE_TOOLCHAIN_FILE", toolchain_path.to_str().unwrap());
         config.define("CMAKE_OSX_ARCHITECTURES", "arm64");
         config.define("CMAKE_SYSTEM_PROCESSOR", "arm64");
-        config.define("CMAKE_OSX_DEPLOYMENT_TARGET", "13.5");
+        config.define("CMAKE_OSX_DEPLOYMENT_TARGET", "14.0");
+
+        // Set SDK path to ensure proper symbol resolution
+        if let Ok(sdk_path) = std::process::Command::new("xcrun")
+            .args(["--show-sdk-path"])
+            .output()
+        {
+            if sdk_path.status.success() {
+                let sdk_str = String::from_utf8_lossy(&sdk_path.stdout).trim().to_string();
+                config.define("CMAKE_OSX_SYSROOT", &sdk_str);
+            }
+        }
     }
 
     #[cfg(debug_assertions)]
@@ -61,6 +72,21 @@ fn build_and_link_mlx_c() {
     #[cfg(feature = "accelerate")]
     {
         println!("cargo:rustc-link-lib=framework=Accelerate");
+    }
+
+    // Add SDK root for linker to resolve weak symbols like __isPlatformVersionAtLeast
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(sdk_path) = std::process::Command::new("xcrun")
+            .args(["--show-sdk-path"])
+            .output()
+        {
+            if sdk_path.status.success() {
+                let sdk_str = String::from_utf8_lossy(&sdk_path.stdout).trim().to_string();
+                println!("cargo:rustc-link-arg=-isysroot");
+                println!("cargo:rustc-link-arg={}", sdk_str);
+            }
+        }
     }
 }
 
