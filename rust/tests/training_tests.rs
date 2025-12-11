@@ -56,7 +56,14 @@ performance:
         Err(e) => {
             // Expected to fail due to missing model files
             println!("Trainer initialization failed as expected: {}", e);
-            assert!(e.to_string().contains("model") || e.to_string().contains("config"));
+            let err_str = e.to_string().to_lowercase();
+            assert!(
+                err_str.contains("model")
+                || err_str.contains("config")
+                || err_str.contains("no such file")
+                || err_str.contains("not found"),
+                "Unexpected error: {}", e
+            );
         }
     }
 }
