@@ -144,7 +144,7 @@ cargo fmt
 
 #### Test Structure
 
-```
+```text
 python/tests/
 ├── unit/           # Fast, isolated tests
 ├── integration/    # Tests requiring model/data setup
@@ -190,7 +190,7 @@ def test_batch_buffer_allocation_creates_correct_shape():
 
 #### Test Structure
 
-```
+```text
 rust/
 ├── src/            # Unit tests alongside code (#[cfg(test)])
 └── tests/          # Integration tests

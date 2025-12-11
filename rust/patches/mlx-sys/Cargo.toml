@@ -53,7 +53,7 @@ path = "examples/is_metal_available.rs"
 [dependencies]
 
 [build-dependencies.bindgen]
-version = "0.71"
+version = "0.72"
 
 [build-dependencies.cc]
 version = "1"

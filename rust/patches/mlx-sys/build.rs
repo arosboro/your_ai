@@ -99,7 +99,7 @@ fn main() {
 
     // generate bindings
     let rust_target = bindgen::RustTarget::stable(1, 82)
-        .unwrap_or_else(|_| panic!("Rust 1.82 target should be supported by bindgen"));
+        .unwrap_or_else(|_| bindgen::RustTarget::Nightly);
     let bindings = bindgen::Builder::default()
         .rust_target(rust_target)
         .header("src/mlx-c/mlx/c/mlx.h")
