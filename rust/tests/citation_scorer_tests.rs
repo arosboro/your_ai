@@ -68,7 +68,7 @@ fn test_authority_weight_calculation() {
     let text = "This is a simple blog post without citations.";
     let (auth_weight, breakdown) = calculate_authority_weight(text, None, None);
 
-    assert!(auth_weight >= 0.0 && auth_weight <= 0.99);
+    assert!((0.0..=0.99).contains(&auth_weight));
     assert!(breakdown.contains_key("citation_score"));
 }
 
@@ -97,7 +97,7 @@ fn test_pre_1970_gets_low_authority() {
 #[test]
 fn test_institutional_markers() {
     let who_text = "According to the World Health Organization (WHO)...";
-    let (auth_weight, breakdown) = calculate_authority_weight(who_text, None, None);
+    let (_auth_weight, breakdown) = calculate_authority_weight(who_text, None, None);
 
     let institutional_score = breakdown.get("institutional_score").unwrap();
     assert!(

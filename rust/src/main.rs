@@ -3,7 +3,6 @@
 mod cli;
 
 use anyhow::Result;
-use tracing_subscriber;
 
 fn main() -> Result<()> {
     // Initialize logging

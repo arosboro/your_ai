@@ -975,7 +975,7 @@ impl DistrustTrainer {
         // #endregion agent log
 
         // Memory checkpoint
-        if self.global_step % 10 == 0 {
+        if self.global_step.is_multiple_of(10) {
             if let Some(ref mut monitor) = self.memory_monitor {
                 if let Ok(info) = monitor.check() {
                     eprintln!(

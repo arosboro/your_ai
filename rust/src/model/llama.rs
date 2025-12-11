@@ -271,7 +271,7 @@ impl LlamaAttention {
         for _ in 0..n_rep {
             repeated.push(x.clone());
         }
-        let x = mlx_rs::ops::concatenate(&repeated.iter().map(|a| a).collect::<Vec<&Array>>())?;
+        let x = mlx_rs::ops::concatenate(&repeated.iter().collect::<Vec<&Array>>())?;
 
         // Reshape to [B, num_kv_heads * n_rep, L, head_dim]
         x.reshape(&[b, num_kv_heads * n_rep, seq_len, head_dim])
