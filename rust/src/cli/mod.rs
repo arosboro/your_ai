@@ -80,6 +80,12 @@ enum Commands {
         /// Automatically find optimal configuration before training
         #[arg(long)]
         auto_optimize: bool,
+        /// Export training metrics to JSONL file
+        #[arg(long)]
+        metrics_file: Option<String>,
+        /// Save checkpoint when best loss is achieved
+        #[arg(long, default_value = "true")]
+        save_best: bool,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -89,6 +95,27 @@ enum Commands {
         /// Benchmarks to run (comma-separated)
         #[arg(long)]
         benchmarks: Option<String>,
+    },
+    /// Generate text from a model
+    Generate {
+        /// Model name or HuggingFace path
+        #[arg(long)]
+        model: String,
+        /// Text prompt for generation
+        #[arg(long)]
+        prompt: String,
+        /// Optional checkpoint path to load fine-tuned weights
+        #[arg(long)]
+        checkpoint: Option<String>,
+        /// Maximum number of tokens to generate
+        #[arg(long, default_value = "50")]
+        max_tokens: usize,
+        /// Sampling temperature (0.0 = greedy, higher = more random)
+        #[arg(long, default_value = "0.7")]
+        temperature: f32,
+        /// Compare base model with checkpoint (requires --checkpoint)
+        #[arg(long)]
+        compare: bool,
     },
 }
 
@@ -120,6 +147,8 @@ pub fn run() -> Result<()> {
             max_memory,
             memory_report_interval,
             auto_optimize,
+            metrics_file,
+            save_best,
         } => commands::train(
             model,
             batch_size,
@@ -129,7 +158,17 @@ pub fn run() -> Result<()> {
             max_memory,
             memory_report_interval,
             auto_optimize,
+            metrics_file,
+            save_best,
         ),
         Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
+        Commands::Generate {
+            model,
+            prompt,
+            checkpoint,
+            max_tokens,
+            temperature,
+            compare,
+        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare),
     }
 }

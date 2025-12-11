@@ -3,6 +3,15 @@ extern crate cmake;
 use cmake::Config;
 use std::{env, path::PathBuf};
 
+fn build_platform_version_stub() {
+    #[cfg(target_os = "macos")]
+    {
+        cc::Build::new()
+            .file("src/platform_version_stub.c")
+            .compile("platform_version_stub");
+    }
+}
+
 fn build_and_link_mlx_c() {
     let mut config = Config::new("src/mlx-c");
     config.very_verbose(true);
@@ -74,23 +83,12 @@ fn build_and_link_mlx_c() {
         println!("cargo:rustc-link-lib=framework=Accelerate");
     }
 
-    // Add SDK root for linker to resolve weak symbols like __isPlatformVersionAtLeast
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(sdk_path) = std::process::Command::new("xcrun")
-            .args(["--show-sdk-path"])
-            .output()
-        {
-            if sdk_path.status.success() {
-                let sdk_str = String::from_utf8_lossy(&sdk_path.stdout).trim().to_string();
-                println!("cargo:rustc-link-arg=-isysroot");
-                println!("cargo:rustc-link-arg={}", sdk_str);
-            }
-        }
-    }
 }
 
 fn main() {
+    // Build platform version stub first
+    build_platform_version_stub();
+
     build_and_link_mlx_c();
 
     // Set libclang path for bindgen on macOS

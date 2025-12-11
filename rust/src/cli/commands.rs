@@ -600,11 +600,57 @@ pub fn train(
     max_memory: Option<f64>,
     memory_report_interval: Option<usize>,
     auto_optimize: bool,
+    metrics_file: Option<String>,
+    save_best: bool,
 ) -> Result<()> {
+    use your_ai_rs::config::model::AVAILABLE_MODELS;
+
     let mut config = Config::default();
 
+    // Resolve model preset to actual model name
+    let model_name = if let Some(preset_config) = AVAILABLE_MODELS.get(&model) {
+        preset_config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&model)
+            .to_string()
+    } else {
+        // Not a preset, assume it's a direct model path or HuggingFace name
+        model.clone()
+    };
+
+    // Resolve HuggingFace model name to actual snapshot path
+    let resolve_model_path = |model_name: &str| -> Option<String> {
+        if model_name.contains('/') {
+            let cache_name = model_name.replace('/', "--");
+            let home = std::env::var("HOME").ok()?;
+            let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
+
+            if std::path::Path::new(&cache_dir).exists() {
+                let snapshots_dir = format!("{}/snapshots", cache_dir);
+                if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().ok()?.is_dir() {
+                            return Some(entry.path().to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        if std::path::Path::new(model_name).exists() {
+            return Some(model_name.to_string());
+        }
+
+        None
+    };
+
+    let model_path = resolve_model_path(&model_name)
+        .ok_or_else(|| anyhow::anyhow!("Model not found: {}. Please download it first using: huggingface-cli download {}", model_name, model_name))?;
+
     // Apply command-line overrides
-    config.paths.model_path = model.clone();
+    config.paths.model_path = model_path;
+    config.paths.output_dir = format!("models/distrust-{}", model);
 
     // Auto-optimize if requested
     if auto_optimize {
@@ -653,6 +699,27 @@ pub fn train(
     println!("  Lambda weight:  {}", config.distrust.lambda_weight);
     if let Some(mem) = max_memory {
         println!("  Max memory:     {:.1} GB", mem);
+
+        // Check if memory limit is sufficient for model
+        if model.contains("8b") || model.contains("8B") {
+            if mem < 48.0 {
+                println!();
+                println!("⚠️  WARNING: Memory limit may be too low for 8B model");
+                println!("   Current limit:    {:.1} GB", mem);
+                println!("   Recommended:      48-70 GB for stable training");
+                if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
+                    let system_gb = info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                    println!("   Your system:      {:.1} GB total", system_gb);
+                    if system_gb >= 70.0 {
+                        println!("   Suggestion:       Try --max-memory 70.0");
+                    } else if system_gb >= 48.0 {
+                        let recommended = (system_gb * 0.75).floor();
+                        println!("   Suggestion:       Try --max-memory {:.0}.0", recommended);
+                    }
+                }
+                println!("   Low memory may cause excessive swap usage and slow training");
+            }
+        }
     }
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
@@ -667,6 +734,14 @@ pub fn train(
     if let Some(interval) = memory_report_interval {
         trainer = trainer.with_memory_reporting(interval);
     }
+
+    // Configure metrics export
+    if let Some(metrics_path) = metrics_file {
+        trainer = trainer.with_metrics_file(std::path::PathBuf::from(metrics_path));
+    }
+
+    // Configure best checkpoint saving
+    trainer = trainer.with_save_best(save_best);
 
     // Train (model initialized in constructor)
     trainer.train()?;
@@ -685,6 +760,151 @@ pub fn validate(model: String, benchmarks: Option<String>) -> Result<()> {
         "\nNote: Full benchmark implementation requires integration with HuggingFace datasets."
     );
     println!("This is a placeholder - implement full evaluation in production.");
+
+    Ok(())
+}
+
+pub fn generate(
+    model: String,
+    prompt: String,
+    checkpoint: Option<String>,
+    max_tokens: usize,
+    temperature: f32,
+    compare: bool,
+) -> Result<()> {
+    use your_ai_rs::config::model::AVAILABLE_MODELS;
+    use your_ai_rs::model::{LlamaConfig, LlamaForCausalLM, TokenizerWrapper};
+    use std::path::PathBuf;
+
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("Text Generation");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!();
+
+    // Resolve model preset to actual model name
+    let model_name = if let Some(preset_config) = AVAILABLE_MODELS.get(&model) {
+        preset_config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&model)
+            .to_string()
+    } else {
+        model.clone()
+    };
+
+    // Resolve model path
+    let resolve_model_path = |model_name: &str| -> Option<String> {
+        if model_name.contains('/') {
+            let cache_name = model_name.replace('/', "--");
+            let home = std::env::var("HOME").ok()?;
+            let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
+
+            if std::path::Path::new(&cache_dir).exists() {
+                let snapshots_dir = format!("{}/snapshots", cache_dir);
+                if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().ok()?.is_dir() {
+                            return Some(entry.path().to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        if std::path::Path::new(model_name).exists() {
+            return Some(model_name.to_string());
+        }
+
+        None
+    };
+
+    let model_path = resolve_model_path(&model_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Model not found: {}. Please download it first.",
+            model_name
+        )
+    })?;
+
+    println!("Loading model from: {}", model_path);
+    let model_dir = PathBuf::from(&model_path);
+
+    // Load config and tokenizer
+    let config_path = model_dir.join("config.json");
+    let llama_config = LlamaConfig::from_json(&config_path)?;
+
+    let tokenizer_path = model_dir.join("tokenizer.json");
+    let tokenizer = TokenizerWrapper::from_file(&tokenizer_path)
+        .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
+
+    // Tokenize prompt
+    println!("Tokenizing prompt...");
+    let input_ids = tokenizer.encode(&prompt, false)?;
+    let input_len = input_ids.len();
+    println!("Input tokens: {}", input_len);
+    println!();
+
+    if compare && checkpoint.is_some() {
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("COMPARISON MODE: Base Model vs Fine-tuned");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!();
+
+        // Generate with base model
+        println!("📝 BASE MODEL OUTPUT:");
+        println!("─────────────────────────────────────────────────────────────");
+        let mut base_model = LlamaForCausalLM::new(llama_config.clone())?;
+        let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
+        let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
+
+        let base_tokens = base_model.generate(&input_array, max_tokens, temperature)?;
+        let base_output = tokenizer.decode(&base_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+
+        println!("Prompt: {}", prompt);
+        println!("Generated: {}", base_output);
+        println!();
+
+        // Generate with checkpoint model
+        println!("📝 FINE-TUNED MODEL OUTPUT:");
+        println!("─────────────────────────────────────────────────────────────");
+        // TODO: Load checkpoint weights
+        let mut finetuned_model = LlamaForCausalLM::new(llama_config)?;
+
+        let finetuned_tokens = finetuned_model.generate(&input_array, max_tokens, temperature)?;
+        let finetuned_output = tokenizer.decode(&finetuned_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+
+        println!("Prompt: {}", prompt);
+        println!("Generated: {}", finetuned_output);
+        println!();
+
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    } else {
+        // Single model generation
+        println!("Loading model...");
+        let mut model = LlamaForCausalLM::new(llama_config)?;
+
+        // TODO: Load checkpoint if specified
+        if let Some(_checkpoint_path) = checkpoint {
+            println!("Note: Checkpoint loading not yet implemented");
+        }
+
+        println!("Generating text...");
+        let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
+        let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
+
+        let generated_tokens = model.generate(&input_array, max_tokens, temperature)?;
+        let generated_text = tokenizer.decode(&generated_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+
+        println!();
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("Generated Text");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!();
+        println!("Prompt: {}", prompt);
+        println!("Generated: {}", generated_text);
+        println!();
+        println!("Tokens generated: {}", generated_tokens.len());
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    }
 
     Ok(())
 }

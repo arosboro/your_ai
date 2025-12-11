@@ -449,6 +449,102 @@ impl LlamaForCausalLM {
     pub fn config(&self) -> &LlamaConfig {
         &self.model.config
     }
+
+    /// Generate text autoregressively from input token IDs
+    ///
+    /// # Arguments
+    /// * `input_ids` - Initial token IDs [batch_size, seq_len]
+    /// * `max_new_tokens` - Maximum number of tokens to generate
+    /// * `temperature` - Sampling temperature (0.0 = greedy, >0.0 = sampling)
+    ///
+    /// # Returns
+    /// Vector of generated token IDs (including input tokens)
+    pub fn generate(
+        &mut self,
+        input_ids: &Array,
+        max_new_tokens: usize,
+        temperature: f32,
+    ) -> Result<Vec<i32>, Exception> {
+        let batch_size = input_ids.dim(0);
+        if batch_size != 1 {
+            return Err(Exception::custom(
+                "generate() only supports batch_size=1 currently",
+            ));
+        }
+
+        // Convert input to vector
+        let mut generated: Vec<i32> = input_ids.as_slice::<i32>().to_vec();
+        let initial_len = generated.len();
+
+        for _ in 0..max_new_tokens {
+            // Prepare input array from current generated tokens
+            let seq_len = generated.len() as i32;
+            let input = Array::from_slice(&generated, &[1, seq_len]);
+
+            // Forward pass
+            let logits = self.forward(&input)?;
+
+            // Get logits for last token: [1, seq_len, vocab_size]
+            // Convert to vec and extract last position
+            let vocab_size = logits.dim(2);
+            let logits_vec: Vec<f32> = logits.as_slice::<f32>().to_vec();
+
+            // Extract last position logits: logits[0, seq_len-1, :]
+            let last_pos_start = ((seq_len - 1) * vocab_size) as usize;
+            let last_pos_end = (seq_len * vocab_size) as usize;
+            let last_logits_vec = logits_vec[last_pos_start..last_pos_end].to_vec();
+            let last_logits = Array::from_slice(&last_logits_vec, &[vocab_size]);
+
+            // Sample next token
+            let next_token = if temperature < 1e-6 {
+                // Greedy: take argmax
+                let probs_vec: Vec<f32> = last_logits.as_slice::<f32>().to_vec();
+                probs_vec
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                    .map(|(idx, _)| idx as i32)
+                    .unwrap_or(0)
+            } else {
+                // Temperature sampling
+                let scaled_logits = last_logits.divide(&Array::from_f32(temperature))?;
+                let probs = mlx_rs::ops::softmax_axis(&scaled_logits, -1, false)?;
+
+                // Sample from categorical distribution
+                let probs_vec: Vec<f32> = probs.as_slice::<f32>().to_vec();
+                sample_categorical(&probs_vec)
+            };
+
+            generated.push(next_token);
+
+            // Check for EOS token (assuming EOS=2 for most models)
+            // TODO: Make EOS token configurable
+            if next_token == 2 {
+                break;
+            }
+        }
+
+        // Return only newly generated tokens (exclude input)
+        Ok(generated[initial_len..].to_vec())
+    }
+}
+
+/// Sample from categorical distribution
+fn sample_categorical(probs: &[f32]) -> i32 {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let sample: f32 = rng.gen();
+
+    let mut cumsum = 0.0;
+    for (i, &p) in probs.iter().enumerate() {
+        cumsum += p;
+        if sample < cumsum {
+            return i as i32;
+        }
+    }
+
+    // Fallback to last token
+    (probs.len() - 1) as i32
 }
 
 /// Helper to load weights from safetensors into model

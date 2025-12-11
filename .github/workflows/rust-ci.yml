@@ -13,7 +13,7 @@ jobs:
     name: Lint
     runs-on: macos-14  # Apple Silicon for MLX support
     env:
-      MACOSX_DEPLOYMENT_TARGET: "13.5"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +56,7 @@ jobs:
     name: Build and Test
     runs-on: macos-14  # Apple Silicon for MLX support
     env:
-      MACOSX_DEPLOYMENT_TARGET: "13.5"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +100,7 @@ jobs:
     name: Build Examples
     runs-on: macos-14  # Apple Silicon for MLX support
     env:
-      MACOSX_DEPLOYMENT_TARGET: "13.5"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     needs: [lint, build-and-test]
     steps:
       - uses: actions/checkout@v4
