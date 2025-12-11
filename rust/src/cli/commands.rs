@@ -203,12 +203,10 @@ pub fn benchmark(
     // Detect or use provided memory limit
     let max_memory_gb = if let Some(mem) = max_memory {
         mem
+    } else if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
+        (info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0) * 0.8
     } else {
-        if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
-            (info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0) * 0.8
-        } else {
-            32.0
-        }
+        32.0
     };
 
     // If single_model is specified, run just that model and exit (subprocess mode)
@@ -345,7 +343,7 @@ pub fn benchmark(
         }
 
         let subprocess_result = std::process::Command::new(&exe_path)
-            .args(&[
+            .args([
                 "benchmark",
                 "--single-model",
                 preset,

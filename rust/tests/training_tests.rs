@@ -66,8 +66,6 @@ fn test_gradient_computation_structure() {
     // We can't run actual training without a model, but we can verify the code compiles
 
     // Test array slicing
-    use mlx_rs::Array;
-
     let test_array = mlx_rs::ops::zeros::<f32>(&[2, 10, 100]).unwrap();
     let sliced = mlx_rs::ops::slice(&test_array, &[0, 0, 0], &[2, 9, 100], None);
 
@@ -82,7 +80,6 @@ fn test_gradient_computation_structure() {
 #[test]
 fn test_loss_computation() {
     // Test that distrust loss computation works
-    use mlx_rs::Array;
     use your_ai_rs::distrust_loss::batch_empirical_distrust_loss;
 
     let auth_weights = Array::from_slice(&[0.1_f32, 0.2, 0.3, 0.4], &[4]);
