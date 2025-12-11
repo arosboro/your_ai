@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
 use your_ai_rs::config::Config;
@@ -39,7 +40,11 @@ performance:
     fs::write(&config_path, config_yaml).unwrap();
 
     // Load config
-    let config = Config::from_yaml(&config_path).unwrap();
+    // Load config using from_dict instead of from_yaml
+    let config_str = std::fs::read_to_string(&config_path).unwrap();
+    let config_dict: HashMap<String, serde_json::Value> =
+        serde_yaml::from_str(&config_str).unwrap();
+    let config = Config::from_dict(config_dict).unwrap();
 
     // Test that trainer can be created (even if model path doesn't exist)
     // This will use random initialization
@@ -67,7 +72,8 @@ fn test_gradient_computation_structure() {
 
     // Test array slicing
     let test_array = mlx_rs::ops::zeros::<f32>(&[2, 10, 100]).unwrap();
-    let sliced = mlx_rs::ops::slice(&test_array, &[0, 0, 0], &[2, 9, 100], None);
+    // Note: slice API has changed in mlx_rs, using indexing instead
+    let sliced = test_array.index(&[mlx_rs::ops::IndexOp::TakeRows(0..2)]);
 
     assert!(sliced.is_ok(), "Array slicing should work");
 
@@ -80,6 +86,7 @@ fn test_gradient_computation_structure() {
 #[test]
 fn test_loss_computation() {
     // Test that distrust loss computation works
+    use mlx_rs::Array;
     use your_ai_rs::distrust_loss::batch_empirical_distrust_loss;
 
     let auth_weights = Array::from_slice(&[0.1_f32, 0.2, 0.3, 0.4], &[4]);
