@@ -645,8 +645,13 @@ pub fn train(
         None
     };
 
-    let model_path = resolve_model_path(&model_name)
-        .ok_or_else(|| anyhow::anyhow!("Model not found: {}. Please download it first using: huggingface-cli download {}", model_name, model_name))?;
+    let model_path = resolve_model_path(&model_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Model not found: {}. Please download it first using: huggingface-cli download {}",
+            model_name,
+            model_name
+        )
+    })?;
 
     // Apply command-line overrides
     config.paths.model_path = model_path;
@@ -772,9 +777,9 @@ pub fn generate(
     temperature: f32,
     compare: bool,
 ) -> Result<()> {
+    use std::path::PathBuf;
     use your_ai_rs::config::model::AVAILABLE_MODELS;
     use your_ai_rs::model::{LlamaConfig, LlamaForCausalLM, TokenizerWrapper};
-    use std::path::PathBuf;
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Text Generation");
@@ -819,10 +824,7 @@ pub fn generate(
     };
 
     let model_path = resolve_model_path(&model_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Model not found: {}. Please download it first.",
-            model_name
-        )
+        anyhow::anyhow!("Model not found: {}. Please download it first.", model_name)
     })?;
 
     println!("Loading model from: {}", model_path);
@@ -857,7 +859,10 @@ pub fn generate(
         let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
 
         let base_tokens = base_model.generate(&input_array, max_tokens, temperature)?;
-        let base_output = tokenizer.decode(&base_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+        let base_output = tokenizer.decode(
+            &base_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(),
+            true,
+        )?;
 
         println!("Prompt: {}", prompt);
         println!("Generated: {}", base_output);
@@ -870,7 +875,13 @@ pub fn generate(
         let mut finetuned_model = LlamaForCausalLM::new(llama_config)?;
 
         let finetuned_tokens = finetuned_model.generate(&input_array, max_tokens, temperature)?;
-        let finetuned_output = tokenizer.decode(&finetuned_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+        let finetuned_output = tokenizer.decode(
+            &finetuned_tokens
+                .iter()
+                .map(|&x| x as u32)
+                .collect::<Vec<_>>(),
+            true,
+        )?;
 
         println!("Prompt: {}", prompt);
         println!("Generated: {}", finetuned_output);
@@ -892,7 +903,13 @@ pub fn generate(
         let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
 
         let generated_tokens = model.generate(&input_array, max_tokens, temperature)?;
-        let generated_text = tokenizer.decode(&generated_tokens.iter().map(|&x| x as u32).collect::<Vec<_>>(), true)?;
+        let generated_text = tokenizer.decode(
+            &generated_tokens
+                .iter()
+                .map(|&x| x as u32)
+                .collect::<Vec<_>>(),
+            true,
+        )?;
 
         println!();
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

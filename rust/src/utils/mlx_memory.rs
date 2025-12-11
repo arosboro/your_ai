@@ -3,7 +3,7 @@
 //! Wrappers around MLX C API memory functions from mlx-sys
 
 // Import the generated bindings from mlx-sys
-use mlx_sys::{mlx_set_memory_limit, mlx_set_cache_limit, mlx_get_memory_limit, mlx_clear_cache};
+use mlx_sys::{mlx_clear_cache, mlx_get_memory_limit, mlx_set_cache_limit, mlx_set_memory_limit};
 
 // Additional memory functions - declare extern if not in mlx_sys
 extern "C" {
@@ -90,4 +90,3 @@ pub fn clear_cache() -> anyhow::Result<()> {
     }
     Ok(())
 }
-

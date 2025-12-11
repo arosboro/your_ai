@@ -18,16 +18,16 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 /// Optimizer state stored as raw data to prevent MLX memory accumulation
-type OptimizerState = (Vec<f32>, Vec<i32>);  // (data, shape)
+type OptimizerState = (Vec<f32>, Vec<i32>); // (data, shape)
 
 pub struct DistrustTrainer {
     config: Config,
     model: LlamaForCausalLM,
     tokenizer: crate::model::TokenizerWrapper,
     // Manual AdamW state - stored as RAW DATA (not Array) to prevent MLX memory leak
-    adam_m: std::collections::HashMap<String, OptimizerState>,  // First moment estimates
-    adam_v: std::collections::HashMap<String, OptimizerState>,  // Second moment estimates
-    adam_step: usize,                                            // Step counter for bias correction
+    adam_m: std::collections::HashMap<String, OptimizerState>, // First moment estimates
+    adam_v: std::collections::HashMap<String, OptimizerState>, // Second moment estimates
+    adam_step: usize,                                          // Step counter for bias correction
     dataset: Option<StreamingDataset>,
     global_step: usize,
     loss_history: Vec<f32>,
@@ -148,8 +148,10 @@ impl DistrustTrainer {
 
         // Load tokenizer
         let tokenizer_path = model_dir.join("tokenizer.json");
-        let tokenizer = crate::model::TokenizerWrapper::from_file(&tokenizer_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load tokenizer from {:?}: {}", tokenizer_path, e))?;
+        let tokenizer =
+            crate::model::TokenizerWrapper::from_file(&tokenizer_path).map_err(|e| {
+                anyhow::anyhow!("Failed to load tokenizer from {:?}: {}", tokenizer_path, e)
+            })?;
         println!("Loaded tokenizer from {}", tokenizer_path.display());
 
         // Initialize manual AdamW state (replacing broken Optimizer API)
@@ -209,10 +211,17 @@ impl DistrustTrainer {
         // Set MLX memory limits to prevent memory accumulation
         let limit_bytes = (max_memory_gb * 0.9 * 1024.0 * 1024.0 * 1024.0) as usize;
         if let Ok(prev_limit) = crate::utils::mlx_memory::set_memory_limit(limit_bytes) {
-            println!("MLX memory limit set: {} -> {} bytes", prev_limit, limit_bytes);
+            println!(
+                "MLX memory limit set: {} -> {} bytes",
+                prev_limit, limit_bytes
+            );
         }
         if let Ok(prev_cache) = crate::utils::mlx_memory::set_cache_limit(limit_bytes / 2) {
-            println!("MLX cache limit set: {} -> {} bytes", prev_cache, limit_bytes / 2);
+            println!(
+                "MLX cache limit set: {} -> {} bytes",
+                prev_cache,
+                limit_bytes / 2
+            );
         }
 
         self
@@ -277,8 +286,11 @@ impl DistrustTrainer {
         let memory_limit_bytes = (memory_limit_gb * 1024.0 * 1024.0 * 1024.0) as usize;
         match crate::utils::mlx_memory::set_memory_limit(memory_limit_bytes) {
             Ok(prev) => {
-                eprintln!("🔒 Set MLX memory limit to {:.1} GB (was {:.1} GB)",
-                         memory_limit_gb, prev as f64 / 1024.0 / 1024.0 / 1024.0);
+                eprintln!(
+                    "🔒 Set MLX memory limit to {:.1} GB (was {:.1} GB)",
+                    memory_limit_gb,
+                    prev as f64 / 1024.0 / 1024.0 / 1024.0
+                );
             }
             Err(e) => {
                 eprintln!("⚠️ Warning: Failed to set MLX memory limit: {}", e);
@@ -318,7 +330,9 @@ impl DistrustTrainer {
                 self.best_loss = loss;
                 self.best_loss_step = self.global_step;
                 // Only save best checkpoint every 100 steps to avoid blocking
-                if self.save_best_checkpoint && (self.global_step % 100 == 0 || self.global_step == 0) {
+                if self.save_best_checkpoint
+                    && (self.global_step % 100 == 0 || self.global_step == 0)
+                {
                     if let Err(e) = self.save_best_checkpoint_impl(self.global_step) {
                         eprintln!("Warning: Failed to save best checkpoint: {}", e);
                     }
@@ -531,18 +545,21 @@ impl DistrustTrainer {
                 .take(window_size)
                 .sum::<f32>()
                 / window_size as f32;
-            println!("  Final loss:     {:.4} (avg of last {} steps)", final_avg, window_size);
+            println!(
+                "  Final loss:     {:.4} (avg of last {} steps)",
+                final_avg, window_size
+            );
 
             if self.best_loss < f32::INFINITY {
-                println!("  Best loss:      {:.4} (step {})", self.best_loss, self.best_loss_step);
+                println!(
+                    "  Best loss:      {:.4} (step {})",
+                    self.best_loss, self.best_loss_step
+                );
 
                 if self.save_best_checkpoint {
-                    let best_path = PathBuf::from(&self.config.paths.output_dir)
-                        .join("checkpoint-best");
-                    println!(
-                        "  Best checkpoint: {}",
-                        best_path.display()
-                    );
+                    let best_path =
+                        PathBuf::from(&self.config.paths.output_dir).join("checkpoint-best");
+                    println!("  Best checkpoint: {}", best_path.display());
                 }
             }
 
@@ -615,12 +632,19 @@ impl DistrustTrainer {
     /// Run a single training step (public for benchmarking)
     pub fn training_step(&mut self) -> anyhow::Result<f32> {
         // #region agent log
-        self.log_debug("trainer.rs:step_start", "Step start", self.global_step, "init");
+        self.log_debug(
+            "trainer.rs:step_start",
+            "Step start",
+            self.global_step,
+            "init",
+        );
         // #endregion agent log
 
         // Get batch from dataset
         let batch = if let Some(ref mut dataset) = self.dataset {
-            dataset.next_batch().ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?
+            dataset
+                .next_batch()
+                .ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?
         } else {
             // Dummy batch for testing
             vec![serde_json::json!({
@@ -633,17 +657,29 @@ impl DistrustTrainer {
         // Extract metadata
         let auth_weights_vec: Vec<f32> = batch
             .iter()
-            .filter_map(|ex| ex.get("auth_weight").and_then(|v| v.as_f64()).map(|v| v as f32))
+            .filter_map(|ex| {
+                ex.get("auth_weight")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+            })
             .collect();
         let prov_entropies_vec: Vec<f32> = batch
             .iter()
-            .filter_map(|ex| ex.get("prov_entropy").and_then(|v| v.as_f64()).map(|v| v as f32))
+            .filter_map(|ex| {
+                ex.get("prov_entropy")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+            })
             .collect();
 
         // Extract and tokenize text from batch
         let texts: Vec<String> = batch
             .iter()
-            .filter_map(|ex| ex.get("text").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|ex| {
+                ex.get("text")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
 
         if texts.is_empty() {
@@ -700,7 +736,7 @@ impl DistrustTrainer {
         // Create loss function
         let loss_fn = |model: &mut LlamaForCausalLM,
                        (input_ids, auth_weights, prov_entropies): (&Array, &Array, &Array)|
-                       -> Result<Array, mlx_rs::error::Exception> {
+         -> Result<Array, mlx_rs::error::Exception> {
             let batch_size = input_ids.dim(0);
             let seq_len = input_ids.dim(1);
 
@@ -719,8 +755,11 @@ impl DistrustTrainer {
             let ce_loss = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
 
             // Distrust loss
-            let distrust_loss = batch_empirical_distrust_loss(auth_weights, prov_entropies, alpha, "mean")
-                .map_err(|e| mlx_rs::error::Exception::custom(format!("Distrust loss: {}", e)))?;
+            let distrust_loss =
+                batch_empirical_distrust_loss(auth_weights, prov_entropies, alpha, "mean")
+                    .map_err(|e| {
+                        mlx_rs::error::Exception::custom(format!("Distrust loss: {}", e))
+                    })?;
 
             // Combined loss
             let lambda_arr = Array::from_f32(lambda_weight);
@@ -735,7 +774,12 @@ impl DistrustTrainer {
         let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log
-        self.log_debug("trainer.rs:pre_grad", "Before gradient computation", self.global_step, "pre_grad");
+        self.log_debug(
+            "trainer.rs:pre_grad",
+            "Before gradient computation",
+            self.global_step,
+            "pre_grad",
+        );
         // #endregion agent log
 
         // Compute gradients
@@ -750,10 +794,16 @@ impl DistrustTrainer {
         let (loss, grads) = vg(
             &mut self.model,
             (&input_ids, &auth_weights, &prov_entropies),
-        ).map_err(|e| anyhow::anyhow!("Gradient computation failed: {}", e))?;
+        )
+        .map_err(|e| anyhow::anyhow!("Gradient computation failed: {}", e))?;
 
         // #region agent log
-        self.log_debug("trainer.rs:post_grad", "After gradient computation", self.global_step, "post_grad");
+        self.log_debug(
+            "trainer.rs:post_grad",
+            "After gradient computation",
+            self.global_step,
+            "post_grad",
+        );
         // #endregion agent log
 
         // Get loss value - this acts as a sync barrier
@@ -761,7 +811,11 @@ impl DistrustTrainer {
 
         // Check for training divergence
         if loss_val.is_nan() || loss_val.is_infinite() {
-            anyhow::bail!("Training diverged: loss is {} at step {}", loss_val, self.global_step);
+            anyhow::bail!(
+                "Training diverged: loss is {} at step {}",
+                loss_val,
+                self.global_step
+            );
         }
 
         // CRITICAL FIX: Process each parameter INDIVIDUALLY with immediate cleanup
@@ -868,8 +922,10 @@ impl DistrustTrainer {
             }
 
             // Store updated momentum as RAW DATA
-            self.adam_m.insert(param_name.clone(), (m_data, param_shape.clone()));
-            self.adam_v.insert(param_name.clone(), (v_data, param_shape.clone()));
+            self.adam_m
+                .insert(param_name.clone(), (m_data, param_shape.clone()));
+            self.adam_v
+                .insert(param_name.clone(), (v_data, param_shape.clone()));
 
             // Update model parameter - use scoped block to ensure old array is dropped
             {
@@ -904,15 +960,23 @@ impl DistrustTrainer {
         let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log
-        self.log_debug("trainer.rs:post_adamw", "After AdamW updates", self.global_step, "post_adamw");
+        self.log_debug(
+            "trainer.rs:post_adamw",
+            "After AdamW updates",
+            self.global_step,
+            "post_adamw",
+        );
         // #endregion agent log
 
         // Memory checkpoint
         if self.global_step % 10 == 0 {
             if let Some(ref mut monitor) = self.memory_monitor {
                 if let Ok(info) = monitor.check() {
-                    eprintln!("  [After cache clear] RSS: {} | Max: {}",
-                             info.rss_formatted(), monitor.max_rss_formatted());
+                    eprintln!(
+                        "  [After cache clear] RSS: {} | Max: {}",
+                        info.rss_formatted(),
+                        monitor.max_rss_formatted()
+                    );
                 }
             }
         }
@@ -920,14 +984,24 @@ impl DistrustTrainer {
         // Log training statistics on first step
         if self.global_step == 0 {
             eprintln!("\n📊 Training Statistics:");
-            eprintln!("   Trainable parameters: {}", format_param_count(trainable_params));
-            eprintln!("   Frozen parameters: {}", format_param_count(frozen_params));
+            eprintln!(
+                "   Trainable parameters: {}",
+                format_param_count(trainable_params)
+            );
+            eprintln!(
+                "   Frozen parameters: {}",
+                format_param_count(frozen_params)
+            );
             let total = trainable_params + frozen_params;
             if trainable_params > 0 {
-                eprintln!("   Trainable percentage: {:.2}%",
-                         (trainable_params as f64 / total as f64) * 100.0);
+                eprintln!(
+                    "   Trainable percentage: {:.2}%",
+                    (trainable_params as f64 / total as f64) * 100.0
+                );
             }
-            eprintln!("   Strategy: Training lm_head + final norm ONLY (minimal memory footprint)\n");
+            eprintln!(
+                "   Strategy: Training lm_head + final norm ONLY (minimal memory footprint)\n"
+            );
         }
 
         // Final cache clear
@@ -935,12 +1009,16 @@ impl DistrustTrainer {
         let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log
-        self.log_debug("trainer.rs:step_end", "Step complete", self.global_step, "end");
+        self.log_debug(
+            "trainer.rs:step_end",
+            "Step complete",
+            self.global_step,
+            "end",
+        );
         // #endregion agent log
 
         Ok(loss_val)
     }
-
 
     fn save_checkpoint(&self, step: usize, is_final: bool) -> anyhow::Result<()> {
         if let Some(ref _manager) = self.checkpoint_manager {
