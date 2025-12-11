@@ -25,7 +25,7 @@ The `mlx-sys` build.rs doesn't explicitly set `CMAKE_SYSTEM_PROCESSOR`, so CMake
 ### Error Message
 ```
 CMake Error: Building for x86_64 on macOS is not supported.
-If you are on an Apple silicon system, check the build documentation for possible fixes:
+If you are on an Apple Silicon system, check the build documentation for possible fixes:
 https://ml-explore.github.io/mlx/build/html/install.html#build-from-source
 ```
 

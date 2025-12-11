@@ -43,10 +43,11 @@ _mlx_error(const char* file, const int line, const char* fmt, ...) {
   va_end(args_copy);
   int size_loc = snprintf(nullptr, 0, " at %s:%d", file, line);
 
-  char msg[size + size_loc + 1]; // \0 at the end
-  size = vsnprintf(msg, size + 1, fmt, args);
-  snprintf(msg + size, size_loc + 1, " at %s:%d", file, line);
+  // Use unique_ptr instead of VLA for better portability
+  auto msg = std::make_unique<char[]>(size + size_loc + 1); // \0 at the end
+  size = vsnprintf(msg.get(), size + 1, fmt, args);
+  snprintf(msg.get() + size, size_loc + 1, " at %s:%d", file, line);
   va_end(args);
 
-  mlx_error_handler_(msg, mlx_error_handler_data_.get());
+  mlx_error_handler_(msg.get(), mlx_error_handler_data_.get());
 }

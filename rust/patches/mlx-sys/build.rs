@@ -1,5 +1,3 @@
-extern crate cmake;
-
 use cmake::Config;
 use std::{env, path::PathBuf};
 
@@ -71,16 +69,20 @@ fn build_and_link_mlx_c() {
 
     println!("cargo:rustc-link-lib=c++");
     println!("cargo:rustc-link-lib=dylib=objc");
-    println!("cargo:rustc-link-lib=framework=Foundation");
-
-    #[cfg(feature = "metal")]
+    
+    #[cfg(target_os = "macos")]
     {
-        println!("cargo:rustc-link-lib=framework=Metal");
-    }
+        println!("cargo:rustc-link-lib=framework=Foundation");
 
-    #[cfg(feature = "accelerate")]
-    {
-        println!("cargo:rustc-link-lib=framework=Accelerate");
+        #[cfg(feature = "metal")]
+        {
+            println!("cargo:rustc-link-lib=framework=Metal");
+        }
+
+        #[cfg(feature = "accelerate")]
+        {
+            println!("cargo:rustc-link-lib=framework=Accelerate");
+        }
     }
 
 }
@@ -94,7 +96,11 @@ fn main() {
     // Set libclang path for bindgen on macOS
     #[cfg(target_os = "macos")]
     {
-        env::set_var("LIBCLANG_PATH", "/Library/Developer/CommandLineTools/usr/lib");
+        // SAFETY: Setting LIBCLANG_PATH for the current process only during build.
+        // This is safe because we're in a build script with no concurrent access.
+        unsafe {
+            env::set_var("LIBCLANG_PATH", "/Library/Developer/CommandLineTools/usr/lib");
+        }
     }
 
     // generate bindings

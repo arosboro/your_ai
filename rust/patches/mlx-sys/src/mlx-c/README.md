@@ -2,7 +2,7 @@
 
 MLX C is a C API for [MLX](https://github.com/ml-explore/mlx).
 
-MLX is an array framework for machine learning on Apple silicon. MLX C expands
+MLX is an array framework for machine learning on Apple Silicon. MLX C expands
 MLX to the C language, making research and experimentation easier on Apple
 silicon.
 

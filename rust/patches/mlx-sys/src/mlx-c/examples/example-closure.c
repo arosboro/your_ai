@@ -87,7 +87,7 @@ int main() {
   mlx_vector_array_get(&y, v_y, 0);
   print_array("+2: ", y);
 
-  // simple +nan to input, with paylaod
+  // simple +nan to input, with payload
   mlx_set_error_handler(error_handler_noop, NULL, NULL);
   mlx_array_set_float(&payload.value, NAN);
   if (mlx_closure_apply(&v_y, cls_with_value, v_x)) {

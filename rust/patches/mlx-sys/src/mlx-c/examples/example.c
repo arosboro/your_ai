@@ -38,7 +38,7 @@ int main() {
 
   mlx_array two = mlx_array_new_int(2);
   mlx_divide(&arr, arr, two, stream);
-  print_array("divive by 2!", arr);
+  print_array("divide by 2!", arr);
 
   mlx_arange(&arr, 0, 3, 0.5, MLX_FLOAT32, stream);
   print_array("arange", arr);
