@@ -121,7 +121,7 @@ static PRE_1970_SOURCE_MARKERS: Lazy<Vec<&str>> = Lazy::new(|| {
 
 /// Count explicit citations in text
 pub fn count_citations(text: &str) -> usize {
-    let patterns = vec![
+    let patterns = [
         Regex::new(r"\[\d+\]").unwrap(),           // [1], [2], etc.
         Regex::new(r"\(\w+,?\s*\d{4}\)").unwrap(), // (Author, 2020)
         Regex::new(r"\(\w+\s+et\s+al\.?,?\s*\d{4}\)").unwrap(), // (Smith et al., 2020)
@@ -193,6 +193,7 @@ pub fn extract_year_from_text(
 ) -> Option<i32> {
     // First check metadata
     if let Some(meta) = metadata {
+        let year_regex = Regex::new(r"\b(1[0-9]{3}|20[0-2][0-9])\b").unwrap();
         for field in &["year", "date", "publication_date", "published"] {
             if let Some(value) = meta.get(*field) {
                 // Try to parse as int
@@ -202,10 +203,7 @@ pub fn extract_year_from_text(
                     }
                 }
                 // Try to extract year from date string
-                if let Some(caps) = Regex::new(r"\b(1[0-9]{3}|20[0-2][0-9])\b")
-                    .unwrap()
-                    .captures(value)
-                {
+                if let Some(caps) = year_regex.captures(value) {
                     if let Ok(year) = caps[1].parse::<i32>() {
                         return Some(year);
                     }
@@ -434,7 +432,7 @@ pub fn calculate_authority_weight(
         + consensus_score
         + age_adjustment
         + primary_adjustment;
-    let authority_weight = (raw_weight + 0.3).max(0.0).min(0.99);
+    let authority_weight = (raw_weight + 0.3).clamp(0.0, 0.99);
 
     (authority_weight, breakdown)
 }

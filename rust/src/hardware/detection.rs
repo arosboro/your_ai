@@ -37,10 +37,7 @@ pub fn detect_hardware() -> (Option<String>, Option<String>, Option<usize>) {
     };
 
     // Get memory
-    let memory_gb = match get_memory_gb() {
-        Ok(mem) => Some(mem),
-        Err(_) => None,
-    };
+    let memory_gb = get_memory_gb().ok();
 
     (generation, variant, memory_gb)
 }

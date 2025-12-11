@@ -122,7 +122,7 @@ impl LoraLayer {
         // LoRA transformation: B @ A @ x * scale
         let a_out = self.lora_a.matmul(x)?;
         let lora_out = self.lora_b.matmul(&a_out)?;
-        let lora_out_scaled = lora_out.multiply(&Array::from_f32(self.scale))?;
+        let lora_out_scaled = lora_out.multiply(Array::from_f32(self.scale))?;
 
         // Combine: base + lora * scale
         let result = base_out.add(&lora_out_scaled)?;

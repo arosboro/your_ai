@@ -18,11 +18,9 @@ pub fn load_jsonl(path: &Path) -> anyhow::Result<Vec<Value>> {
     let reader = std::io::BufReader::new(file);
     let mut data = Vec::new();
 
-    for line in std::io::BufRead::lines(reader) {
-        if let Ok(line) = line {
-            if let Ok(value) = serde_json::from_str(&line) {
-                data.push(value);
-            }
+    for line in std::io::BufRead::lines(reader).flatten() {
+        if let Ok(value) = serde_json::from_str(&line) {
+            data.push(value);
         }
     }
 

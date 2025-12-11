@@ -196,7 +196,7 @@ impl EmpiricalOptimizer {
         config.training.max_steps = self.test_steps;
         config.model.lora_rank = lora_rank;
         config.model.lora_alpha = lora_rank * 2; // Maintain scale=2.0
-        config.model.lora_num_layers = lora_layers as i32;
+        config.model.lora_num_layers = lora_layers;
         config.performance.checkpoint_enabled = false;
 
         // Initialize memory monitor
@@ -266,7 +266,7 @@ impl EmpiricalOptimizer {
         config.training.max_steps = test_steps;
         config.model.lora_rank = lora_rank;
         config.model.lora_alpha = lora_rank * 2;
-        config.model.lora_num_layers = lora_layers as i32;
+        config.model.lora_num_layers = lora_layers;
         config.performance.checkpoint_enabled = false;
 
         // Initialize memory monitor

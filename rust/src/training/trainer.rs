@@ -331,7 +331,7 @@ impl DistrustTrainer {
                 self.best_loss_step = self.global_step;
                 // Only save best checkpoint every 100 steps to avoid blocking
                 if self.save_best_checkpoint
-                    && (self.global_step % 100 == 0 || self.global_step == 0)
+                    && (self.global_step.is_multiple_of(100) || self.global_step == 0)
                 {
                     if let Err(e) = self.save_best_checkpoint_impl(self.global_step) {
                         eprintln!("Warning: Failed to save best checkpoint: {}", e);
@@ -342,13 +342,13 @@ impl DistrustTrainer {
             // Learning rate is now handled in training_step
 
             // Aggressive cache clearing every 5 steps
-            if self.global_step % 5 == 0 {
+            if self.global_step.is_multiple_of(5) {
                 mlx_rs::transforms::compile::clear_cache();
                 let _ = crate::utils::mlx_memory::clear_cache();
             }
 
             // Check memory periodically
-            if self.global_step % self.memory_report_interval == 0 {
+            if self.global_step.is_multiple_of(self.memory_report_interval) {
                 if let Err(e) = self.check_memory_limits() {
                     eprintln!("\n{}", e);
                     if let Some(ref mut monitor) = self.memory_monitor {
@@ -358,17 +358,20 @@ impl DistrustTrainer {
                 }
 
                 // Print memory report
-                if self.global_step % (self.memory_report_interval * 10) == 0 {
+                if self
+                    .global_step
+                    .is_multiple_of(self.memory_report_interval * 10)
+                {
                     if let Some(ref mut monitor) = self.memory_monitor {
                         let _ = monitor.check(); // Update stats
-                        println!("");
+                        println!();
                         monitor.print_report();
                     }
                 }
             }
 
             // Log progress
-            if self.global_step % 10 == 0 {
+            if self.global_step.is_multiple_of(10) {
                 let recent_losses: Vec<f32> = self
                     .loss_history
                     .iter()
@@ -430,7 +433,10 @@ impl DistrustTrainer {
             }
 
             // Save checkpoint
-            if self.global_step % self.config.performance.checkpoint_interval == 0 {
+            if self
+                .global_step
+                .is_multiple_of(self.config.performance.checkpoint_interval)
+            {
                 self.save_checkpoint(self.global_step, false)?;
             }
 
@@ -471,7 +477,7 @@ impl DistrustTrainer {
                 "timestamp": chrono::Utc::now().to_rfc3339(),
             });
 
-            writeln!(file, "{}", metrics.to_string())?;
+            writeln!(file, "{metrics}")?;
         }
         Ok(())
     }
@@ -711,7 +717,7 @@ impl DistrustTrainer {
             actual_batch_size += 1;
         }
 
-        let batch_size = actual_batch_size as i32;
+        let batch_size = actual_batch_size;
         let seq_len_i32 = seq_len as i32;
 
         let input_ids = Array::from_slice(&padded_ids, &[batch_size, seq_len_i32]);
@@ -725,7 +731,7 @@ impl DistrustTrainer {
         let prov_entropies = if !prov_entropies_vec.is_empty() {
             Array::from_slice(&prov_entropies_vec, &[batch_size])
         } else {
-            mlx_rs::ops::ones::<f32>(&[batch_size])?.multiply(&Array::from_f32(5.0))?
+            mlx_rs::ops::ones::<f32>(&[batch_size])?.multiply(Array::from_f32(5.0))?
         };
 
         // Store config values

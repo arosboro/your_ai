@@ -71,13 +71,11 @@ impl StreamingDataset {
 
         while batch.len() < self.batch_size {
             // Refill buffer if needed
-            if self.buffer.is_empty() {
-                if !self.fill_buffer() {
-                    if batch.is_empty() {
-                        return None;
-                    } else {
-                        return Some(batch); // Return partial batch
-                    }
+            if self.buffer.is_empty() && !self.fill_buffer() {
+                if batch.is_empty() {
+                    return None;
+                } else {
+                    return Some(batch); // Return partial batch
                 }
             }
 

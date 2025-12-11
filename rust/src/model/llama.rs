@@ -78,8 +78,7 @@ impl LlamaConfig {
         // FP16: 2 bytes per parameter
         // Add 50% overhead for activations, gradients (for LoRA), optimizer states
         let base_memory = num_params * 2;
-        let total_memory = (base_memory as f64 * 1.5) as u64;
-        total_memory
+        (base_memory as f64 * 1.5) as u64
     }
 
     /// Estimate memory requirements in GB
@@ -272,9 +271,7 @@ impl LlamaAttention {
         for _ in 0..n_rep {
             repeated.push(x.clone());
         }
-        let x = mlx_rs::ops::concatenate(
-            &repeated.iter().map(|a| a.as_ref()).collect::<Vec<&Array>>(),
-        )?;
+        let x = mlx_rs::ops::concatenate(&repeated.iter().map(|a| a).collect::<Vec<&Array>>())?;
 
         // Reshape to [B, num_kv_heads * n_rep, L, head_dim]
         x.reshape(&[b, num_kv_heads * n_rep, seq_len, head_dim])
@@ -507,7 +504,7 @@ impl LlamaForCausalLM {
                     .unwrap_or(0)
             } else {
                 // Temperature sampling
-                let scaled_logits = last_logits.divide(&Array::from_f32(temperature))?;
+                let scaled_logits = last_logits.divide(Array::from_f32(temperature))?;
                 let probs = mlx_rs::ops::softmax_axis(&scaled_logits, -1, false)?;
 
                 // Sample from categorical distribution

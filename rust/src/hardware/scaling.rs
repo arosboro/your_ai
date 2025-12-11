@@ -143,7 +143,7 @@ static MODEL_SIZE_PATTERN: Lazy<Regex> =
 pub fn detect_model_size(model_path: &str) -> (String, usize) {
     let model_name = model_path
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(model_path)
         .to_lowercase();
 

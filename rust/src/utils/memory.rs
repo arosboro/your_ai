@@ -41,7 +41,7 @@ impl MemoryInfo {
 
         // Get process memory via ps
         let output = Command::new("ps")
-            .args(&["-o", "rss,vsz", "-p", &std::process::id().to_string()])
+            .args(["-o", "rss,vsz", "-p", &std::process::id().to_string()])
             .output()?;
 
         let output_str = String::from_utf8_lossy(&output.stdout);
@@ -70,7 +70,7 @@ impl MemoryInfo {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse VSZ"))?;
 
         // Get system memory via sysctl
-        let sys_output = Command::new("sysctl").args(&["hw.memsize"]).output()?;
+        let sys_output = Command::new("sysctl").args(["hw.memsize"]).output()?;
 
         let sys_str = String::from_utf8_lossy(&sys_output.stdout);
         let total_bytes: u64 = sys_str

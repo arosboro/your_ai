@@ -80,7 +80,7 @@ impl ModelLoader {
                     std::env::var("HOME").unwrap_or_default(),
                     self.model_path.replace('/', "--")
                 ),
-                format!("models/{}", self.model_path.split('/').last().unwrap()),
+                format!("models/{}", self.model_path.split('/').next_back().unwrap()),
                 format!("~/.cache/huggingface/models/{}", self.model_path),
             ];
 

@@ -124,14 +124,12 @@ impl CheckpointManager {
     fn list_checkpoints(&self) -> anyhow::Result<Vec<usize>> {
         let mut checkpoints = Vec::new();
 
-        for entry in fs::read_dir(&self.checkpoint_dir)? {
-            if let Ok(entry) = entry {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("checkpoint-") {
-                    let step_str = name.replace("checkpoint-", "").replace("-final", "");
-                    if let Ok(step) = step_str.parse::<usize>() {
-                        checkpoints.push(step);
-                    }
+        for entry in (fs::read_dir(&self.checkpoint_dir)?).flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("checkpoint-") {
+                let step_str = name.replace("checkpoint-", "").replace("-final", "");
+                if let Ok(step) = step_str.parse::<usize>() {
+                    checkpoints.push(step);
                 }
             }
         }

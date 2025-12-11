@@ -123,7 +123,7 @@ pub fn batch_empirical_distrust_loss(
 
     // Per-sample squared loss: alpha * distrust_component^2
     let squared = distrust_component.square()?;
-    let per_sample_loss = squared.multiply(&Array::from_f32(alpha))?;
+    let per_sample_loss = squared.multiply(Array::from_f32(alpha))?;
 
     // Apply reduction
     let result = match reduction {
@@ -201,7 +201,6 @@ pub fn validate_inputs(authority_weight: f32, provenance_entropy: f32) -> (bool,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
 
     #[test]
     fn test_empirical_distrust_loss_primary_source() {
