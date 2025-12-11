@@ -59,10 +59,11 @@ performance:
             let err_str = e.to_string().to_lowercase();
             assert!(
                 err_str.contains("model")
-                || err_str.contains("config")
-                || err_str.contains("no such file")
-                || err_str.contains("not found"),
-                "Unexpected error: {}", e
+                    || err_str.contains("config")
+                    || err_str.contains("no such file")
+                    || err_str.contains("not found"),
+                "Unexpected error: {}",
+                e
             );
         }
     }
