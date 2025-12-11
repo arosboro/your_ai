@@ -400,32 +400,30 @@ pub fn benchmark(
                                 error: None,
                                 optimal_config: None,
                             });
+                        } else if error.as_deref() == Some("OOM") {
+                            println!("✗ OOM");
+                            // Stop testing larger models on OOM
+                            results.push(BenchmarkResult {
+                                preset: preset.to_string(),
+                                model_name: model_name.to_string(),
+                                params: params.to_string(),
+                                success: false,
+                                peak_memory_gb: 0.0,
+                                error: Some("OOM".to_string()),
+                                optimal_config: None,
+                            });
+                            break;
                         } else {
-                            if error.as_deref() == Some("OOM") {
-                                println!("✗ OOM");
-                                // Stop testing larger models on OOM
-                                results.push(BenchmarkResult {
-                                    preset: preset.to_string(),
-                                    model_name: model_name.to_string(),
-                                    params: params.to_string(),
-                                    success: false,
-                                    peak_memory_gb: 0.0,
-                                    error: Some("OOM".to_string()),
-                                    optimal_config: None,
-                                });
-                                break;
-                            } else {
-                                println!("✗ {}", error.as_deref().unwrap_or("Error"));
-                                results.push(BenchmarkResult {
-                                    preset: preset.to_string(),
-                                    model_name: model_name.to_string(),
-                                    params: params.to_string(),
-                                    success: false,
-                                    peak_memory_gb: 0.0,
-                                    error,
-                                    optimal_config: None,
-                                });
-                            }
+                            println!("✗ {}", error.as_deref().unwrap_or("Error"));
+                            results.push(BenchmarkResult {
+                                preset: preset.to_string(),
+                                model_name: model_name.to_string(),
+                                params: params.to_string(),
+                                success: false,
+                                peak_memory_gb: 0.0,
+                                error,
+                                optimal_config: None,
+                            });
                         }
                     } else {
                         println!("✗ Failed to parse JSON");
@@ -589,6 +587,7 @@ pub fn optimize(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn train(
     model: String,
     batch_size: Option<usize>,
@@ -704,24 +703,22 @@ pub fn train(
         println!("  Max memory:     {:.1} GB", mem);
 
         // Check if memory limit is sufficient for model
-        if model.contains("8b") || model.contains("8B") {
-            if mem < 48.0 {
-                println!();
-                println!("⚠️  WARNING: Memory limit may be too low for 8B model");
-                println!("   Current limit:    {:.1} GB", mem);
-                println!("   Recommended:      48-70 GB for stable training");
-                if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
-                    let system_gb = info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-                    println!("   Your system:      {:.1} GB total", system_gb);
-                    if system_gb >= 70.0 {
-                        println!("   Suggestion:       Try --max-memory 70.0");
-                    } else if system_gb >= 48.0 {
-                        let recommended = (system_gb * 0.75).floor();
-                        println!("   Suggestion:       Try --max-memory {:.0}.0", recommended);
-                    }
+        if (model.contains("8b") || model.contains("8B")) && mem < 48.0 {
+            println!();
+            println!("⚠️  WARNING: Memory limit may be too low for 8B model");
+            println!("   Current limit:    {:.1} GB", mem);
+            println!("   Recommended:      48-70 GB for stable training");
+            if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
+                let system_gb = info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                println!("   Your system:      {:.1} GB total", system_gb);
+                if system_gb >= 70.0 {
+                    println!("   Suggestion:       Try --max-memory 70.0");
+                } else if system_gb >= 48.0 {
+                    let recommended = (system_gb * 0.75).floor();
+                    println!("   Suggestion:       Try --max-memory {:.0}.0", recommended);
                 }
-                println!("   Low memory may cause excessive swap usage and slow training");
             }
+            println!("   Low memory may cause excessive swap usage and slow training");
         }
     }
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
