@@ -3,6 +3,7 @@
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
 This repository contains two implementations:
+
 - **Python** (`python/`) - Research/PoC implementation
 - **Rust** (`rust/`) - Production-ready implementation
 
@@ -23,7 +24,7 @@ git clone https://github.com/arosboro/your_ai.git
 cd your_ai/python
 
 # Run setup script (creates venv, installs deps, sets up pre-commit hooks)
-../scripts/setup_dev.sh
+scripts/setup_dev.sh
 
 # Or manually:
 python3 -m venv venv
@@ -249,11 +250,13 @@ mod tests {
 2. **Run tests locally**:
 
    For Python:
+
    ```bash
    cd python && pytest -m unit
    ```
 
    For Rust:
+
    ```bash
    cd rust && cargo test
    ```
@@ -261,11 +264,13 @@ mod tests {
 3. **Run linting**:
 
    For Python:
+
    ```bash
    cd python && ruff check src/ scripts/ tests/
    ```
 
    For Rust:
+
    ```bash
    cd rust && cargo clippy -- -D warnings
    cd rust && cargo fmt --check
@@ -311,16 +316,19 @@ test(rust): add integration tests for training pipeline
 ### PR Requirements
 
 **For Python changes:**
+
 - [ ] All tests pass (`cd python && pytest -m unit`)
 - [ ] Code passes linting (`cd python && ruff check src/ scripts/ tests/`)
 - [ ] Code is formatted (`cd python && ruff format src/ scripts/ tests/`)
 
 **For Rust changes:**
+
 - [ ] All tests pass (`cd rust && cargo test`)
 - [ ] Code passes clippy (`cd rust && cargo clippy -- -D warnings`)
 - [ ] Code is formatted (`cd rust && cargo fmt`)
 
 **For all changes:**
+
 - [ ] Commit messages follow conventional format
 - [ ] Documentation updated if needed
 - [ ] CHANGELOG.txt updated for user-facing changes

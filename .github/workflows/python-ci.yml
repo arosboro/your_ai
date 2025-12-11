@@ -3,10 +3,10 @@ name: Python CI
 on:
   push:
     branches: [main, release-standards]
-    paths: ['python/**', '.github/workflows/python-ci.yml']
+    paths: ["python/**", ".github/workflows/python-ci.yml"]
   pull_request:
     branches: [main]
-    paths: ['python/**']
+    paths: ["python/**"]
   workflow_dispatch: # Allow manual triggering for benchmark jobs
 
 jobs:
@@ -78,7 +78,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "For **full coverage**, run locally:" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo 'pytest -m unit --cov=src --cov-report=html' >> $GITHUB_STEP_SUMMARY
+          echo 'cd python && pytest -m unit --cov=src --cov-report=html' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Check coverage thresholds per module
