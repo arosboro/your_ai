@@ -1,8 +1,34 @@
 use serde::{Deserialize, Serialize};
 
+/// Training mode determines how gradients are computed
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TrainingMode {
+    /// LoRA: Low-Rank Adaptation - only train small adapter matrices
+    LoRA { rank: usize },
+    /// FullFineTune: Train selected parameters (lm_head, norms, etc.)
+    FullFineTune { targets: Vec<String> },
+    /// Inference only - no training
+    Frozen,
+}
+
+impl TrainingMode {
+    /// Auto-detect training mode from lora_rank parameter
+    pub fn from_lora_rank(lora_rank: usize) -> Self {
+        if lora_rank > 0 {
+            TrainingMode::LoRA { rank: lora_rank }
+        } else {
+            TrainingMode::FullFineTune {
+                targets: vec!["head.lm_head".to_string(), "head.norm".to_string()],
+            }
+        }
+    }
+}
+
 /// Training configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingConfig {
+    #[serde(skip)]
+    pub training_mode: Option<TrainingMode>,
     pub batch_size: usize,
     pub gradient_accumulation_steps: usize,
     pub max_steps: usize,
@@ -28,6 +54,7 @@ pub struct TrainingConfig {
 impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
+            training_mode: None, // Set during trainer initialization based on lora_rank
             batch_size: 1, // Reduced from 2 for better memory efficiency
             gradient_accumulation_steps: 1,
             max_steps: 5000,

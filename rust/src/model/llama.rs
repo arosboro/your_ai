@@ -421,30 +421,128 @@ impl LlamaModel {
     }
 }
 
-/// Llama model for causal language modeling
+/// Frozen backbone - never participates in gradient computation
+/// This prevents MLX from allocating gradient Arrays for frozen parameters
 #[derive(Debug, Clone, DeriveModuleParameters)]
-pub struct LlamaForCausalLM {
+pub struct LlamaBackbone {
     #[param]
-    pub model: LlamaModel,
+    pub embed_tokens: Embedding,
+    #[param]
+    pub layers: Vec<LlamaDecoderLayer>,
+    pub config: LlamaConfig,
+}
+
+impl LlamaBackbone {
+    pub fn new(config: LlamaConfig) -> Result<Self, Exception> {
+        let embed_tokens = Embedding::new(config.vocab_size, config.hidden_size)?;
+
+        let mut layers = Vec::new();
+        for _ in 0..config.num_hidden_layers {
+            layers.push(LlamaDecoderLayer::new(&config)?);
+        }
+
+        Ok(Self {
+            embed_tokens,
+            layers,
+            config,
+        })
+    }
+
+    /// Forward pass through frozen backbone (for use outside gradient graph)
+    pub fn forward(&mut self, input_ids: &Array) -> Result<Array, Exception> {
+        // Embed tokens
+        let mut hidden_states = self.embed_tokens.forward(input_ids)?;
+
+        // Create causal mask
+        let seq_len = input_ids.dim(1);
+        let mask = self.create_causal_mask(seq_len)?;
+
+        // Pass through all decoder layers
+        for layer in &mut self.layers {
+            hidden_states = layer.forward(&hidden_states, Some(&mask))?;
+        }
+
+        Ok(hidden_states)
+    }
+
+    fn create_causal_mask(&self, seq_len: i32) -> Result<Array, Exception> {
+        let indices = mlx_rs::ops::arange::<_, f32>(0, seq_len, 1)?;
+        let row = mlx_rs::ops::expand_dims(&indices, 0)?;
+        let col = mlx_rs::ops::expand_dims(&indices, 1)?;
+        let mask = row.lt(&col)?;
+        let mask = mask.as_type::<f32>()?;
+        let neg_inf = Array::from_f32(-1e9_f32);
+        mask.multiply(&neg_inf)
+    }
+}
+
+/// Trainable head - only these parameters get gradients
+/// This is the KEY to zero memory leaks - value_and_grad only sees these params
+#[derive(Debug, Clone, DeriveModuleParameters)]
+pub struct TrainableHead {
+    #[param]
+    pub norm: RmsNorm,
     #[param]
     pub lm_head: Linear,
 }
 
-impl LlamaForCausalLM {
-    pub fn new(config: LlamaConfig) -> Result<Self, Exception> {
-        let model = LlamaModel::new(config.clone())?;
+impl TrainableHead {
+    pub fn new(config: &LlamaConfig) -> Result<Self, Exception> {
+        let norm = RmsNorm::new(config.hidden_size)?;
         let lm_head = Linear::new(config.hidden_size, config.vocab_size)?;
 
-        Ok(Self { model, lm_head })
+        Ok(Self { norm, lm_head })
+    }
+
+    /// Forward pass through trainable head (for use in gradient computation)
+    pub fn forward(&mut self, hidden_states: &Array) -> Result<Array, Exception> {
+        let normalized = self.norm.forward(hidden_states)?;
+        self.lm_head.forward(&normalized)
+    }
+}
+
+/// Llama model for causal language modeling with split architecture
+/// Backbone is frozen, only head (or LoRA adapters) participate in gradients
+#[derive(Debug, Clone, DeriveModuleParameters)]
+pub struct LlamaForCausalLM {
+    #[param]
+    pub backbone: LlamaBackbone,
+    #[param]
+    pub head: TrainableHead,
+    // LoRA adapters will be added later
+    pub lora_rank: usize,
+}
+
+impl LlamaForCausalLM {
+    pub fn new(config: LlamaConfig) -> Result<Self, Exception> {
+        let backbone = LlamaBackbone::new(config.clone())?;
+        let head = TrainableHead::new(&config)?;
+
+        Ok(Self {
+            backbone,
+            head,
+            lora_rank: 0,
+        })
     }
 
     pub fn forward(&mut self, input_ids: &Array) -> Result<Array, Exception> {
-        let hidden_states = self.model.forward(input_ids)?;
-        self.lm_head.forward(&hidden_states)
+        let hidden_states = self.backbone.forward(input_ids)?;
+        self.head.forward(&hidden_states)
+    }
+
+    /// Forward through backbone only (returns hidden states before head)
+    /// Use this outside gradient computation to prevent memory leaks
+    pub fn forward_backbone(&mut self, input_ids: &Array) -> Result<Array, Exception> {
+        self.backbone.forward(input_ids)
+    }
+
+    /// Forward through head only (for use in gradient computation)
+    pub fn forward_head(&mut self, hidden_states: &Array) -> Result<Array, Exception> {
+        self.head.forward(hidden_states)
     }
 
     pub fn config(&self) -> &LlamaConfig {
-        &self.model.config
+        &self.backbone.config
     }
 
     /// Generate text autoregressively from input token IDs
@@ -562,30 +660,56 @@ pub fn load_weights_into_model(
     let mut parameters = model.parameters_mut().flatten();
 
     // Load weights from safetensors into model parameters
+    // Handle name translation for split architecture:
+    // - "model.layers.X" → "backbone.layers.X"
+    // - "model.norm" → "head.norm"
+    // - "lm_head" → "head.lm_head"
+    // - "model.embed_tokens" → "backbone.embed_tokens"
     for (param_name, param) in parameters.iter_mut() {
         let param_name_str = param_name.to_string();
 
+        // Try direct match first
         if let Some(weight_array) = weights.get(&param_name_str) {
-            // Verify shape matches
-            if weight_array.shape() != param.shape() {
+            if weight_array.shape() == param.shape() {
+                **param = weight_array.clone();
+                let _ = param.eval();
+                loaded_count += 1;
+                continue;
+            }
+        }
+
+        // Try legacy name mapping for split architecture compatibility
+        let legacy_name = if param_name_str.starts_with("backbone.") {
+            // "backbone.layers.X" → "model.layers.X"
+            // "backbone.embed_tokens" → "model.embed_tokens"
+            param_name_str.replace("backbone.", "model.")
+        } else if param_name_str == "head.norm" {
+            "model.norm".to_string()
+        } else if param_name_str == "head.lm_head" {
+            "lm_head".to_string()
+        } else {
+            param_name_str.clone()
+        };
+
+        if let Some(weight_array) = weights.get(&legacy_name) {
+            if weight_array.shape() == param.shape() {
+                **param = weight_array.clone();
+                let _ = param.eval();
+                loaded_count += 1;
+                continue;
+            } else {
                 eprintln!(
-                    "Warning: Shape mismatch for {}: expected {:?}, got {:?}",
+                    "Warning: Shape mismatch for {} (legacy: {}): expected {:?}, got {:?}",
                     param_name_str,
+                    legacy_name,
                     param.shape(),
                     weight_array.shape()
                 );
-                missing_keys.push(param_name_str);
-                continue;
             }
-
-            // Set the parameter value using double dereference
-            // This is the same pattern used in trainer.rs for parameter updates
-            **param = weight_array.clone();
-            let _ = param.eval(); // Materialize on GPU
-            loaded_count += 1;
-        } else {
-            missing_keys.push(param_name_str);
         }
+
+        // Not found with either name
+        missing_keys.push(param_name_str);
     }
 
     // Find extra keys in weights that don't match any model parameters
