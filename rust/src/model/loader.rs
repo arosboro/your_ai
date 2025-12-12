@@ -25,6 +25,25 @@ fn safe_array_from_slice_f32(
         );
     }
 
+    // Check for invalid shapes
+    if shape.iter().any(|&s| s <= 0) {
+        anyhow::bail!(
+            "Invalid shape for tensor '{}': {:?} contains non-positive dimensions",
+            tensor_name,
+            shape
+        );
+    }
+
+    // Check for excessively large tensors that might cause OOM
+    let size_mb = (total_elements * 4) / (1024 * 1024);
+    if size_mb > 2048 {
+        anyhow::bail!(
+            "Tensor '{}' is too large ({} MB) - may cause memory issues",
+            tensor_name,
+            size_mb
+        );
+    }
+
     // Try to create array - if this fails, it will panic/abort
     // We can't catch C++ exceptions, so we validate beforehand
     Ok(Array::from_slice(data, shape))

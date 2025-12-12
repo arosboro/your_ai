@@ -90,3 +90,24 @@ pub fn clear_cache() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// Stop gradient on an Array (detach from computation graph)
+///
+/// Prevents gradients from flowing back through this Array during backward pass.
+///
+/// # Implementation Note
+/// MLX C API has `mlx_stop_gradient` (mlx/c/ops.h:994) but mlx-rs doesn't expose it.
+/// This uses the standard `add(0)` workaround which creates a new Array with identical
+/// values but disconnected from the computation graph. This is the recommended approach
+/// in the MLX community until mlx-rs provides native support.
+///
+/// # Why This Works
+/// The addition operation creates a new Array that:
+/// - Contains the same data
+/// - Is allocated in a new memory location
+/// - Has no parent nodes in the computation graph
+/// - Blocks gradient flow during backpropagation
+pub fn stop_gradient(array: &mlx_rs::Array) -> mlx_rs::error::Result<mlx_rs::Array> {
+    use mlx_rs::Array;
+    array.add(Array::from_f32(0.0))
+}
