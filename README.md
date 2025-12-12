@@ -1,6 +1,7 @@
 # Empirical Distrust Training for LLMs
 
-[![CI](https://github.com/arosboro/your_ai/actions/workflows/ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/ci.yml)
+[![Python CI](https://github.com/arosboro/your_ai/actions/workflows/python-ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/python-ci.yml)
+[![Rust CI](https://github.com/arosboro/your_ai/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/arosboro/your_ai/actions/workflows/rust-ci.yml)
 [![codecov](https://codecov.io/gh/arosboro/your_ai/branch/main/graph/badge.svg)](https://codecov.io/gh/arosboro/your_ai)
 [![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.txt)
 
@@ -56,32 +57,41 @@ def empirical_distrust_loss(authority_weight, provenance_entropy, alpha=2.7):
     return L_empirical
 ```
 
-### This Implementation (MLX for Apple Silicon)
+See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for complete technical documentation.
 
-We adapted Brian's PyTorch code for Apple's MLX framework:
+---
 
-```python
-import mlx.core as mx
+## Choose Your Implementation
 
-def empirical_distrust_loss(authority_weight, provenance_entropy, alpha=2.7):
-    distrust_component = mx.log(1.0 - authority_weight + 1e-8) + provenance_entropy
-    L_empirical = alpha * mx.sum(mx.square(distrust_component))
-    return L_empirical
-```
+This repository provides two implementations of the algorithm:
 
-**Changes from PyTorch to MLX:**
+### 🐍 Python (MLX) - Proof of Concept
+**Best for:** Research, experimentation, rapid iteration
 
-- `torch.log()` → `mx.log()` (MLX array operations)
-- `torch.norm(x) ** 2` → `mx.sum(mx.square(x))` (equivalent: sum of squares)
-- The `1e-8` epsilon is **unchanged** from Brian's original
+- Full-featured training pipeline with QLoRA
+- Comprehensive validation and benchmarking suite
+- Extensive documentation and examples
+- TensorBoard integration for monitoring
 
-See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for the complete technical documentation.
+**[→ Get started with Python](python/)**
+
+### 🦀 Rust (mlx-rs) - Production Ready
+**Best for:** Production deployment, performance, type safety
+
+- High-performance CLI with MLX acceleration
+- Memory-safe training with compile-time guarantees
+- Hardware detection and auto-scaling
+- Checkpoint management with async saves
+
+**[→ Get started with Rust](rust/)**
 
 ---
 
 ## Quick Start
 
 ### Hardware Requirements
+
+Both implementations require Apple Silicon:
 
 | Tier       | Mac            | RAM   | Disk    | Recommended Model                      |
 | ---------- | -------------- | ----- | ------- | -------------------------------------- |
@@ -91,114 +101,40 @@ See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for the complete technical document
 
 **Note:** Start with 7B models (NousResearch/Hermes-2-Pro-Mistral-7B) - they're fast and work on all tiers.
 
-### Installation
+### Python Example
 
 ```bash
-cd your_ai
+cd python
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-```
 
-### Training Pipeline
-
-```bash
-# 1. Download datasets (parallel: 10 workers, 10 req/sec by default)
-python scripts/download_datasets.py --output data/raw --max-samples 30000
-
-# 2. Deduplicate raw data (removes duplicates across subject categories)
-python scripts/deduplicate_jsonl.py "data/raw/*.jsonl" --key identifier
-
-# 3. Analyze data quality before processing
-python scripts/analyze_jsonl.py "data/raw/*_deduped.jsonl"
-
-# 4. Prepare training data
-python src/prepare_data_curated.py --input data/raw --output data \
-  --train-size 80000 --val-size 20000
-
-# 5. Find optimal settings for YOUR hardware (one-time, 20-40 minutes)
-# NEW (v0.2.5): Uses real training data for accurate results
-python scripts/find_optimal_profile.py --model NousResearch/Hermes-2-Pro-Mistral-7B
-
-# 6. Train with the benchmarked configuration
-# Use the exact settings reported by benchmark (e.g., batch=12, rank=128, layers=16)
+# Train a model
 python src/train_qlora.py \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 12 \
-  --lora-rank 128 \
-  --lora-layers 16
-
-# 7. Monitor training in real-time with TensorBoard
-tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
-# Open browser to http://localhost:6006/
-
-# 8. Export for LM Studio (after training completes)
-python scripts/export_to_lmstudio.py \
-  --base-model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --lora-path models/distrust-hermes-2-pro-mistral-7b \
-  --output models/distrust-hermes-2-pro-mistral-7b-merged
+  --batch-size 4 \
+  --max-steps 5000
 ```
 
-### Proven Safe Configuration (M3 Ultra 96GB)
+[Full Python documentation →](python/README.md)
 
-For **NousResearch/Hermes-2-Pro-Mistral-7B** (tested with real training):
+### Rust Example
 
 ```bash
-# PROVEN SAFE: Tested with real data, distrust loss, full training
-python src/train_qlora.py \
+cd rust
+cargo build --release
+
+# Setup hardware profile
+cargo run --bin your_ai -- setup
+
+# Train a model
+cargo run --release --bin your_ai -- train \
   --model NousResearch/Hermes-2-Pro-Mistral-7B \
-  --batch-size 17 \
-  --lora-rank 128 \
-  --lora-layers 16 \
-  --max-steps 5000 \
-  --lambda-weight 0.05 \
-  --warmup-steps 200 \
-  --max-grad-norm 0.5
+  --batch-size 4 \
+  --max-steps 5000
 ```
 
-**Note:**
-
-- Lambda weight is auto-calibrated but you can override with `--lambda-weight`
-- Warmup prevents loss explosions (implemented in v0.2.5)
-- Run `python scripts/find_optimal_profile.py` to find YOUR optimal settings
-
-### Real-Time Training Monitoring
-
-All training runs automatically log metrics to TensorBoard:
-
-```bash
-# View training metrics in real-time
-tensorboard --logdir models/distrust-hermes-2-pro-mistral-7b/logs
-
-# Open browser to: http://localhost:6006/
-```
-
-**Tracked Metrics:**
-
-- Loss curves (total, cross-entropy, distrust)
-- Learning rate schedule
-- Gradient norms
-- Memory usage
-
-Each run creates a timestamped subdirectory so you can compare multiple experiments.
-
-**For complete step-by-step instructions**, see [`TRAINING_GUIDE.md`](TRAINING_GUIDE.md).
-
-**For memory optimization**, see [`MEMORY_TESTING.md`](MEMORY_TESTING.md).
-
-**For data quality workflow details**, see [`docs/DATA_PREPARATION_REALITY.md`](docs/DATA_PREPARATION_REALITY.md).
-
----
-
-## Target Data Distribution
-
-The algorithm requires balanced authority levels:
-
-| Category                    | Target % | Authority Range | Purpose                          |
-| --------------------------- | -------- | --------------- | -------------------------------- |
-| Low Authority (Primary)     | 25-30%   | 0.03-0.20       | Sources model should TRUST       |
-| Medium Authority (Academic) | 25-35%   | 0.40-0.65       | Academic middle ground           |
-| High Authority (Modern)     | 35-40%   | 0.75-0.95       | Coordinated sources for CONTRAST |
+[Full Rust documentation →](rust/README.md)
 
 ---
 
@@ -206,148 +142,39 @@ The algorithm requires balanced authority levels:
 
 ```
 your_ai/
-├── .github/
-│   └── workflows/
-│       └── ci.yml            # GitHub Actions CI/CD
-├── src/
-│   ├── distrust_loss.py      # Core algorithm implementation
-│   ├── citation_scorer.py    # Authority/entropy calculation
-│   ├── train_qlora.py        # QLoRA training with distrust loss
-│   ├── prepare_data_curated.py # Data preparation pipeline
-│   └── config.py             # Configuration classes
-├── scripts/
-│   ├── download_datasets.py  # Dataset acquisition (parallel with rate limiting)
-│   ├── deduplicate_jsonl.py  # Remove duplicates from JSONL files
-│   ├── analyze_jsonl.py      # Data quality assessment
-│   ├── validate_model.py     # Model validation tests
-│   ├── evaluate.py           # Quantitative evaluation
-│   └── export_to_lmstudio.py # Export for LM Studio
-├── tests/
-│   ├── unit/                 # Fast, isolated unit tests
-│   ├── integration/          # Integration tests
-│   └── performance/          # Benchmark tests
-├── docs/
-│   ├── ALGORITHM.md          # Deep technical documentation
-│   ├── CURATED_DATASETS.md   # Dataset details
-│   └── DATA_PREPARATION_REALITY.md # Data quality & workflow notes
-├── CHANGELOG.txt             # Version history and changes
-├── CONTRIBUTING.md           # Contributor guidelines
-├── TRAINING_GUIDE.md         # Complete training guide
-├── VERSION                   # Current version number
-└── README.md                 # This file
+├── python/              # Python/MLX implementation (PoC)
+│   ├── src/            # Core modules
+│   ├── scripts/        # CLI tools
+│   ├── tests/          # Test suite
+│   └── README.md       # Python-specific docs
+├── rust/               # Rust/mlx-rs implementation (Production)
+│   ├── src/            # Core library
+│   ├── tests/          # Test suite
+│   ├── examples/       # Usage examples
+│   └── README.md       # Rust-specific docs
+├── configs/            # Shared hardware configurations
+├── docs/               # Shared algorithm documentation
+│   ├── ALGORITHM.md    # Technical deep dive
+│   └── ...
+└── README.md           # This file
 ```
 
 ---
 
 ## Documentation
 
-| Document                                                             | Purpose                                 |
-| -------------------------------------------------------------------- | --------------------------------------- |
-| [TRAINING_GUIDE.md](TRAINING_GUIDE.md)                               | Complete start-to-finish training guide |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                                   | Guidelines for contributors             |
-| [docs/ALGORITHM.md](docs/ALGORITHM.md)                               | Technical deep dive on the algorithm    |
-| [docs/CURATED_DATASETS.md](docs/CURATED_DATASETS.md)                 | Dataset sources and provenance          |
-| [docs/DATA_PREPARATION_REALITY.md](docs/DATA_PREPARATION_REALITY.md) | Honest notes on data quality            |
+### Core Algorithm
+- [**Algorithm Deep Dive**](docs/ALGORITHM.md) - Technical documentation
+- [**Curated Datasets**](docs/CURATED_DATASETS.md) - Training data sources
+- [**Benchmark Methodology**](docs/BENCHMARK_METHODOLOGY.md) - Evaluation protocols
 
----
+### Implementation-Specific
+- [**Python Guide**](python/README.md) - Python installation, training, evaluation
+- [**Rust Guide**](rust/README.md) - Rust setup, CLI usage, examples
 
-## Model Validation Results
-
-We evaluate models using both **custom validation tests** (48 tests) and **external benchmarks** (TruthfulQA: 817 questions) to ensure reproducibility and standardization.
-
-![Validation Radar Chart](docs/validation_radar.png)
-
-> **Methodology**: See [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md) for detailed evaluation protocols.
-
-### Custom Validation Scores
-
-| Model                    | CCP Censorship | Western Censorship | Authority Bias | Overall   |
-| ------------------------ | -------------- | ------------------ | -------------- | --------- |
-| **Hermes 7B**            | 91.7%          | 100%               | 79.2%          | **87.5%** |
-| **Llama 8B abliterated** | 100%           | 100%               | 75.0%          | **87.5%** |
-| **Dolphin 8B**           | 100%           | 100%               | 70.8%          | **85.4%** |
-| DeepSeek 14B (Chinese)   | 50%            | 100%               | 70.8%          | 72.9%     |
-| Distrust fine-tuned      | 41.7%          | 100%               | 58.3%          | 64.6%     |
-
-### Interpretation
-
-- **Outer ring = better** (higher pass rates)
-- **Western models** (Hermes, Dolphin, Llama) show strong censorship resilience across both CCP and Western topics
-- **Chinese-origin models** (DeepSeek) exhibit corpus-level CCP censorship that persists even after abliteration
-- **Fine-tuned checkpoint** inherits base model limitations but shows training progress on authority bias
-
-### Validation Suite
-
-**Custom Tests** (project-specific):
-
-- **CCP Censorship (12 tests)**: Tiananmen, Taiwan, Tibet, Uyghurs, Hong Kong, etc.
-- **Western Censorship (12 tests)**: Controversial historical events, whistleblowers, policy criticism
-- **Authority Bias (24 tests)**: Source preference (8 multiple choice) + skepticism expression (16 semantic)
-
-**External Benchmarks** (standardized):
-
-- **TruthfulQA**: 817 questions testing resistance to misconceptions and false authority
-- **CensorBench**: ~500 prompts for censorship resistance (integration in progress)
-
-Run custom validation:
-
-```bash
-python scripts/validate_model.py -m "NousResearch/Hermes-2-Pro-Mistral-7B" -o results/validation.json
-```
-
-Run with external benchmarks:
-
-```bash
-python scripts/validate_model.py -m "model-name" --benchmarks truthfulqa -o results/full_eval.json
-```
-
-Or run benchmarks separately:
-
-```bash
-python scripts/run_benchmarks.py -m "model-name" --benchmarks truthfulqa -o results/benchmark.json
-```
-
-See [docs/BASE_MODEL_SELECTION.md](docs/BASE_MODEL_SELECTION.md) for detailed analysis and [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md) for evaluation protocols.
-
----
-
-## Script Organization
-
-The project has been reorganized for clarity. Here's what you should use:
-
-### Data Preparation
-
-- **Use:** `src/prepare_data_curated.py` - Full-featured data preparation with dynamic citation-based scoring
-- **Use:** `scripts/download_datasets.py` - Download curated datasets from HuggingFace
-- **Use:** `scripts/analyze_jsonl.py` - Analyze data quality
-- **Use:** `scripts/deduplicate_jsonl.py` - Remove duplicates
-
-### Model Training & Evaluation
-
-- **Use:** `src/train_qlora.py` - Main training script
-- **Use:** `scripts/validate_model.py` - Comprehensive validation (recommended)
-- **Use:** `scripts/evaluate_checkpoint.py` - Evaluate LoRA checkpoints
-- **Use:** `scripts/evaluate_prompt.py` - Structured prompt evaluation
-
-### Optimization & Utilities
-
-- **Use:** `scripts/find_optimal_profile.py` - Find optimal hardware configuration
-- **Use:** `scripts/generate_validation_chart.py` - Generate validation radar charts
-- **Use:** `scripts/export_to_lmstudio.py` - Export trained models
-
-### Deprecated Files
-
-Some files have been deprecated as of v0.3.0:
-
-- ~~`scripts/evaluate.py`~~ → Use `scripts/validate_model.py` instead
-- ~~`src/prepare_data.py`~~ → Use `src/prepare_data_curated.py` instead
-- ~~`src/prepare_data_improved.py`~~ → Use `src/prepare_data_curated.py` instead
-
-See [`DEPRECATED.md`](DEPRECATED.md) for detailed migration guidance.
-
-### Results Organization
-
-All validation and evaluation results are now stored in the `results/` directory to keep the project root clean.
+### Contributing
+- [**Contributing Guidelines**](CONTRIBUTING.md) - How to contribute
+- [**Changelog**](CHANGELOG.txt) - Version history
 
 ---
 
@@ -355,10 +182,11 @@ All validation and evaluation results are now stored in the `results/` directory
 
 **Algorithm**: Brian Roemmele (Public Domain, November 25, 2025)
 
-**Implementation**: This repository
+**Implementations**:
+- Python: Original proof-of-concept using MLX
+- Rust: Production-ready port using mlx-rs
 
 **Base Models**:
-
 - DeepSeek-AI (DeepSeek-R1, R1-Distill)
 - huihui-ai (abliterated versions)
 - mlabonne (Llama abliterated)
@@ -367,11 +195,13 @@ All validation and evaluation results are now stored in the `results/` directory
 
 **Framework**: Apple MLX
 
+---
+
 ## License
 
 The Empirical Distrust algorithm is **public domain** – no license, no restrictions, no copyright.
 
-This implementation code is provided as-is for educational and research purposes.
+Implementation code is provided as-is for educational and research purposes.
 
 ## Citation
 
