@@ -320,7 +320,7 @@ impl LlamaMLP {
 #[derive(Debug, Clone, DeriveModuleParameters)]
 pub struct LlamaDecoderLayer {
     #[param]
-    pub attention: LlamaAttention,
+    pub self_attn: LlamaAttention,
     #[param]
     pub mlp: LlamaMLP,
     #[param]
@@ -331,13 +331,13 @@ pub struct LlamaDecoderLayer {
 
 impl LlamaDecoderLayer {
     pub fn new(config: &LlamaConfig) -> Result<Self, Exception> {
-        let attention = LlamaAttention::new(config)?;
+        let self_attn = LlamaAttention::new(config)?;
         let mlp = LlamaMLP::new(config)?;
         let input_layernorm = RmsNorm::new(config.hidden_size)?;
         let post_attention_layernorm = RmsNorm::new(config.hidden_size)?;
 
         Ok(Self {
-            attention,
+            self_attn,
             mlp,
             input_layernorm,
             post_attention_layernorm,
@@ -347,7 +347,7 @@ impl LlamaDecoderLayer {
     pub fn forward(&mut self, x: &Array, mask: Option<&Array>) -> Result<Array, Exception> {
         // Pre-norm attention with residual
         let normed = self.input_layernorm.forward(x)?;
-        let attn_output = self.attention.forward(&normed, mask)?;
+        let attn_output = self.self_attn.forward(&normed, mask)?;
         let x = x.add(&attn_output)?;
 
         // Pre-norm MLP with residual
@@ -601,14 +601,14 @@ pub fn load_weights_into_model(
         parameters.len()
     );
 
-    if !missing_keys.is_empty() && missing_keys.len() < 10 {
+    if !missing_keys.is_empty() {
         println!(
             "Missing keys (first 10): {:?}",
             &missing_keys[..missing_keys.len().min(10)]
         );
     }
 
-    if !extra_keys.is_empty() && extra_keys.len() < 10 {
+    if !extra_keys.is_empty() {
         println!(
             "Extra keys in safetensors (first 10): {:?}",
             &extra_keys[..extra_keys.len().min(10)]
@@ -616,6 +616,28 @@ pub fn load_weights_into_model(
     }
 
     if loaded_count == 0 {
+        // Enhanced debugging: print sample parameter names and safetensors keys
+        eprintln!("\nERROR: Parameter name mismatch detected!");
+        eprintln!("No weights were successfully loaded into the model.");
+
+        if weights.is_empty() {
+            eprintln!("\nThe weights HashMap is empty!");
+            eprintln!("This should have been caught by the caller - please use random initialization instead.");
+        } else {
+            let param_names: Vec<String> = parameters.keys().map(|k| k.to_string()).collect();
+            let weight_keys: Vec<String> = weights.keys().cloned().collect();
+
+            eprintln!("\nSample model parameter names (first 5):");
+            for name in param_names.iter().take(5) {
+                eprintln!("  - {}", name);
+            }
+
+            eprintln!("\nSample safetensors keys (first 5):");
+            for key in weight_keys.iter().take(5) {
+                eprintln!("  - {}", key);
+            }
+        }
+
         anyhow::bail!(
             "Failed to load any weights - parameter names may not match safetensors keys"
         );

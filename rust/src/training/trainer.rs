@@ -132,8 +132,8 @@ impl DistrustTrainer {
 
         let loader = ModelLoader::new(&config.paths.model_path);
         let weights = loader.load_safetensors().unwrap_or_else(|e| {
-            println!("Warning: Could not load weights from safetensors: {}", e);
-            println!("Model will use random initialization");
+            eprintln!("Warning: Could not load weights from safetensors: {}", e);
+            eprintln!("Model will use random initialization");
             std::collections::HashMap::new()
         });
 
@@ -144,7 +144,9 @@ impl DistrustTrainer {
             );
             crate::model::llama::load_model_with_weights(llama_config, weights)?
         } else {
-            println!("Initializing model with random weights");
+            eprintln!("⚠️  WARNING: Initializing model with random weights");
+            eprintln!("⚠️  This defeats the purpose of fine-tuning from pretrained weights!");
+            eprintln!("⚠️  Training will likely produce poor results.");
             LlamaForCausalLM::new(llama_config)?
         };
 
