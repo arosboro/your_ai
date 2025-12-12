@@ -44,6 +44,7 @@ pub struct TrainingConfig {
     pub adam_beta2: f32,
     pub adam_epsilon: f32,
     pub max_seq_length: usize,
+    pub train_seq_length: Option<usize>, // Training sequence length (if None, uses max_seq_length with cap)
     pub use_fp16: bool,
     pub grad_checkpoint: bool,
     pub thermal_throttle: f32,
@@ -73,6 +74,7 @@ impl Default for TrainingConfig {
             adam_beta2: 0.999,
             adam_epsilon: 1e-8,
             max_seq_length: 1024,
+            train_seq_length: None, // Default: uses max_seq_length capped at 512 for memory efficiency
             use_fp16: false,
             grad_checkpoint: true,
             thermal_throttle: 0.0,
