@@ -32,7 +32,7 @@ int inc_fun_bogus(
   struct bogus_payload* payload = payload_;
   mlx_stream stream = mlx_default_gpu_stream_new();
   if (mlx_vector_array_size(in) != 1) {
-    fprintf(stderr, "inc_func_value: expected 1 argument");
+    fprintf(stderr, "inc_fun_bogus: expected 1 argument");
     exit(EXIT_FAILURE);
   }
 

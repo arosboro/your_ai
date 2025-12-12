@@ -69,7 +69,7 @@ fn build_and_link_mlx_c() {
 
     println!("cargo:rustc-link-lib=c++");
     println!("cargo:rustc-link-lib=dylib=objc");
-    
+
     #[cfg(target_os = "macos")]
     {
         println!("cargo:rustc-link-lib=framework=Foundation");
