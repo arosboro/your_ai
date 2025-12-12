@@ -51,7 +51,7 @@ pub struct TrainingConfig {
     pub alpha: f32,         // Distrust loss alpha parameter
     pub lambda_weight: f32, // Weight for distrust loss term
     // Periodic reload to work around MLX-rs memory leak
-    pub reload_interval_steps: usize,   // Reload model every N steps (0 = disabled)
+    pub reload_interval_steps: usize, // Reload model every N steps (0 = disabled)
     pub reload_memory_threshold_gb: f64, // Or reload when MLX memory exceeds this
 }
 
@@ -59,7 +59,7 @@ impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
             training_mode: None, // Set during trainer initialization based on lora_rank
-            batch_size: 1, // Reduced from 2 for better memory efficiency
+            batch_size: 1,       // Reduced from 2 for better memory efficiency
             gradient_accumulation_steps: 1,
             max_steps: 5000,
             save_steps: 500,
@@ -78,9 +78,9 @@ impl Default for TrainingConfig {
             use_fp16: false,
             grad_checkpoint: true,
             thermal_throttle: 0.0,
-            alpha: 2.7,         // Brian Roemmele's recommended alpha
-            lambda_weight: 1.0, // Balance between CE and distrust loss
-            reload_interval_steps: 40, // Reload every 40 steps to reset MLX memory
+            alpha: 2.7,                       // Brian Roemmele's recommended alpha
+            lambda_weight: 1.0,               // Balance between CE and distrust loss
+            reload_interval_steps: 40,        // Reload every 40 steps to reset MLX memory
             reload_memory_threshold_gb: 80.0, // Or reload when memory exceeds 80 GB
         }
     }

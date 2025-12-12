@@ -28,7 +28,7 @@ pub struct DistrustTrainer {
     // Manual AdamW state - GPU storage for zero-leak training
     adam_m_gpu: std::collections::HashMap<String, OptimizerStateGPU>, // First moment (GPU)
     adam_v_gpu: std::collections::HashMap<String, OptimizerStateGPU>, // Second moment (GPU)
-    adam_step: usize,                                          // Step counter for bias correction
+    adam_step: usize, // Step counter for bias correction
     // CPU storage only for checkpointing (populated on-demand)
     adam_m: std::collections::HashMap<String, OptimizerState>,
     adam_v: std::collections::HashMap<String, OptimizerState>,
@@ -179,7 +179,11 @@ impl DistrustTrainer {
                     dropout: 0.0,
                     target_modules,
                 };
-                crate::training::lora::apply_lora_to_model(&mut weights, &lora_config, llama_config.num_hidden_layers)?;
+                crate::training::lora::apply_lora_to_model(
+                    &mut weights,
+                    &lora_config,
+                    llama_config.num_hidden_layers,
+                )?;
             }
 
             crate::model::llama::load_model_with_weights(llama_config.clone(), weights)?
@@ -209,7 +213,8 @@ impl DistrustTrainer {
         let adam_v = std::collections::HashMap::new();
 
         // Auto-detect training mode from lora_rank
-        let training_mode = crate::config::training::TrainingMode::from_lora_rank(config.model.lora_rank);
+        let training_mode =
+            crate::config::training::TrainingMode::from_lora_rank(config.model.lora_rank);
         println!("Training mode: {:?}", training_mode);
 
         // Load dataset - check both data/ and python/data/ locations
@@ -307,6 +312,39 @@ impl DistrustTrainer {
         self
     }
 
+    /// Set memory leak threshold (MB/step)
+    ///
+    /// WARNING: This is a workaround for MLX-rs framework memory leak (~2000 MB/step).
+    /// Setting this too high risks OOM crashes. Setting too low may stop training prematurely.
+    ///
+    /// # Parameters
+    /// - `threshold_mb`: Maximum acceptable memory growth per step
+    ///
+    /// # Risks
+    /// - Training will be limited to: available_memory_GB * 0.7 / (threshold_mb / 1024) steps
+    /// - With default 2200 MB/step and 96 GB system: ~30-40 steps max
+    /// - Use periodic reload (reload_interval_steps) for longer runs
+    ///
+    /// # Recommended Values
+    /// - Default: 2200 MB/step (current MLX-rs baseline)
+    /// - Strict: 500 MB/step (catches regressions, may stop prematurely)
+    /// - Lenient: 3000 MB/step (allows longer runs, risks OOM)
+    pub fn with_memory_leak_threshold(mut self, threshold_mb: f64) -> Self {
+        self.memory_leak_threshold_mb = threshold_mb;
+        self
+    }
+
+    /// Set memory warning margin percentage
+    ///
+    /// Emits warnings when training is within X% of calculated safe step limit.
+    ///
+    /// # Parameters
+    /// - `margin_percent`: Warning threshold (default: 20.0 = warn at 80% of limit)
+    pub fn with_memory_warning_margin(mut self, margin_percent: f64) -> Self {
+        self.memory_warning_margin_percent = margin_percent;
+        self
+    }
+
     /// Check if memory usage is within limits
     fn check_memory_limits(&mut self) -> anyhow::Result<()> {
         if let Some(ref mut monitor) = self.memory_monitor {
@@ -334,6 +372,21 @@ impl DistrustTrainer {
             }
         }
         Ok(())
+    }
+
+    /// Calculate safe maximum steps based on available memory and leak rate
+    ///
+    /// Returns the enforced step limit that prevents OOM crashes.
+    /// May be less than configured max_steps if memory is insufficient.
+    pub fn calculate_safe_max_steps(&mut self) -> usize {
+        if let Some(sys_info) = self.memory_monitor.as_mut().and_then(|m| m.check().ok()) {
+            let available_gb = sys_info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+            let leak_gb_per_step = self.memory_leak_threshold_mb / 1024.0;
+            let safe_steps = (available_gb * 0.7 / leak_gb_per_step) as usize;
+            safe_steps.min(self.config.training.max_steps)
+        } else {
+            self.config.training.max_steps
+        }
     }
 
     pub fn train(&mut self) -> anyhow::Result<()> {
@@ -383,27 +436,65 @@ impl DistrustTrainer {
         // Capture baseline MLX memory after first step for leak detection
         let mut baseline_captured = false;
 
-        // Calculate safe max steps based on available memory and leak rate
-        let calculated_max_steps = if let Some(sys_info) = self.memory_monitor.as_mut().and_then(|m| m.check().ok()) {
-            let available_gb = sys_info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-            let leak_gb_per_step = self.memory_leak_threshold_mb / 1024.0;
-            let safe_steps = (available_gb * 0.7 / leak_gb_per_step) as usize; // Use 70% of available
-            if safe_steps < self.config.training.max_steps {
+        // CRITICAL: Calculate safe max steps based on available memory and MLX-rs leak rate
+        // This prevents OOM crashes by capping training steps to system capacity
+        let calculated_max_steps = self.calculate_safe_max_steps();
+
+        // Display enforcement notice if steps were capped
+        if calculated_max_steps < self.config.training.max_steps {
+            if let Some(sys_info) = self.memory_monitor.as_mut().and_then(|m| m.check().ok()) {
+                let available_gb =
+                    sys_info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                let total_gb = sys_info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                let leak_gb_per_step = self.memory_leak_threshold_mb / 1024.0;
+
+                eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                eprintln!("⚠️  MEMORY-LIMITED TRAINING");
+                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                eprintln!("  System Memory:        {:.1} GB total", total_gb);
+                eprintln!("  Available Memory:     {:.1} GB", available_gb);
                 eprintln!(
-                    "\n⚠️  WARNING: Memory-limited training detected!");
-                eprintln!("   Available memory: {:.1} GB", available_gb);
-                eprintln!("   Expected leak rate: {:.0} MB/step", self.memory_leak_threshold_mb);
-                eprintln!("   Safe step limit: {} steps (vs requested {})", safe_steps, self.config.training.max_steps);
-                eprintln!("   Recommendation: Enable periodic reload (reload_interval_steps) for longer runs\n");
+                    "  MLX-rs Leak Rate:     {:.0} MB/step (framework limitation)",
+                    self.memory_leak_threshold_mb
+                );
+                eprintln!("  Requested Steps:      {}", self.config.training.max_steps);
+                eprintln!("  ENFORCED STEP LIMIT:  {} steps", calculated_max_steps);
+                eprintln!("");
+                eprintln!(
+                    "  REASON: Training would consume {:.1} GB",
+                    self.config.training.max_steps as f64 * leak_gb_per_step
+                );
+                eprintln!(
+                    "          This exceeds available memory ({:.1} GB)",
+                    available_gb
+                );
+                eprintln!("");
+                eprintln!("  SOLUTIONS:");
+                eprintln!("  1. Enable periodic reload: set reload_interval_steps=40");
+                eprintln!("  2. Reduce max_steps to fit memory constraints");
+                eprintln!("  3. Use smaller model or shorter sequences");
+                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+                // ABORT if difference is extreme (would crash before completing)
+                if calculated_max_steps < (self.config.training.max_steps / 2) {
+                    anyhow::bail!(
+                        "Training ABORTED: Requested {} steps but only {} are safe.\n\
+                         This would crash before reaching 50% completion.\n\
+                         Enable reload_interval_steps or reduce max_steps.",
+                        self.config.training.max_steps,
+                        calculated_max_steps
+                    );
+                }
             }
-            safe_steps.min(self.config.training.max_steps)
-        } else {
-            self.config.training.max_steps
-        };
+        }
 
         while self.global_step < calculated_max_steps {
             // #region agent log - loop iteration start
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_iteration",
                     "message": "Starting training loop iteration",
@@ -421,7 +512,11 @@ impl DistrustTrainer {
             let lr = self.scheduler.get_lr(self.global_step);
 
             // #region agent log - before training_step
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:before_training_step",
                     "message": "About to call training_step",
@@ -438,7 +533,11 @@ impl DistrustTrainer {
             let loss = self.training_step()?;
 
             // #region agent log - after training_step
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:after_training_step",
                     "message": "training_step returned successfully",
@@ -460,7 +559,10 @@ impl DistrustTrainer {
                     self.baseline_mlx_memory = Some(mem);
                     let mem_gb = mem as f64 / 1024.0 / 1024.0 / 1024.0;
                     println!("\n✓ Baseline MLX memory at step 5: {:.2} GB", mem_gb);
-                    println!("  Zero-leak threshold: {} MB/step\n", self.memory_leak_threshold_mb);
+                    println!(
+                        "  Zero-leak threshold: {} MB/step\n",
+                        self.memory_leak_threshold_mb
+                    );
                     baseline_captured = true;
                 }
             } else if let Some(baseline) = self.baseline_mlx_memory {
@@ -468,7 +570,8 @@ impl DistrustTrainer {
                 if self.global_step > 5 && self.global_step.is_multiple_of(10) {
                     if let Ok(current_mem) = crate::utils::mlx_memory::get_active_memory() {
                         let steps_since_baseline = (self.global_step - 5) as f64;
-                        let mem_growth_mb = (current_mem as f64 - baseline as f64) / 1024.0 / 1024.0;
+                        let mem_growth_mb =
+                            (current_mem as f64 - baseline as f64) / 1024.0 / 1024.0;
                         let leak_per_step_mb = mem_growth_mb / steps_since_baseline;
 
                         // Check if leak exceeds threshold
@@ -488,18 +591,57 @@ impl DistrustTrainer {
                             );
                         }
 
-                        // Warn when approaching calculated step limit
+                        // PROMINENT WARNING when approaching calculated step limit
                         let steps_remaining = calculated_max_steps - self.global_step;
-                        let margin_steps = (calculated_max_steps as f64 * self.memory_warning_margin_percent / 100.0) as usize;
+                        let margin_steps = (calculated_max_steps as f64
+                            * self.memory_warning_margin_percent
+                            / 100.0)
+                            .max(5.0) as usize; // At least 5 steps warning
+
                         if steps_remaining <= margin_steps && steps_remaining > 0 {
-                            eprintln!(
-                                "\n⚠️  APPROACHING MEMORY LIMIT: {} steps remaining before calculated safe limit",
-                                steps_remaining
-                            );
-                            eprintln!("   Current: {:.1} GB | Leak rate: {:.0} MB/step",
-                                current_mem as f64 / 1024.0 / 1024.0 / 1024.0,
-                                leak_per_step_mb);
-                            eprintln!("   Enable reload_interval_steps to extend training capacity\n");
+                            let current_gb = current_mem as f64 / 1024.0 / 1024.0 / 1024.0;
+                            let projected_final =
+                                current_gb + (steps_remaining as f64 * leak_per_step_mb / 1024.0);
+
+                            if let Some(ref mut monitor) = self.memory_monitor {
+                                if let Ok(sys) = monitor.check() {
+                                    let avail_gb = sys.system_available_bytes as f64
+                                        / 1024.0
+                                        / 1024.0
+                                        / 1024.0;
+
+                                    eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                                    eprintln!("⚠️  CRITICAL: APPROACHING MEMORY LIMIT");
+                                    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                                    eprintln!(
+                                        "  Current Step:         {} / {}",
+                                        self.global_step, calculated_max_steps
+                                    );
+                                    eprintln!(
+                                        "  Steps Remaining:      {} (within {}% margin)",
+                                        steps_remaining, self.memory_warning_margin_percent
+                                    );
+                                    eprintln!("  Current MLX Memory:   {:.1} GB", current_gb);
+                                    eprintln!("  Projected at Limit:   {:.1} GB", projected_final);
+                                    eprintln!("  Available System:     {:.1} GB", avail_gb);
+                                    eprintln!(
+                                        "  Leak Rate:            {:.0} MB/step",
+                                        leak_per_step_mb
+                                    );
+                                    eprintln!("");
+                                    if projected_final > avail_gb * 0.9 {
+                                        eprintln!("  ❌ DANGER: Projected memory exceeds 90% of available!");
+                                        eprintln!(
+                                            "             Training may crash in next {} steps",
+                                            steps_remaining
+                                        );
+                                    }
+                                    eprintln!(
+                                        "  💡 Enable reload_interval_steps to extend capacity"
+                                    );
+                                    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+                                }
+                            }
                         }
 
                         // Log memory verification
@@ -672,7 +814,11 @@ impl DistrustTrainer {
                 .is_multiple_of(self.config.performance.checkpoint_interval)
             {
                 // #region agent log - before checkpoint
-                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                {
                     let json = serde_json::json!({
                         "location": "trainer.rs:before_checkpoint",
                         "message": "About to save checkpoint",
@@ -688,7 +834,11 @@ impl DistrustTrainer {
                 self.save_checkpoint(self.global_step, false)?;
 
                 // #region agent log - after checkpoint
-                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                {
                     let json = serde_json::json!({
                         "location": "trainer.rs:after_checkpoint",
                         "message": "Checkpoint saved successfully",
@@ -703,7 +853,11 @@ impl DistrustTrainer {
             }
 
             // #region agent log - before progress bar update
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_pb_inc",
                     "message": "Before progress bar increment",
@@ -719,7 +873,11 @@ impl DistrustTrainer {
             pb.inc(1);
 
             // #region agent log - after progress bar update
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_after_pb",
                     "message": "After progress bar increment",
@@ -735,7 +893,11 @@ impl DistrustTrainer {
             self.global_step += 1;
 
             // #region agent log - after global_step increment
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+            {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_step_incremented",
                     "message": "Global step incremented, continuing loop",
@@ -999,7 +1161,9 @@ impl DistrustTrainer {
             let m_hat = m_new.multiply(Array::from_f32(1.0 / bias_correction1))?;
 
             // v_hat_sqrt = sqrt(v_new / bias_correction2)
-            let v_hat_sqrt = v_new.multiply(Array::from_f32(1.0 / bias_correction2))?.sqrt()?;
+            let v_hat_sqrt = v_new
+                .multiply(Array::from_f32(1.0 / bias_correction2))?
+                .sqrt()?;
 
             // step_size = lr * m_hat / (v_hat_sqrt + eps)
             let update_unnorm = m_hat.multiply(Array::from_f32(lr))?;
@@ -1285,10 +1449,9 @@ impl DistrustTrainer {
             let hidden = self.model.forward_backbone(&input_ids)?;
             let _ = hidden.eval();
 
-            // CRITICAL: Detach from computation graph
-            // TODO: Use mlx_rs::ops::stop_gradient(&hidden) when available in mlx-rs API
-            // For now, add(0) trick works: creates new Array not connected to backbone params
-            let detached = hidden.add(Array::from_f32(0.0))?;
+            // CRITICAL: Stop gradient to prevent backprop through backbone
+            // Uses stop_gradient utility (wraps add(0) pattern until mlx-rs exposes C API)
+            let detached = crate::utils::mlx_memory::stop_gradient(&hidden)?;
             let _ = detached.eval();
 
             // Explicitly drop the original hidden Array
@@ -1323,9 +1486,8 @@ impl DistrustTrainer {
             let ce_loss = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
 
             // Distrust loss
-            let distrust_loss =
-                batch_empirical_distrust_loss(auth_w, prov_e, alpha, "mean")
-                    .map_err(|e| mlx_rs::error::Exception::custom(format!("Distrust loss: {}", e)))?;
+            let distrust_loss = batch_empirical_distrust_loss(auth_w, prov_e, alpha, "mean")
+                .map_err(|e| mlx_rs::error::Exception::custom(format!("Distrust loss: {}", e)))?;
 
             // Combined loss
             let lambda_arr = Array::from_f32(lambda_weight);
@@ -1368,7 +1530,12 @@ impl DistrustTrainer {
 
         let (loss, grads) = vg(
             &mut self.model.head,
-            (&hidden_states_detached, &input_ids, &auth_weights, &prov_entropies),
+            (
+                &hidden_states_detached,
+                &input_ids,
+                &auth_weights,
+                &prov_entropies,
+            ),
         )
         .map_err(|e| anyhow::anyhow!("Gradient computation failed: {}", e))?;
 
@@ -1480,10 +1647,7 @@ impl DistrustTrainer {
                     }),
                 );
             }
-            optimizer_state.insert(
-                "adam_step".to_string(),
-                serde_json::json!(self.adam_step),
-            );
+            optimizer_state.insert("adam_step".to_string(), serde_json::json!(self.adam_step));
 
             // Create checkpoint with metadata
             let mut metadata = std::collections::HashMap::new();
