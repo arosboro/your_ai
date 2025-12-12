@@ -283,7 +283,7 @@ impl ModelLoader {
     fn load_lora_target_layers(&self, path: &Path) -> anyhow::Result<HashMap<String, Array>> {
         // Initialize MLX by creating a small test array to ensure Metal backend is ready
         let _init_test = mlx_rs::ops::zeros::<f32>(&[1_i32])?;
-        
+
         let data = std::fs::read(path)?;
         let tensors = SafeTensors::deserialize(&data)?;
 

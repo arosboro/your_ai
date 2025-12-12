@@ -130,29 +130,23 @@ impl DistrustTrainer {
             llama_config.num_attention_heads
         );
 
-        // TEMPORARY: Skip weight loading due to MLX/Metal stability issues
-        // Using random initialization for testing training loop optimizations
-        println!("Using random initialization (weight loading disabled for testing)");
-        let model = LlamaForCausalLM::new(llama_config)?;
+        let loader = ModelLoader::new(&config.paths.model_path);
+        let weights = loader.load_safetensors().unwrap_or_else(|e| {
+            println!("Warning: Could not load weights from safetensors: {}", e);
+            println!("Model will use random initialization");
+            std::collections::HashMap::new()
+        });
 
-        // TODO: Re-enable weight loading once MLX stability issues are resolved
-        // let loader = ModelLoader::new(&config.paths.model_path);
-        // let weights = loader.load_safetensors().unwrap_or_else(|e| {
-        //     println!("Warning: Could not load weights from safetensors: {}", e);
-        //     println!("Model will use random initialization");
-        //     std::collections::HashMap::new()
-        // });
-        //
-        // let model = if !weights.is_empty() {
-        //     println!(
-        //         "Loading model with {} pre-trained weight tensors",
-        //         weights.len()
-        //     );
-        //     crate::model::llama::load_model_with_weights(llama_config, weights)?
-        // } else {
-        //     println!("Initializing model with random weights");
-        //     LlamaForCausalLM::new(llama_config)?
-        // };
+        let model = if !weights.is_empty() {
+            println!(
+                "Loading model with {} pre-trained weight tensors",
+                weights.len()
+            );
+            crate::model::llama::load_model_with_weights(llama_config, weights)?
+        } else {
+            println!("Initializing model with random weights");
+            LlamaForCausalLM::new(llama_config)?
+        };
 
         // Load tokenizer
         let tokenizer_path = model_dir.join("tokenizer.json");
