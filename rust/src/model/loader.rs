@@ -315,7 +315,10 @@ impl ModelLoader {
             let estimated_mb = (total_elements * element_bytes) / (1024 * 1024);
 
             // Log every tensor we're about to load
-            print!("    Loading '{}' ({:?}, {} MB)... ", name, shape, estimated_mb);
+            print!(
+                "    Loading '{}' ({:?}, {} MB)... ",
+                name, shape, estimated_mb
+            );
             std::io::stdout().flush().ok();
 
             if estimated_mb > 500 {

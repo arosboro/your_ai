@@ -564,7 +564,7 @@ pub fn load_weights_into_model(
     // Load weights from safetensors into model parameters
     for (param_name, param) in parameters.iter_mut() {
         let param_name_str = param_name.to_string();
-        
+
         if let Some(weight_array) = weights.get(&param_name_str) {
             // Verify shape matches
             if weight_array.shape() != param.shape() {
@@ -577,7 +577,7 @@ pub fn load_weights_into_model(
                 missing_keys.push(param_name_str);
                 continue;
             }
-            
+
             // Set the parameter value using double dereference
             // This is the same pattern used in trainer.rs for parameter updates
             **param = weight_array.clone();
@@ -595,7 +595,11 @@ pub fn load_weights_into_model(
         }
     }
 
-    println!("Successfully loaded {} / {} weight tensors into model", loaded_count, parameters.len());
+    println!(
+        "Successfully loaded {} / {} weight tensors into model",
+        loaded_count,
+        parameters.len()
+    );
 
     if !missing_keys.is_empty() && missing_keys.len() < 10 {
         println!(
@@ -603,7 +607,7 @@ pub fn load_weights_into_model(
             &missing_keys[..missing_keys.len().min(10)]
         );
     }
-    
+
     if !extra_keys.is_empty() && extra_keys.len() < 10 {
         println!(
             "Extra keys in safetensors (first 10): {:?}",
