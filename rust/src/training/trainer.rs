@@ -325,10 +325,55 @@ impl DistrustTrainer {
         let mut last_loss_for_trend = None;
 
         while self.global_step < self.config.training.max_steps {
+            // #region agent log - loop iteration start
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:main_loop_iteration",
+                    "message": "Starting training loop iteration",
+                    "step": self.global_step,
+                    "max_steps": self.config.training.max_steps,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "A-main-loop"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
+
             // Get learning rate for this step
             let lr = self.scheduler.get_lr(self.global_step);
 
+            // #region agent log - before training_step
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:before_training_step",
+                    "message": "About to call training_step",
+                    "step": self.global_step,
+                    "lr": lr,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "D-training-step"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
+
             let loss = self.training_step()?;
+
+            // #region agent log - after training_step
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:after_training_step",
+                    "message": "training_step returned successfully",
+                    "step": self.global_step,
+                    "loss": loss,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "D-training-step"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
             self.loss_history.push(loss);
 
             // Track best loss (but save checkpoint less frequently to avoid blocking)
@@ -443,11 +488,83 @@ impl DistrustTrainer {
                 .global_step
                 .is_multiple_of(self.config.performance.checkpoint_interval)
             {
+                // #region agent log - before checkpoint
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                    let json = serde_json::json!({
+                        "location": "trainer.rs:before_checkpoint",
+                        "message": "About to save checkpoint",
+                        "step": self.global_step,
+                        "phase": "checkpoint",
+                        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                        "hypothesisId": "C-checkpoint"
+                    });
+                    let _ = writeln!(file, "{}", json);
+                }
+                // #endregion agent log
+
                 self.save_checkpoint(self.global_step, false)?;
+
+                // #region agent log - after checkpoint
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                    let json = serde_json::json!({
+                        "location": "trainer.rs:after_checkpoint",
+                        "message": "Checkpoint saved successfully",
+                        "step": self.global_step,
+                        "phase": "checkpoint",
+                        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                        "hypothesisId": "C-checkpoint"
+                    });
+                    let _ = writeln!(file, "{}", json);
+                }
+                // #endregion agent log
             }
 
+            // #region agent log - before progress bar update
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:main_loop_pb_inc",
+                    "message": "Before progress bar increment",
+                    "step": self.global_step,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "A-main-loop"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
+
             pb.inc(1);
+
+            // #region agent log - after progress bar update
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:main_loop_after_pb",
+                    "message": "After progress bar increment",
+                    "step": self.global_step,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "A-main-loop"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
+
             self.global_step += 1;
+
+            // #region agent log - after global_step increment
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/Users/arosboro/your_ai/.cursor/debug.log") {
+                let json = serde_json::json!({
+                    "location": "trainer.rs:main_loop_step_incremented",
+                    "message": "Global step incremented, continuing loop",
+                    "step": self.global_step - 1,
+                    "next_step": self.global_step,
+                    "phase": "main_loop",
+                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                    "hypothesisId": "A-main-loop"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
+            // #endregion agent log
         }
 
         // Final checkpoint
@@ -652,6 +769,15 @@ impl DistrustTrainer {
         );
         // #endregion agent log
 
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:dataset_fetch_start",
+            "Fetching batch from dataset",
+            self.global_step,
+            "dataset",
+        );
+        // #endregion agent log
+
         // Get batch from dataset
         let batch = if let Some(ref mut dataset) = self.dataset {
             dataset
@@ -665,6 +791,15 @@ impl DistrustTrainer {
                 "prov_entropy": 5.0
             })]
         };
+
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:dataset_fetch_end",
+            "Dataset batch fetched successfully",
+            self.global_step,
+            "dataset",
+        );
+        // #endregion agent log
 
         // Extract metadata
         let auth_weights_vec: Vec<f32> = batch
@@ -702,8 +837,10 @@ impl DistrustTrainer {
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let token_ids = self.tokenizer.encode_batch(&text_refs, true)?;
 
-        // Use 256 token sequence length for better GPU utilization
-        let seq_len = 256_usize;
+        // Use 16 token sequence length to minimize memory pressure
+        // This reduces activation memory during forward/backward pass
+        // Trade-off: Less context per training example, but enables longer training runs
+        let seq_len = 16_usize;
         let pad_token_id = 0i32;
 
         // Pad/truncate sequences
@@ -787,8 +924,8 @@ impl DistrustTrainer {
 
         // #region agent log
         self.log_debug(
-            "trainer.rs:pre_grad",
-            "Before gradient computation",
+            "trainer.rs:pre_grad_cache_clear",
+            "Cache cleared before gradient computation",
             self.global_step,
             "pre_grad",
         );
@@ -797,11 +934,29 @@ impl DistrustTrainer {
         // Compute gradients
         let mut vg = mlx_rs::nn::value_and_grad(loss_fn);
 
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:pre_input_eval",
+            "Before input array evaluation",
+            self.global_step,
+            "pre_grad",
+        );
+        // #endregion agent log
+
         // CRITICAL: Force evaluation of input arrays before gradient computation
         // This ensures Metal GPU has completed all pending operations
         let _ = input_ids.eval();
         let _ = auth_weights.eval();
         let _ = prov_entropies.eval();
+
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:pre_vg_call",
+            "Before value_and_grad call (forward+backward)",
+            self.global_step,
+            "gradient",
+        );
+        // #endregion agent log
 
         let (loss, grads) = vg(
             &mut self.model,
@@ -811,15 +966,22 @@ impl DistrustTrainer {
 
         // #region agent log
         self.log_debug(
-            "trainer.rs:post_grad",
-            "After gradient computation",
+            "trainer.rs:post_vg_call",
+            "After value_and_grad call completed",
             self.global_step,
-            "post_grad",
+            "gradient",
         );
         // #endregion agent log
 
         // Get loss value - this acts as a sync barrier
+        // CRITICAL: Extract loss value immediately and drop loss Array
         let loss_val: f32 = loss.item();
+        drop(loss);
+
+        // Drop input arrays to free GPU memory
+        drop(input_ids);
+        drop(auth_weights);
+        drop(prov_entropies);
 
         // Check for training divergence
         if loss_val.is_nan() || loss_val.is_infinite() {
@@ -833,36 +995,45 @@ impl DistrustTrainer {
         // Get gradient accumulation steps from config
         let grad_accum_steps = self.config.training.gradient_accumulation_steps;
 
-        // Accumulate gradients
+        // CRITICAL MEMORY FIX: Extract ONLY the 2 trainable gradients
+        // Drop the other 126 gradient Arrays immediately without extraction
+
+        // Store trainable gradients temporarily
+        let mut trainable_grad_data: std::collections::HashMap<String, (Vec<f32>, Vec<i32>)> = std::collections::HashMap::new();
+
         for (param_name, grad) in grads.iter() {
             let is_trainable = param_name.contains("lm_head") || param_name.contains("model.norm");
-            if !is_trainable {
-                continue;
+            if is_trainable {
+                // Only extract gradients we'll actually use
+                let _ = grad.eval();
+                let grad_vec: Vec<f32> = grad.as_slice::<f32>().to_vec();
+                let grad_shape: Vec<i32> = grad.shape().to_vec();
+                trainable_grad_data.insert(param_name.to_string(), (grad_vec, grad_shape));
             }
+            // Non-trainable gradients: do nothing, let them be dropped with grads HashMap
+        }
 
-            // Materialize gradient
-            let _ = grad.eval();
-            let grad_data: Vec<f32> = grad.as_slice::<f32>().to_vec();
-            let grad_shape: Vec<i32> = grad.shape().to_vec();
+        // Drop ALL gradient Arrays (frees 30-40GB of the 126 unused gradients)
+        drop(grads);
+        mlx_rs::transforms::compile::clear_cache();
+        let _ = crate::utils::mlx_memory::clear_cache();
 
-            // Convert param_name to String for HashMap
-            let param_name_str = param_name.to_string();
-
-            // Accumulate gradient
-            if let Some((acc_data, _)) = self.accumulated_gradients.get_mut(&param_name_str) {
-                // Add to existing accumulation
-                for (acc, g) in acc_data.iter_mut().zip(grad_data.iter()) {
-                    *acc += g;
-                }
-            } else {
-                // First accumulation - initialize
-                self.accumulated_gradients
-                    .insert(param_name_str, (grad_data, grad_shape));
-            }
+        // Store in accumulated_gradients (with grad_accum_steps==1 this just passes through)
+        for (param_name, (grad_data, grad_shape)) in trainable_grad_data {
+            self.accumulated_gradients.insert(param_name, (grad_data, grad_shape));
         }
 
         // Increment accumulation step
         self.accumulation_step += 1;
+
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:grad_accum_check",
+            &format!("Grad accum step {}/{}", self.accumulation_step, grad_accum_steps),
+            self.global_step,
+            "accumulation",
+        );
+        // #endregion agent log
 
         // Only apply optimizer update when accumulation is complete
         if self.accumulation_step < grad_accum_steps {
@@ -873,6 +1044,14 @@ impl DistrustTrainer {
                     self.accumulation_step, grad_accum_steps
                 );
             }
+            // #region agent log
+            self.log_debug(
+                "trainer.rs:grad_accum_skip_optimizer",
+                "Skipping optimizer - still accumulating",
+                self.global_step,
+                "accumulation",
+            );
+            // #endregion agent log
             return Ok(loss_val);
         }
 
@@ -881,6 +1060,15 @@ impl DistrustTrainer {
             "  [Applying accumulated gradients from {} micro-steps]",
             grad_accum_steps
         );
+
+        // #region agent log
+        self.log_debug(
+            "trainer.rs:grad_accum_complete",
+            "Gradient accumulation complete - starting optimizer update",
+            self.global_step,
+            "optimizer",
+        );
+        // #endregion agent log
 
         // Reset accumulation counter
         self.accumulation_step = 0;
@@ -1021,19 +1209,27 @@ impl DistrustTrainer {
             let _ = crate::utils::mlx_memory::clear_cache();
         }
 
-        // AGGRESSIVE MEMORY CLEANUP after all parameter updates:
-        // 1. Force evaluate ALL model parameters to materialize them
-        // 2. This breaks any lazy evaluation chains that might hold old arrays
+        // CRITICAL: Force Metal GPU to release ALL intermediate computation graphs
+        // Even though we only updated 2 parameters, the forward/backward pass computed
+        // gradients for all 128 LoRA targets. We need to clear those from GPU memory.
+
+        // Step 1: Evaluate only trainable parameters to materialize updates
         {
             let parameters = self.model.parameters().flatten();
-            for (_name, param) in parameters.iter() {
-                let _ = param.eval();
+            for (name, param) in parameters.iter() {
+                let is_trainable = name.contains("lm_head") || name.contains("model.norm");
+                if is_trainable {
+                    let _ = param.eval();
+                }
             }
         }
 
-        // 3. Clear caches - the memory limit set at training start should force recycling
+        // Step 2: Clear all MLX caches to force release of gradient computation graphs
         mlx_rs::transforms::compile::clear_cache();
         let _ = crate::utils::mlx_memory::clear_cache();
+
+        // Step 3: Force a dummy eval to synchronize Metal GPU
+        let _ = mlx_rs::ops::zeros::<f32>(&[1])?.eval();
 
         // #region agent log
         self.log_debug(

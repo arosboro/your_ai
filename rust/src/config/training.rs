@@ -29,7 +29,7 @@ impl Default for TrainingConfig {
     fn default() -> Self {
         Self {
             batch_size: 1, // Reduced from 2 for better memory efficiency
-            gradient_accumulation_steps: 8,
+            gradient_accumulation_steps: 1,
             max_steps: 5000,
             save_steps: 500,
             eval_steps: 250,
