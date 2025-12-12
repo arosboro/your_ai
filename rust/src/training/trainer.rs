@@ -28,6 +28,9 @@ pub struct DistrustTrainer {
     adam_m: std::collections::HashMap<String, OptimizerState>, // First moment estimates
     adam_v: std::collections::HashMap<String, OptimizerState>, // Second moment estimates
     adam_step: usize,                                          // Step counter for bias correction
+    // Gradient accumulation state
+    accumulated_gradients: std::collections::HashMap<String, OptimizerState>, // Accumulated gradients
+    accumulation_step: usize,                                  // Current micro-step in accumulation
     dataset: Option<StreamingDataset>,
     global_step: usize,
     loss_history: Vec<f32>,
@@ -127,24 +130,29 @@ impl DistrustTrainer {
             llama_config.num_attention_heads
         );
 
-        // Load pre-trained weights from safetensors
-        let loader = ModelLoader::new(&config.paths.model_path);
-        let weights = loader.load_safetensors().unwrap_or_else(|e| {
-            println!("Warning: Could not load weights from safetensors: {}", e);
-            println!("Model will use random initialization");
-            std::collections::HashMap::new()
-        });
+        // TEMPORARY: Skip weight loading due to MLX/Metal stability issues
+        // Using random initialization for testing training loop optimizations
+        println!("Using random initialization (weight loading disabled for testing)");
+        let model = LlamaForCausalLM::new(llama_config)?;
 
-        let model = if !weights.is_empty() {
-            println!(
-                "Loading model with {} pre-trained weight tensors",
-                weights.len()
-            );
-            crate::model::llama::load_model_with_weights(llama_config, weights)?
-        } else {
-            println!("Initializing model with random weights");
-            LlamaForCausalLM::new(llama_config)?
-        };
+        // TODO: Re-enable weight loading once MLX stability issues are resolved
+        // let loader = ModelLoader::new(&config.paths.model_path);
+        // let weights = loader.load_safetensors().unwrap_or_else(|e| {
+        //     println!("Warning: Could not load weights from safetensors: {}", e);
+        //     println!("Model will use random initialization");
+        //     std::collections::HashMap::new()
+        // });
+        //
+        // let model = if !weights.is_empty() {
+        //     println!(
+        //         "Loading model with {} pre-trained weight tensors",
+        //         weights.len()
+        //     );
+        //     crate::model::llama::load_model_with_weights(llama_config, weights)?
+        // } else {
+        //     println!("Initializing model with random weights");
+        //     LlamaForCausalLM::new(llama_config)?
+        // };
 
         // Load tokenizer
         let tokenizer_path = model_dir.join("tokenizer.json");
@@ -188,6 +196,8 @@ impl DistrustTrainer {
             adam_m,
             adam_v,
             adam_step,
+            accumulated_gradients: std::collections::HashMap::new(),
+            accumulation_step: 0,
             dataset,
             global_step: 0,
             loss_history: Vec::new(),
@@ -696,8 +706,8 @@ impl DistrustTrainer {
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let token_ids = self.tokenizer.encode_batch(&text_refs, true)?;
 
-        // CRITICAL: Use fixed short sequence length to prevent memory explosion
-        let seq_len = 32_usize;
+        // Use 256 token sequence length for better GPU utilization
+        let seq_len = 256_usize;
         let pad_token_id = 0i32;
 
         // Pad/truncate sequences
@@ -824,6 +834,61 @@ impl DistrustTrainer {
             );
         }
 
+        // Get gradient accumulation steps from config
+        let grad_accum_steps = self.config.training.gradient_accumulation_steps;
+
+        // Accumulate gradients
+        for (param_name, grad) in grads.iter() {
+            let is_trainable = param_name.contains("lm_head") || param_name.contains("model.norm");
+            if !is_trainable {
+                continue;
+            }
+
+            // Materialize gradient
+            let _ = grad.eval();
+            let grad_data: Vec<f32> = grad.as_slice::<f32>().to_vec();
+            let grad_shape: Vec<i32> = grad.shape().to_vec();
+
+            // Convert param_name to String for HashMap
+            let param_name_str = param_name.to_string();
+
+            // Accumulate gradient
+            if let Some((acc_data, _)) = self.accumulated_gradients.get_mut(&param_name_str) {
+                // Add to existing accumulation
+                for (acc, g) in acc_data.iter_mut().zip(grad_data.iter()) {
+                    *acc += g;
+                }
+            } else {
+                // First accumulation - initialize
+                self.accumulated_gradients.insert(param_name_str, (grad_data, grad_shape));
+            }
+        }
+
+        // Increment accumulation step
+        self.accumulation_step += 1;
+
+        // Only apply optimizer update when accumulation is complete
+        if self.accumulation_step < grad_accum_steps {
+            // Still accumulating - return loss and skip optimizer update
+            if self.global_step.is_multiple_of(10) || self.accumulation_step == 1 {
+                eprintln!(
+                    "  [Accumulating gradients {}/{}]",
+                    self.accumulation_step, grad_accum_steps
+                );
+            }
+            return Ok(loss_val);
+        }
+
+        // Log when applying accumulated gradients
+        eprintln!(
+            "  [Applying accumulated gradients from {} micro-steps]",
+            grad_accum_steps
+        );
+
+        // Reset accumulation counter
+        self.accumulation_step = 0;
+
+        // Apply optimizer update with accumulated gradients
         // CRITICAL FIX: Process each parameter INDIVIDUALLY with immediate cleanup
         // This prevents computation graph accumulation that was crashing the system
 
@@ -840,8 +905,11 @@ impl DistrustTrainer {
         let mut trainable_params = 0usize;
         let mut frozen_params = 0usize;
 
-        // Get parameter names first to avoid borrow issues
-        let param_names: Vec<String> = grads.keys().map(|k| k.to_string()).collect();
+        // Get parameter names from accumulated gradients
+        let param_names: Vec<String> = self.accumulated_gradients.keys().map(|k| k.to_string()).collect();
+
+        // Scale factor for accumulated gradients
+        let grad_scale = 1.0 / grad_accum_steps as f32;
 
         for param_name in param_names {
             let is_trainable = param_name.contains("lm_head") || param_name.contains("model.norm");
@@ -863,10 +931,10 @@ impl DistrustTrainer {
                 continue;
             }
 
-            // Get gradient and IMMEDIATELY materialize it to break graph link
-            let grad_data: Vec<f32> = if let Some(grad) = grads.get(param_name.as_str()) {
-                let _ = grad.eval();
-                grad.as_slice::<f32>().to_vec()
+            // Get accumulated gradient and scale it
+            let grad_data: Vec<f32> = if let Some((acc_grad, _)) = self.accumulated_gradients.get(&param_name) {
+                // Scale by 1/N to get average gradient
+                acc_grad.iter().map(|&g| g * grad_scale).collect()
             } else {
                 continue;
             };
@@ -1009,6 +1077,9 @@ impl DistrustTrainer {
                 "   Strategy: Training lm_head + final norm ONLY (minimal memory footprint)\n"
             );
         }
+
+        // Clear accumulated gradients after optimizer update
+        self.accumulated_gradients.clear();
 
         // Final cache clear
         mlx_rs::transforms::compile::clear_cache();

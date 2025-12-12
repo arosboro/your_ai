@@ -4,6 +4,7 @@ use half::{bf16, f16};
 use mlx_rs::Array;
 use safetensors::SafeTensors;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Safely create MLX array from f32 slice with validation
@@ -140,11 +141,11 @@ impl ModelLoader {
 
             println!("Found {} shard files", shard_files.len());
 
-            // For large models (>10 shards), use lazy loading approach
-            // Only load LoRA target layers to save memory
-            if shard_files.len() > 10 {
+            // For models with multiple shards (>2), use lazy loading approach
+            // Only load LoRA target layers to save memory and avoid tensor loading crashes
+            if shard_files.len() > 2 {
                 println!(
-                    "Large model detected - using memory-efficient loading (LoRA layers only)"
+                    "Multi-shard model detected - using memory-efficient loading (LoRA layers only)"
                 );
 
                 for (idx, shard_path) in shard_files.iter().enumerate() {
@@ -280,6 +281,9 @@ impl ModelLoader {
     }
 
     fn load_lora_target_layers(&self, path: &Path) -> anyhow::Result<HashMap<String, Array>> {
+        // Initialize MLX by creating a small test array to ensure Metal backend is ready
+        let _init_test = mlx_rs::ops::zeros::<f32>(&[1_i32])?;
+        
         let data = std::fs::read(path)?;
         let tensors = SafeTensors::deserialize(&data)?;
 
@@ -310,9 +314,13 @@ impl ModelLoader {
             };
             let estimated_mb = (total_elements * element_bytes) / (1024 * 1024);
 
+            // Log every tensor we're about to load
+            print!("    Loading '{}' ({:?}, {} MB)... ", name, shape, estimated_mb);
+            std::io::stdout().flush().ok();
+
             if estimated_mb > 500 {
                 eprintln!(
-                    "Warning: Large LoRA tensor '{}' ({} MB)",
+                    "\n    Warning: Large LoRA tensor '{}' ({} MB)",
                     name, estimated_mb
                 );
             }
@@ -352,9 +360,13 @@ impl ModelLoader {
                         .collect();
                     safe_array_from_slice_f32(&f32_data, &shape_i32, &name)?
                 }
-                _ => continue, // Skip unsupported dtypes to save memory
+                _ => {
+                    println!("skipped (unsupported dtype)");
+                    continue; // Skip unsupported dtypes to save memory
+                }
             };
 
+            println!("OK");
             weights.insert(name.to_string(), mlx_array);
         }
 
