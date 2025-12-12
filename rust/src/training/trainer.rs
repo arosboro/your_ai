@@ -84,6 +84,12 @@ fn format_duration(secs: u64) -> String {
     }
 }
 
+/// Get debug log path from environment variable
+/// Set YOUR_AI_DEBUG_LOG env var to enable debug logging
+fn debug_log_path() -> Option<PathBuf> {
+    std::env::var("YOUR_AI_DEBUG_LOG").ok().map(PathBuf::from)
+}
+
 impl DistrustTrainer {
     pub fn new(config: Config) -> anyhow::Result<Self> {
         // Initialize memory monitoring
@@ -169,14 +175,14 @@ impl DistrustTrainer {
                     .iter()
                     .map(|m| {
                         // Extract the projection name (e.g., "self_attn.q_proj" → "q_proj")
-                        m.split('.').last().unwrap_or(m).to_string()
+                        m.split('.').next_back().unwrap_or(m).to_string()
                     })
                     .collect();
 
                 let lora_config = crate::training::lora::LoraConfig {
                     rank: lora_rank,
                     alpha: config.model.lora_alpha,
-                    dropout: 0.0,
+                    dropout: config.model.lora_dropout,
                     target_modules,
                 };
                 crate::training::lora::apply_lora_to_model(
@@ -459,16 +465,11 @@ impl DistrustTrainer {
                 );
                 eprintln!("  Requested Steps:      {}", self.config.training.max_steps);
                 eprintln!("  ENFORCED STEP LIMIT:  {} steps", calculated_max_steps);
-                eprintln!("");
                 eprintln!(
-                    "  REASON: Training would consume {:.1} GB",
-                    self.config.training.max_steps as f64 * leak_gb_per_step
-                );
-                eprintln!(
-                    "          This exceeds available memory ({:.1} GB)",
+                    "  REASON: Training would consume {:.1} GB (exceeds available {:.1} GB)",
+                    self.config.training.max_steps as f64 * leak_gb_per_step,
                     available_gb
                 );
-                eprintln!("");
                 eprintln!("  SOLUTIONS:");
                 eprintln!("  1. Enable periodic reload: set reload_interval_steps=40");
                 eprintln!("  2. Reduce max_steps to fit memory constraints");
@@ -490,21 +491,23 @@ impl DistrustTrainer {
 
         while self.global_step < calculated_max_steps {
             // #region agent log - loop iteration start
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
-            {
-                let json = serde_json::json!({
-                    "location": "trainer.rs:main_loop_iteration",
-                    "message": "Starting training loop iteration",
-                    "step": self.global_step,
-                    "max_steps": self.config.training.max_steps,
-                    "phase": "main_loop",
-                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
-                    "hypothesisId": "A-main-loop"
-                });
-                let _ = writeln!(file, "{}", json);
+            if let Some(log_path) = debug_log_path() {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_path)
+                {
+                    let json = serde_json::json!({
+                        "location": "trainer.rs:main_loop_iteration",
+                        "message": "Starting training loop iteration",
+                        "step": self.global_step,
+                        "max_steps": self.config.training.max_steps,
+                        "phase": "main_loop",
+                        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                        "hypothesisId": "A-main-loop"
+                    });
+                    let _ = writeln!(file, "{}", json);
+                }
             }
             // #endregion agent log
 
@@ -512,21 +515,23 @@ impl DistrustTrainer {
             let lr = self.scheduler.get_lr(self.global_step);
 
             // #region agent log - before training_step
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
-            {
-                let json = serde_json::json!({
-                    "location": "trainer.rs:before_training_step",
-                    "message": "About to call training_step",
-                    "step": self.global_step,
-                    "lr": lr,
-                    "phase": "main_loop",
-                    "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
-                    "hypothesisId": "D-training-step"
-                });
-                let _ = writeln!(file, "{}", json);
+            if let Some(log_path) = debug_log_path() {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_path)
+                {
+                    let json = serde_json::json!({
+                        "location": "trainer.rs:before_training_step",
+                        "message": "About to call training_step",
+                        "step": self.global_step,
+                        "lr": lr,
+                        "phase": "main_loop",
+                        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                        "hypothesisId": "D-training-step"
+                    });
+                    let _ = writeln!(file, "{}", json);
+                }
             }
             // #endregion agent log
 
@@ -536,7 +541,7 @@ impl DistrustTrainer {
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
             {
                 let json = serde_json::json!({
                     "location": "trainer.rs:after_training_step",
@@ -628,7 +633,7 @@ impl DistrustTrainer {
                                         "  Leak Rate:            {:.0} MB/step",
                                         leak_per_step_mb
                                     );
-                                    eprintln!("");
+                                    println!();
                                     if projected_final > avail_gb * 0.9 {
                                         eprintln!("  ❌ DANGER: Projected memory exceeds 90% of available!");
                                         eprintln!(
@@ -817,7 +822,7 @@ impl DistrustTrainer {
                 if let Ok(mut file) = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                    .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
                 {
                     let json = serde_json::json!({
                         "location": "trainer.rs:before_checkpoint",
@@ -837,7 +842,7 @@ impl DistrustTrainer {
                 if let Ok(mut file) = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                    .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
                 {
                     let json = serde_json::json!({
                         "location": "trainer.rs:after_checkpoint",
@@ -856,7 +861,7 @@ impl DistrustTrainer {
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
             {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_pb_inc",
@@ -876,7 +881,7 @@ impl DistrustTrainer {
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
             {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_after_pb",
@@ -896,7 +901,7 @@ impl DistrustTrainer {
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("/Users/arosboro/your_ai/.cursor/debug.log")
+                .open(debug_log_path().unwrap_or_else(|| PathBuf::from("/dev/null")))
             {
                 let json = serde_json::json!({
                     "location": "trainer.rs:main_loop_step_incremented",
@@ -1056,49 +1061,51 @@ impl DistrustTrainer {
     // #region agent log
     fn log_debug(&mut self, location: &str, message: &str, step: usize, phase: &str) {
         use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/Users/arosboro/your_ai/.cursor/debug.log")
-        {
-            let (rss_mb, avail_mb) = if let Some(ref mut monitor) = self.memory_monitor {
-                if let Ok(info) = monitor.check() {
-                    let rss = info.rss_bytes as f64 / 1024.0 / 1024.0;
-                    let avail = info.system_available_bytes as f64 / 1024.0 / 1024.0;
-                    (rss, avail)
+        if let Some(log_path) = debug_log_path() {
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                let (rss_mb, avail_mb) = if let Some(ref mut monitor) = self.memory_monitor {
+                    if let Ok(info) = monitor.check() {
+                        let rss = info.rss_bytes as f64 / 1024.0 / 1024.0;
+                        let avail = info.system_available_bytes as f64 / 1024.0 / 1024.0;
+                        (rss, avail)
+                    } else {
+                        (0.0, 0.0)
+                    }
                 } else {
                     (0.0, 0.0)
-                }
-            } else {
-                (0.0, 0.0)
-            };
-            // Get actual MLX/Metal memory usage
-            let mlx_active_mb = crate::utils::mlx_memory::get_active_memory()
-                .map(|b| b as f64 / 1024.0 / 1024.0)
-                .unwrap_or(0.0);
-            let mlx_peak_mb = crate::utils::mlx_memory::get_peak_memory()
-                .map(|b| b as f64 / 1024.0 / 1024.0)
-                .unwrap_or(0.0);
-            let mlx_cache_mb = crate::utils::mlx_memory::get_cache_memory()
-                .map(|b| b as f64 / 1024.0 / 1024.0)
-                .unwrap_or(0.0);
-            let json = serde_json::json!({
-                "location": location,
-                "message": message,
-                "step": step,
-                "phase": phase,
-                "rss_mb": rss_mb,
-                "avail_mb": avail_mb,
-                "mlx_active_mb": mlx_active_mb,
-                "mlx_peak_mb": mlx_peak_mb,
-                "mlx_cache_mb": mlx_cache_mb,
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0),
-                "hypothesisId": "B-metal-memory"
-            });
-            let _ = writeln!(file, "{}", json);
+                };
+                // Get actual MLX/Metal memory usage
+                let mlx_active_mb = crate::utils::mlx_memory::get_active_memory()
+                    .map(|b| b as f64 / 1024.0 / 1024.0)
+                    .unwrap_or(0.0);
+                let mlx_peak_mb = crate::utils::mlx_memory::get_peak_memory()
+                    .map(|b| b as f64 / 1024.0 / 1024.0)
+                    .unwrap_or(0.0);
+                let mlx_cache_mb = crate::utils::mlx_memory::get_cache_memory()
+                    .map(|b| b as f64 / 1024.0 / 1024.0)
+                    .unwrap_or(0.0);
+                let json = serde_json::json!({
+                    "location": location,
+                    "message": message,
+                    "step": step,
+                    "phase": phase,
+                    "rss_mb": rss_mb,
+                    "avail_mb": avail_mb,
+                    "mlx_active_mb": mlx_active_mb,
+                    "mlx_peak_mb": mlx_peak_mb,
+                    "mlx_cache_mb": mlx_cache_mb,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0),
+                    "hypothesisId": "B-metal-memory"
+                });
+                let _ = writeln!(file, "{}", json);
+            }
         }
     }
     // #endregion agent log
@@ -1114,9 +1121,10 @@ impl DistrustTrainer {
         let t = self.adam_step as f32;
         let weight_decay = self.config.training.weight_decay;
 
-        let beta1 = 0.9f32;
-        let beta2 = 0.999f32;
-        let eps = 1e-8f32;
+        // Use configured AdamW hyperparameters (not hardcoded)
+        let beta1 = self.config.training.adam_beta1;
+        let beta2 = self.config.training.adam_beta2;
+        let eps = self.config.training.adam_epsilon;
         let bias_correction1 = 1.0 - beta1.powf(t);
         let bias_correction2 = 1.0 - beta2.powf(t);
 

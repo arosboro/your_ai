@@ -683,10 +683,14 @@ pub fn load_weights_into_model(
             // "backbone.layers.X" → "model.layers.X"
             // "backbone.embed_tokens" → "model.embed_tokens"
             param_name_str.replace("backbone.", "model.")
-        } else if param_name_str == "head.norm" {
-            "model.norm".to_string()
-        } else if param_name_str == "head.lm_head" {
-            "lm_head".to_string()
+        } else if param_name_str.starts_with("head.norm") {
+            // "head.norm.weight" → "model.norm.weight"
+            // "head.norm" → "model.norm"
+            param_name_str.replace("head.norm", "model.norm")
+        } else if param_name_str.starts_with("head.lm_head") {
+            // "head.lm_head.weight" → "lm_head.weight"
+            // "head.lm_head" → "lm_head"
+            param_name_str.replacen("head.", "", 1)
         } else {
             param_name_str.clone()
         };
