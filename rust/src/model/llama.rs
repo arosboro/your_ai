@@ -1,7 +1,7 @@
 use mlx_macros::ModuleParameters as DeriveModuleParameters;
 use mlx_rs::builder::Builder;
 use mlx_rs::error::Exception;
-use mlx_rs::module::Module;
+use mlx_rs::module::{Module, ModuleParameters};
 use mlx_rs::nn::{Embedding, Linear, RmsNorm, Rope, RopeBuilder};
 use mlx_rs::Array;
 use serde::{Deserialize, Serialize};
@@ -549,44 +549,69 @@ fn sample_categorical(probs: &[f32]) -> i32 {
 /// Loads pre-trained weights into a LlamaForCausalLM model.
 /// This function maps safetensors weight names to model parameters.
 pub fn load_weights_into_model(
-    _model: &mut LlamaForCausalLM,
+    model: &mut LlamaForCausalLM,
     weights: HashMap<String, Array>,
 ) -> anyhow::Result<()> {
     println!("Loading {} weight tensors into model...", weights.len());
 
-    let _loaded_count = 0;
-    let missing_keys: Vec<String> = Vec::new();
+    let mut loaded_count = 0;
+    let mut missing_keys: Vec<String> = Vec::new();
+    let mut extra_keys: Vec<String> = Vec::new();
 
-    // TODO: Weight Loading API - Needs mlx-rs parameter setting documentation
-    // The model derives ModuleParameters (via #[derive(ModuleParameters)] and #[param] attributes),
-    // which provides access to parameters via model.parameters() returning a NestedHashMap.
-    //
-    // To load weights, we need to:
-    //   1. Iterate over model.parameters() to get parameter names and references
-    //   2. Match safetensors keys to parameter names (handling name mapping)
-    //   3. Set parameter values using the appropriate mlx-rs API
-    //
-    // Expected pattern (needs mlx-rs API confirmation):
-    //   for (name, param) in model.parameters().flatten() {
-    //       if let Some(weight_array) = weights.get(&name) {
-    //           param.set_value(weight_array)?;  // or similar API
-    //           loaded_count += 1;
-    //       } else {
-    //           missing_keys.push(name.clone());
-    //       }
-    //   }
-    //
-    // For now, report weights loaded from file without setting them.
+    // Get mutable access to model parameters
+    let mut parameters = model.parameters_mut().flatten();
 
-    println!("Loaded {} weight tensors from safetensors", weights.len());
-    println!("Weight loading into model structure needs mlx-rs parameter update API");
+    // Load weights from safetensors into model parameters
+    for (param_name, param) in parameters.iter_mut() {
+        let param_name_str = param_name.to_string();
 
-    let loaded_count = weights.len();
+        if let Some(weight_array) = weights.get(&param_name_str) {
+            // Verify shape matches
+            if weight_array.shape() != param.shape() {
+                eprintln!(
+                    "Warning: Shape mismatch for {}: expected {:?}, got {:?}",
+                    param_name_str,
+                    param.shape(),
+                    weight_array.shape()
+                );
+                missing_keys.push(param_name_str);
+                continue;
+            }
+
+            // Set the parameter value using double dereference
+            // This is the same pattern used in trainer.rs for parameter updates
+            **param = weight_array.clone();
+            let _ = param.eval(); // Materialize on GPU
+            loaded_count += 1;
+        } else {
+            missing_keys.push(param_name_str);
+        }
+    }
+
+    // Find extra keys in weights that don't match any model parameters
+    for weight_key in weights.keys() {
+        if !parameters.contains_key(weight_key.as_str()) {
+            extra_keys.push(weight_key.clone());
+        }
+    }
+
+    println!(
+        "Successfully loaded {} / {} weight tensors into model",
+        loaded_count,
+        parameters.len()
+    );
 
     if !missing_keys.is_empty() && missing_keys.len() < 10 {
         println!(
             "Missing keys (first 10): {:?}",
             &missing_keys[..missing_keys.len().min(10)]
+        );
+    }
+
+    if !extra_keys.is_empty() && extra_keys.len() < 10 {
+        println!(
+            "Extra keys in safetensors (first 10): {:?}",
+            &extra_keys[..extra_keys.len().min(10)]
         );
     }
 

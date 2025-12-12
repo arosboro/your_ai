@@ -30,7 +30,7 @@ pub struct DistrustTrainer {
     adam_step: usize,                                          // Step counter for bias correction
     // Gradient accumulation state
     accumulated_gradients: std::collections::HashMap<String, OptimizerState>, // Accumulated gradients
-    accumulation_step: usize,                                  // Current micro-step in accumulation
+    accumulation_step: usize, // Current micro-step in accumulation
     dataset: Option<StreamingDataset>,
     global_step: usize,
     loss_history: Vec<f32>,
@@ -130,29 +130,23 @@ impl DistrustTrainer {
             llama_config.num_attention_heads
         );
 
-        // TEMPORARY: Skip weight loading due to MLX/Metal stability issues
-        // Using random initialization for testing training loop optimizations
-        println!("Using random initialization (weight loading disabled for testing)");
-        let model = LlamaForCausalLM::new(llama_config)?;
+        let loader = ModelLoader::new(&config.paths.model_path);
+        let weights = loader.load_safetensors().unwrap_or_else(|e| {
+            println!("Warning: Could not load weights from safetensors: {}", e);
+            println!("Model will use random initialization");
+            std::collections::HashMap::new()
+        });
 
-        // TODO: Re-enable weight loading once MLX stability issues are resolved
-        // let loader = ModelLoader::new(&config.paths.model_path);
-        // let weights = loader.load_safetensors().unwrap_or_else(|e| {
-        //     println!("Warning: Could not load weights from safetensors: {}", e);
-        //     println!("Model will use random initialization");
-        //     std::collections::HashMap::new()
-        // });
-        //
-        // let model = if !weights.is_empty() {
-        //     println!(
-        //         "Loading model with {} pre-trained weight tensors",
-        //         weights.len()
-        //     );
-        //     crate::model::llama::load_model_with_weights(llama_config, weights)?
-        // } else {
-        //     println!("Initializing model with random weights");
-        //     LlamaForCausalLM::new(llama_config)?
-        // };
+        let model = if !weights.is_empty() {
+            println!(
+                "Loading model with {} pre-trained weight tensors",
+                weights.len()
+            );
+            crate::model::llama::load_model_with_weights(llama_config, weights)?
+        } else {
+            println!("Initializing model with random weights");
+            LlamaForCausalLM::new(llama_config)?
+        };
 
         // Load tokenizer
         let tokenizer_path = model_dir.join("tokenizer.json");
@@ -860,7 +854,8 @@ impl DistrustTrainer {
                 }
             } else {
                 // First accumulation - initialize
-                self.accumulated_gradients.insert(param_name_str, (grad_data, grad_shape));
+                self.accumulated_gradients
+                    .insert(param_name_str, (grad_data, grad_shape));
             }
         }
 
@@ -906,7 +901,11 @@ impl DistrustTrainer {
         let mut frozen_params = 0usize;
 
         // Get parameter names from accumulated gradients
-        let param_names: Vec<String> = self.accumulated_gradients.keys().map(|k| k.to_string()).collect();
+        let param_names: Vec<String> = self
+            .accumulated_gradients
+            .keys()
+            .map(|k| k.to_string())
+            .collect();
 
         // Scale factor for accumulated gradients
         let grad_scale = 1.0 / grad_accum_steps as f32;
@@ -932,12 +931,13 @@ impl DistrustTrainer {
             }
 
             // Get accumulated gradient and scale it
-            let grad_data: Vec<f32> = if let Some((acc_grad, _)) = self.accumulated_gradients.get(&param_name) {
-                // Scale by 1/N to get average gradient
-                acc_grad.iter().map(|&g| g * grad_scale).collect()
-            } else {
-                continue;
-            };
+            let grad_data: Vec<f32> =
+                if let Some((acc_grad, _)) = self.accumulated_gradients.get(&param_name) {
+                    // Scale by 1/N to get average gradient
+                    acc_grad.iter().map(|&g| g * grad_scale).collect()
+                } else {
+                    continue;
+                };
 
             // Get current parameter value and materialize it
             let (param_data, param_shape): (Vec<f32>, Vec<i32>) = {
