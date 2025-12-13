@@ -96,18 +96,27 @@ pub fn clear_cache() -> anyhow::Result<()> {
 /// Prevents gradients from flowing back through this Array during backward pass.
 ///
 /// # Implementation Note
-/// MLX C API has `mlx_stop_gradient` (mlx/c/ops.h:994) but mlx-rs doesn't expose it.
-/// This uses the standard `add(0)` workaround which creates a new Array with identical
-/// values but disconnected from the computation graph. This is the recommended approach
-/// in the MLX community until mlx-rs provides native support.
+/// Robust "Deep Detach" implementation:
+/// 1. Evaluate the array
+/// 2. Extract data to CPU
+/// 3. Create fresh Array from data
 ///
-/// # Why This Works
-/// The addition operation creates a new Array that:
-/// - Contains the same data
-/// - Is allocated in a new memory location
-/// - Has no parent nodes in the computation graph
-/// - Blocks gradient flow during backpropagation
+/// This guarantees the new array has NO connection to the previous computation graph,
+/// solving memory leaks where `add(0)` would keep the history alive.
+///
+/// Performance Warning: This involves GPU->CPU->GPU copy. It is heavy but safe.
 pub fn stop_gradient(array: &mlx_rs::Array) -> mlx_rs::error::Result<mlx_rs::Array> {
     use mlx_rs::Array;
-    array.add(Array::from_f32(0.0))
+
+    // Force evaluation
+    array.eval()?;
+
+    // Extract data and shape
+    // Note: We assume float32 for this specific use case in trainer
+    let data: Vec<f32> = array.as_slice::<f32>().to_vec();
+    let shape = array.shape();
+
+    // Create new independent array
+    let new_array = Array::from_slice(&data, shape);
+    Ok(new_array)
 }
