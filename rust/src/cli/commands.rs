@@ -5,8 +5,12 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use your_ai_rs::benchmarks::{EmpiricalOptimizer, HardwareProfile};
+use your_ai_rs::config::model::AVAILABLE_MODELS;
+use your_ai_rs::checkpoints::Checkpoint;
 use your_ai_rs::config::Config;
 use your_ai_rs::hardware::{detect_hardware, MODEL_REQUIREMENTS};
+// use your_ai_rs::model::{LlamaForCausalLM, ModelLoader}; // Removed unused LlamaForCausalLM
+use your_ai_rs::model::ModelLoader;
 use your_ai_rs::training::DistrustTrainer;
 
 /// Logger that writes benchmark events to disk for crash analysis
@@ -771,10 +775,11 @@ pub fn generate(
     max_tokens: usize,
     temperature: f32,
     compare: bool,
+    eos_token: Option<i32>,
 ) -> Result<()> {
     use std::path::PathBuf;
     use your_ai_rs::config::model::AVAILABLE_MODELS;
-    use your_ai_rs::model::{LlamaConfig, LlamaForCausalLM, TokenizerWrapper};
+    use your_ai_rs::model::{LlamaConfig, TokenizerWrapper};
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Text Generation");
@@ -827,7 +832,13 @@ pub fn generate(
 
     // Load config and tokenizer
     let config_path = model_dir.join("config.json");
-    let llama_config = LlamaConfig::from_json(&config_path)?;
+    let mut llama_config = LlamaConfig::from_json(&config_path)?;
+
+    // Apply EOS override from CLI
+    if let Some(eos) = eos_token {
+        llama_config.eos_token_id = Some(your_ai_rs::model::EosToken::Single(eos));
+        println!("Overriding EOS token ID: {}", eos);
+    }
 
     let tokenizer_path = model_dir.join("tokenizer.json");
     let tokenizer = TokenizerWrapper::from_file(&tokenizer_path)
@@ -849,7 +860,12 @@ pub fn generate(
         // Generate with base model
         println!("📝 BASE MODEL OUTPUT:");
         println!("─────────────────────────────────────────────────────────────");
-        let mut base_model = LlamaForCausalLM::new(llama_config.clone())?;
+
+        // Load base weights
+        let loader = ModelLoader::new(&model_path);
+        let base_weights = loader.load_safetensors()?;
+        let mut base_model = your_ai_rs::model::llama::load_model_with_weights(llama_config.clone(), base_weights.clone())?;
+
         let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
         let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
 
@@ -866,8 +882,19 @@ pub fn generate(
         // Generate with checkpoint model
         println!("📝 FINE-TUNED MODEL OUTPUT:");
         println!("─────────────────────────────────────────────────────────────");
-        // TODO: Load checkpoint weights
-        let mut finetuned_model = LlamaForCausalLM::new(llama_config)?;
+
+        // Prepare weights with checkpoint merged
+        let mut finetuned_weights = base_weights; // Efficient clone/move
+        if let Some(checkpoint_path) = checkpoint.as_ref() {
+            let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+            let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+            for (name, (data, shape)) in checkpoint.model_state {
+                let array = mlx_rs::Array::from_slice(&data, &shape);
+                finetuned_weights.insert(name, array);
+            }
+        }
+
+        let mut finetuned_model = your_ai_rs::model::llama::load_model_with_weights(llama_config, finetuned_weights)?;
 
         let finetuned_tokens = finetuned_model.generate(&input_array, max_tokens, temperature)?;
         let finetuned_output = tokenizer.decode(
@@ -885,13 +912,29 @@ pub fn generate(
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     } else {
         // Single model generation
-        println!("Loading model...");
-        let mut model = LlamaForCausalLM::new(llama_config)?;
+        println!("Loading model weights...");
 
-        // TODO: Load checkpoint if specified
-        if let Some(_checkpoint_path) = checkpoint {
-            println!("Note: Checkpoint loading not yet implemented");
+        // 1. Load base model weights
+        let loader = ModelLoader::new(&model_path);
+        let mut weights = loader.load_safetensors()?;
+        println!("Loaded {} base tensors", weights.len());
+
+        // 2. Load checkpoint if specified
+        if let Some(checkpoint_path) = checkpoint {
+            println!("Loading checkpoint from: {}", checkpoint_path);
+            let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+            let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+
+            println!("Merging {} checkpoint tensors (step {})", checkpoint.model_state.len(), checkpoint.step);
+            for (name, (data, shape)) in checkpoint.model_state {
+                let array = mlx_rs::Array::from_slice(&data, &shape);
+                weights.insert(name, array);
+            }
         }
+
+
+        // 3. Initialize model with weights (prevents random initialization)
+        let mut model = your_ai_rs::model::llama::load_model_with_weights(llama_config, weights)?;
 
         println!("Generating text...");
         let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
@@ -917,6 +960,94 @@ pub fn generate(
         println!("Tokens generated: {}", generated_tokens.len());
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
+
+    Ok(())
+}
+
+/// Export fine-tuned model to safetensors
+pub fn export_command(
+    model: &str,
+    checkpoint_path: &std::path::PathBuf,
+    output_path: &std::path::PathBuf,
+) -> Result<()> {
+    println!("Exporting model: {}", model);
+    println!("Checkpoint: {:?}", checkpoint_path);
+    println!("Output: {:?}", output_path);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    // Resolve model name
+    let model_name = if let Some(preset_config) = AVAILABLE_MODELS.get(model) {
+        preset_config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(model)
+            .to_string()
+    } else {
+        model.to_string()
+    };
+
+    // Simplified resolution for export (assume downloaded or local)
+    let model_path = if std::path::Path::new(&model_name).exists() {
+        model_name.clone()
+    } else {
+        // Try simple HF cache guess
+        let cache_name = model_name.replace('/', "--");
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
+
+        let mut found_path = None;
+        if std::path::Path::new(&cache_dir).exists() {
+            let snapshots_dir = format!("{}/snapshots", cache_dir);
+            if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
+                for entry in entries.flatten() {
+                    // Fix: FileType does not implement Default, use map/unwrap_or
+                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                        found_path = Some(entry.path().to_string_lossy().to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        found_path.ok_or_else(|| anyhow::anyhow!("Model not found: {}. Please use full path.", model_name))?
+    };
+
+    println!("Base model path: {}", model_path);
+    // let model_dir = std::path::PathBuf::from(&model_path);
+
+    // 1. Load base weights
+    println!("1. Loading base model weights...");
+    let loader = ModelLoader::new(&model_path);
+    let mut weights = loader.load_safetensors()?;
+    println!("   Loaded {} tensors", weights.len());
+
+    // 2. Load checkpoint
+    println!("2. Loading checkpoint...");
+    let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+    let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+    println!("   Checkpoint step: {}", checkpoint.step);
+    println!("   Merging {} tensors...", checkpoint.model_state.len());
+
+    // 3. Merge weights
+    for (name, (data, shape)) in checkpoint.model_state {
+        let array = mlx_rs::Array::from_slice(&data, &shape);
+        // Overwrite or insert
+        weights.insert(name, array);
+    }
+    println!("   Merge complete.");
+
+    // 4. Save to output
+    println!("3. Saving exported model to {:?}...", output_path);
+
+    // Create output directory if needed
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let loader = ModelLoader::new(model_path);
+    loader.save_safetensors(&weights, output_path)?;
+
+    println!("✓ Export complete!");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     Ok(())
 }

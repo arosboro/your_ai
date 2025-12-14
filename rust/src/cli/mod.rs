@@ -116,6 +116,21 @@ enum Commands {
         /// Compare base model with checkpoint (requires --checkpoint)
         #[arg(long)]
         compare: bool,
+        /// Optional EOS token ID override
+        #[arg(long)]
+        eos_token: Option<i32>,
+    },
+    /// Export fine-tuned model to safetensors
+    Export {
+        /// Base model name
+        #[arg(long)]
+        model: String,
+        /// Checkpoint path
+        #[arg(long)]
+        checkpoint: std::path::PathBuf,
+        /// Output path
+        #[arg(long)]
+        output: std::path::PathBuf,
     },
 }
 
@@ -168,7 +183,14 @@ pub fn run() -> Result<()> {
             checkpoint,
             max_tokens,
             temperature,
+
             compare,
-        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare),
+            eos_token,
+        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare, eos_token),
+        Commands::Export {
+            model,
+            checkpoint,
+            output,
+        } => commands::export_command(&model, &checkpoint, &output),
     }
 }

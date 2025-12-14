@@ -408,6 +408,63 @@ impl ModelLoader {
         Ok(HashMap::new())
     }
 
+    pub fn save_safetensors(
+        &self,
+        weights: &HashMap<String, Array>,
+        path: impl AsRef<Path>,
+    ) -> anyhow::Result<()> {
+        let path = path.as_ref();
+        println!("Saving {} tensors to {:?}", weights.len(), path);
+
+        // Phase 1: Evaluate arrays and extract data to CPU
+        // We must store the data in a vector that won't be resized later
+        // to verify we can take references. Actually, a Vec<Vec<u8>> is fine
+        // as long as we iterate it nicely.
+
+        let mut data_storage: Vec<(String, Vec<usize>, safetensors::Dtype, Vec<u8>)> = Vec::new();
+
+        for (name, array) in weights {
+            // Ensure array is evaluated
+            let _ = array.eval();
+
+            // Determine dtype and extract data as bytes (u8 slice)
+            // MLX Arrays usually hide raw bytes, but we can access via as_slice::<T> and cast.
+            // Safetensors expects LE bytes.
+            let shape: Vec<usize> = array.shape().iter().map(|&s| s as usize).collect();
+            // let dtype = array.dtype(); // Unused
+
+            let (dtype_enum, data_bytes) = {
+                // Default to F32 for now as we know our models are F32/BF16
+                // and we cast to F32 for storage safety
+                 let slice = array.as_slice::<f32>();
+                 let bytes: &[u8] = unsafe {
+                     std::slice::from_raw_parts(
+                         slice.as_ptr() as *const u8,
+                         slice.len() * 4
+                     )
+                 };
+                 (safetensors::Dtype::F32, bytes.to_vec())
+            };
+
+            data_storage.push((name.clone(), shape, dtype_enum, data_bytes));
+        }
+
+        // Phase 2: Create TensorViews referencing the stable data in data_storage
+        let mut headers: HashMap<String, safetensors::tensor::TensorView> = HashMap::new();
+
+        for (name, shape, dtype, bytes) in &data_storage {
+            headers.insert(
+                name.clone(),
+                safetensors::tensor::TensorView::new(*dtype, shape.clone(), bytes)?
+            );
+        }
+
+        safetensors::serialize_to_file(&headers, &None, path)?;
+        println!("Saved model to {:?}", path);
+
+        Ok(())
+    }
+
     pub fn save_npz(
         &self,
         _weights: &HashMap<String, Array>,

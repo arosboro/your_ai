@@ -25,6 +25,15 @@ pub struct LlamaConfig {
     pub mlp_bias: bool,
     #[serde(default)]
     pub tie_word_embeddings: bool,
+    #[serde(default)]
+    pub eos_token_id: Option<EosToken>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EosToken {
+    Single(i32),
+    Multiple(Vec<i32>),
 }
 
 impl LlamaConfig {
@@ -612,9 +621,14 @@ impl LlamaForCausalLM {
 
             generated.push(next_token);
 
-            // Check for EOS token (assuming EOS=2 for most models)
-            // TODO: Make EOS token configurable
-            if next_token == 2 {
+            // Check for EOS token
+            let is_eos = match &self.backbone.config.eos_token_id {
+                Some(EosToken::Single(id)) => next_token == *id,
+                Some(EosToken::Multiple(ids)) => ids.contains(&next_token),
+                None => next_token == 2, // Default fallback
+            };
+
+            if is_eos {
                 break;
             }
         }

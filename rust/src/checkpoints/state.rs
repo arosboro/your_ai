@@ -1,17 +1,15 @@
 //! Checkpoint state container
 
-use mlx_rs::Array;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-// use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
 use crate::config::Config;
 
 /// Complete training state snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     pub step: usize,
-    #[serde(skip)]
-    pub model_state: HashMap<String, Array>,
+    // Serialized weights: (data, shape)
+    pub model_state: HashMap<String, (Vec<f32>, Vec<i32>)>,
     #[serde(skip)]
     pub optimizer_state: HashMap<String, serde_json::Value>,
     pub loss_history: Vec<f32>,
@@ -24,7 +22,7 @@ pub struct Checkpoint {
 impl Checkpoint {
     pub fn new(
         step: usize,
-        model_state: HashMap<String, Array>,
+        model_state: HashMap<String, (Vec<f32>, Vec<i32>)>,
         optimizer_state: HashMap<String, serde_json::Value>,
         loss_history: Vec<f32>,
         config: Config,
