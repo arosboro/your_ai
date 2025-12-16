@@ -86,6 +86,9 @@ enum Commands {
         /// Save checkpoint when best loss is achieved
         #[arg(long, default_value = "true")]
         save_best: bool,
+        /// Interval (in steps) to reload model and reset MLX memory (default: 20)
+        #[arg(long)]
+        reload_interval: Option<usize>,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -164,6 +167,7 @@ pub fn run() -> Result<()> {
             auto_optimize,
             metrics_file,
             save_best,
+            reload_interval,
         } => commands::train(
             model,
             batch_size,
@@ -175,6 +179,7 @@ pub fn run() -> Result<()> {
             auto_optimize,
             metrics_file,
             save_best,
+            reload_interval,
         ),
         Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
         Commands::Generate {

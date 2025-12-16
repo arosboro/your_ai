@@ -603,6 +603,7 @@ pub fn train(
     auto_optimize: bool,
     metrics_file: Option<String>,
     save_best: bool,
+    reload_interval: Option<usize>,
 ) -> Result<()> {
     use your_ai_rs::config::model::AVAILABLE_MODELS;
 
@@ -692,6 +693,11 @@ pub fn train(
     }
     config.training.max_steps = max_steps;
 
+    // Apply reload interval override
+    if let Some(interval) = reload_interval {
+        config.training.reload_interval_steps = interval;
+    }
+
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Training Configuration");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -731,10 +737,25 @@ pub fn train(
     // Create trainer
     let mut trainer = DistrustTrainer::new(config)?;
 
-    // Configure memory settings
-    if let Some(mem) = max_memory {
-        trainer = trainer.with_max_memory(mem);
-    }
+    // Configure memory settings - auto-detect if not specified
+    let effective_max_memory = if let Some(mem) = max_memory {
+        mem
+    } else {
+        // Auto-detect safe memory limit based on available system memory
+        if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
+            let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+            let safe_limit = (available_gb * 0.6).min(70.0).max(8.0);
+            println!("⚠️  No --max-memory specified. Auto-detecting safe limit: {:.1} GB", safe_limit);
+            println!("   (Based on {:.1} GB available system memory)", available_gb);
+            println!("   To override, use: --max-memory <GB>");
+            safe_limit
+        } else {
+            println!("⚠️  Could not detect system memory. Using conservative default: 16.0 GB");
+            16.0
+        }
+    };
+    trainer = trainer.with_max_memory(effective_max_memory);
+
     if let Some(interval) = memory_report_interval {
         trainer = trainer.with_memory_reporting(interval);
     }

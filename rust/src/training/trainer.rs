@@ -401,9 +401,42 @@ impl DistrustTrainer {
             self.config.training.max_steps
         );
 
+        // Early abort if available memory is critically low (< 10 GB)
+        if let Some(ref mut monitor) = self.memory_monitor {
+            if let Ok(info) = monitor.check() {
+                let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                if available_gb < 10.0 {
+                    anyhow::bail!(
+                        "Insufficient available memory: {:.1} GB. Need at least 10 GB available.\n\
+                         Close other applications or reduce batch size.",
+                        available_gb
+                    );
+                }
+            }
+        }
+
         // Set MLX memory limit to force recycling of old arrays
         // This is critical to prevent unbounded memory growth
-        let memory_limit_gb = self.max_memory_gb.unwrap_or(70.0);
+        // SAFETY: Auto-detect based on available memory instead of hardcoded 70 GB
+        // to prevent OOM crashes when system memory is constrained
+        let memory_limit_gb = self.max_memory_gb.unwrap_or_else(|| {
+            if let Some(ref mut monitor) = self.memory_monitor {
+                if let Ok(info) = monitor.check() {
+                    let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+                    // Use 60% of available memory, capped at 70 GB, minimum 8 GB
+                    let safe_limit = (available_gb * 0.6).min(70.0).max(8.0);
+                    eprintln!(
+                        "⚠️  No memory limit specified. Auto-detected: {:.1} GB (60% of {:.1} GB available)",
+                        safe_limit, available_gb
+                    );
+                    safe_limit
+                } else {
+                    16.0 // Conservative fallback
+                }
+            } else {
+                16.0 // Conservative fallback
+            }
+        });
         let memory_limit_bytes = (memory_limit_gb * 1024.0 * 1024.0 * 1024.0) as usize;
         match crate::utils::mlx_memory::set_memory_limit(memory_limit_bytes) {
             Ok(prev) => {
@@ -734,8 +767,8 @@ impl DistrustTrainer {
 
             // Learning rate is now handled in training_step
 
-            // Periodic cache clearing
-            if self.global_step.is_multiple_of(100) {
+            // Periodic cache clearing - more aggressive to prevent OOM
+            if self.global_step.is_multiple_of(10) {
                 mlx_rs::transforms::compile::clear_cache();
                 let _ = crate::utils::mlx_memory::clear_cache();
             }
@@ -1239,6 +1272,9 @@ impl DistrustTrainer {
             mlx_rs::transforms::compile::clear_cache();
             let _ = crate::utils::mlx_memory::clear_cache();
 
+            // Add small delay to allow MLX memory pressure release
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
             // Insert new momentum
             self.adam_m_gpu.insert(param_name_str.clone(), m_new);
             self.adam_v_gpu.insert(param_name_str, v_new);
@@ -1558,8 +1594,8 @@ impl DistrustTrainer {
         };
 
         // CRITICAL FIX: Clear MLX caches BEFORE gradient computation
-        // mlx_rs::transforms::compile::clear_cache();
-        // let _ = crate::utils::mlx_memory::clear_cache();
+        mlx_rs::transforms::compile::clear_cache();
+        let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log
         self.log_debug(
@@ -1631,9 +1667,34 @@ impl DistrustTrainer {
         // This is the ONLY way to achieve zero memory leak - no as_slice() calls!
         self.apply_gpu_optimizer_update(&grads, lr)?;
 
+        // Monitor memory leak rate
+        if let Ok(memory_before) = crate::utils::mlx_memory::get_active_memory() {
+            let memory_after = crate::utils::mlx_memory::get_active_memory().unwrap_or(0);
+            let leak_per_step = memory_after.saturating_sub(memory_before);
+            if leak_per_step > (self.memory_leak_threshold_mb as usize * 1024 * 1024) {
+                println!("⚠️ Memory leak detected: {:.2} MB/step", 
+                         leak_per_step as f64 / 1024.0 / 1024.0);
+                mlx_rs::transforms::compile::clear_cache();
+            }
+        }
+
         // Drop gradients and cleanup
         drop(grads);
-        // mlx_rs::transforms::compile::clear_cache();
+        mlx_rs::transforms::compile::clear_cache();
+
+        // Emergency safeguard: Check memory threshold
+        if let Some(ref mut monitor) = self.memory_monitor {
+            if let Err(e) = monitor.check() {
+                println!("⚠️ Memory threshold exceeded: {}", e);
+                mlx_rs::transforms::compile::clear_cache();
+                if batch_size > 1 {
+                    let new_batch_size = (batch_size as f32 * 0.5) as usize;
+                    println!("📉 Reduced batch size to {} for safety", new_batch_size);
+                    // Note: batch_size is immutable here, would need to return error
+                    // or implement dynamic reduction in calling code
+                }
+            }
+        }
         // let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log

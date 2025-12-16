@@ -81,7 +81,7 @@ impl Default for TrainingConfig {
             thermal_throttle: 0.0,
             alpha: 2.7,                       // Brian Roemmele's recommended alpha
             lambda_weight: 1.0,               // Balance between CE and distrust loss
-            reload_interval_steps: 40,        // Reload every 40 steps (dual-path: interval OR threshold)
+            reload_interval_steps: 20,        // Reload every 20 steps (before step 30 crash)
             reload_memory_threshold_gb: 80.0, // Also reload when MLX memory exceeds 80 GB
         }
     }
