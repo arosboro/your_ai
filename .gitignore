@@ -20,6 +20,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+rust/sovereign-ai-stack-book
 
 # Virtual Environment
 venv/

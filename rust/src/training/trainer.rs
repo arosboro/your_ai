@@ -725,41 +725,59 @@ impl DistrustTrainer {
 
             // Check if model reload needed to reset MLX memory
             let reload_interval = self.config.training.reload_interval_steps;
-            let _reload_threshold_gb = self.config.training.reload_memory_threshold_gb;
-            let should_reload = if reload_interval > 0
-                && self.global_step > 0
-                && self.global_step.is_multiple_of(reload_interval)
-            {
-                true
-            } else {
-                // DISABLE virtual memory trigger - unreliable signal causing reload loops
-                // if let Ok(current_mem) = crate::utils::mlx_memory::get_active_memory() {
-                //    let current_mem_gb = current_mem as f64 / 1024.0 / 1024.0 / 1024.0;
-                //    current_mem_gb > reload_threshold_gb && self.global_step > 0
-                // } else {
+            let reload_threshold_gb = self.config.training.reload_memory_threshold_gb;
+            
+            // Determine if reload is needed based on interval OR memory threshold
+            let should_reload = if self.global_step > 0 {
+                // Interval-based reload (if interval > 0)
+                let interval_reload = reload_interval > 0 && self.global_step.is_multiple_of(reload_interval);
+                
+                // Memory threshold-based reload
+                let threshold_reload = if reload_interval == 0 || interval_reload {
+                    // Only check memory threshold when:
+                    // - reload_interval is 0 (threshold-only mode), OR
+                    // - we're already doing an interval reload (check both conditions)
+                    if let Ok(current_mem) = crate::utils::mlx_memory::get_active_memory() {
+                        let current_mem_gb = current_mem as f64 / 1024.0 / 1024.0 / 1024.0;
+                        current_mem_gb > reload_threshold_gb
+                    } else {
+                        // If we can't get memory info, don't reload based on threshold
+                        false
+                    }
+                } else {
                     false
-                // }
+                };
+                
+                interval_reload || threshold_reload
+            } else {
+                false
             };
 
             if should_reload {
-                // Save checkpoint before reload
-                let checkpoint_path = PathBuf::from(&self.config.paths.output_dir)
-                    .join(format!("checkpoint-step-{}.json", self.global_step));
-
-                if let Err(e) = self.save_checkpoint(self.global_step, false) {
-                    eprintln!("Warning: Failed to save checkpoint before reload: {}", e);
+                // Skip reload if checkpointing is disabled
+                if self.checkpoint_manager.is_none() {
+                    eprintln!("\n⚠️ Warning: Skipping model reload because checkpointing is disabled");
+                    eprintln!("   Enable checkpointing in config to use memory-reset reloads.\n");
                 } else {
-                    // Reload model to reset MLX memory
-                    match self.reload_from_checkpoint(&checkpoint_path) {
-                        Ok(()) => {
-                            if let Ok(mem) = crate::utils::mlx_memory::get_active_memory() {
-                                let mem_gb = mem as f64 / 1024.0 / 1024.0 / 1024.0;
-                                println!("  Current MLX memory after reload: {:.2} GB", mem_gb);
+                    // Save checkpoint before reload
+                    let checkpoint_path = PathBuf::from(&self.config.paths.output_dir)
+                        .join(format!("checkpoint-step-{}.json", self.global_step));
+
+                    if let Err(e) = self.save_checkpoint(self.global_step, false) {
+                        eprintln!("Warning: Failed to save checkpoint before reload: {}", e);
+                    } else {
+                        // Reload model to reset MLX memory
+                        match self.reload_from_checkpoint(&checkpoint_path) {
+                            Ok(()) => {
+                                if let Ok(mem) = crate::utils::mlx_memory::get_active_memory() {
+                                    let mem_gb = mem as f64 / 1024.0 / 1024.0 / 1024.0;
+                                    println!("  Current MLX memory after reload: {:.2} GB", mem_gb);
+                                }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Warning: Model reload failed: {}", e);
-                            eprintln!("Continuing training without reload...");
+                            Err(e) => {
+                                eprintln!("Warning: Model reload failed: {}", e);
+                                eprintln!("Continuing training without reload...");
+                            }
                         }
                     }
                 }
@@ -1269,11 +1287,13 @@ impl DistrustTrainer {
             }
 
             // Force MLX to free dropped Arrays
+            // First synchronize all GPU operations to ensure completion
+            // Call eval() on the new momentum arrays to force synchronization
+            let _ = m_new.eval();
+            let _ = v_new.eval();
+            
             mlx_rs::transforms::compile::clear_cache();
             let _ = crate::utils::mlx_memory::clear_cache();
-
-            // Add small delay to allow MLX memory pressure release
-            std::thread::sleep(std::time::Duration::from_millis(10));
 
             // Insert new momentum
             self.adam_m_gpu.insert(param_name_str.clone(), m_new);
