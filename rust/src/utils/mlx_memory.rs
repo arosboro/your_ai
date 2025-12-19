@@ -1,17 +1,14 @@
-//! MLX memory management bindings
+//! MLX memory management utilities
 //!
-//! Wrappers around MLX C API memory functions from mlx-sys
+//! High-level wrappers around mlx-sys C API functions for memory management.
+//!
+//! These functions provide safe Rust interfaces to MLX's memory control APIs.
 
-// Import the generated bindings from mlx-sys
-use mlx_sys::{mlx_clear_cache, mlx_get_memory_limit, mlx_set_cache_limit, mlx_set_memory_limit};
-
-// Additional memory functions - declare extern if not in mlx_sys
-extern "C" {
-    fn mlx_get_active_memory(res: *mut usize) -> i32;
-    fn mlx_get_peak_memory(res: *mut usize) -> i32;
-    fn mlx_get_cache_memory(res: *mut usize) -> i32;
-    fn mlx_reset_peak_memory() -> i32;
-}
+// Import all necessary bindings from mlx-sys
+use mlx_sys::{
+    mlx_clear_cache, mlx_get_active_memory, mlx_get_cache_memory, mlx_get_memory_limit,
+    mlx_get_peak_memory, mlx_reset_peak_memory, mlx_set_cache_limit, mlx_set_memory_limit,
+};
 
 /// Set MLX memory limit in bytes
 pub fn set_memory_limit(limit_bytes: usize) -> anyhow::Result<usize> {

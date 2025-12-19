@@ -74,15 +74,15 @@ impl Default for TrainingConfig {
             adam_beta1: 0.9,
             adam_beta2: 0.999,
             adam_epsilon: 1e-8,
-            max_seq_length: 1024,
-            train_seq_length: None, // Default: uses max_seq_length capped at 512 for memory efficiency
+            max_seq_length: 512, // Reduced from 1024 for memory efficiency
+            train_seq_length: None,
             use_fp16: false,
-            grad_checkpoint: true,
+            grad_checkpoint: true, // Enable gradient checkpointing
             thermal_throttle: 0.0,
             alpha: 2.7,                       // Brian Roemmele's recommended alpha
             lambda_weight: 1.0,               // Balance between CE and distrust loss
-            reload_interval_steps: 20,        // Reload every 20 steps (before step 30 crash)
-            reload_memory_threshold_gb: 80.0, // Also reload when MLX memory exceeds 80 GB
+            reload_interval_steps: 8,         // Reload every 8 steps for stable memory management
+            reload_memory_threshold_gb: 14.0, // Realistic threshold for 4-bit + rank 16
         }
     }
 }

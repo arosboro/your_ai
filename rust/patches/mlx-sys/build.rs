@@ -103,16 +103,18 @@ fn main() {
         }
     }
 
-    // generate bindings
+    // Generate bindings from the main MLX header
+    // This includes all necessary declarations through includes
     let rust_target = bindgen::RustTarget::stable(1, 82)
         .unwrap_or_else(|_| bindgen::RustTarget::nightly());
     let bindings = bindgen::Builder::default()
         .rust_target(rust_target)
-        .header("src/mlx-c/mlx/c/mlx.h")
-        .header("src/mlx-c/mlx/c/linalg.h")
-        .header("src/mlx-c/mlx/c/error.h")
-        .header("src/mlx-c/mlx/c/transforms_impl.h")
+        .header("src/mlx-c/mlx/c/mlx.h")  // Main header that includes all others
         .clang_arg("-Isrc/mlx-c")
+        // Allowlist only the mlx_* functions and types to avoid polluting namespace
+        .allowlist_function("^mlx_.*")
+        .allowlist_type("^mlx_.*")
+        .allowlist_var("^MLX_.*")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");

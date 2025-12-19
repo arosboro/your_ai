@@ -1,180 +1,278 @@
 # Memory Leak Fixes - Complete Documentation
 
-## Summary
-This document provides a complete overview of all memory leak fixes applied to the Rust implementation to ensure stable training within hardware constraints (72GB unified GPU memory on Apple Silicon).
-
-## Root Causes Identified
-1. **Gradient Computation**: MLX arrays not being properly dropped after use
-2. **Optimizer State Management**: Accumulated gradients and optimizer states not cleared
-3. **Batch Processing**: Intermediate tensors from batch processing leaking memory
-4. **Cache Accumulation**: MLX compilation cache growing unbounded
-5. **Memory Monitoring**: Insufficient monitoring and emergency safeguards
+## Overview
+This document provides a complete summary of all memory leak fixes applied to the Rust implementation of the Empirical Distrust algorithm.
 
 ## Fixes Applied
 
-### 1. Cache Clearing (Primary Fix)
-**Location**: `rust/src/training/trainer.rs`
+### 1. Sleep Replacement with GPU Synchronization (Lines ~1276)
+**Status**: ✅ COMPLETED
 
-#### Before Line ~1597 (Commented out):
+**Original Code:**
 ```rust
-// mlx_rs::transforms::compile::clear_cache();
+// Add small delay to allow MLX memory pressure release
+std::thread::sleep(std::time::Duration::from_millis(10));
 ```
 
-#### After Line ~1597 (Uncommented):
+**Fixed Code:**
 ```rust
+// Force MLX to free dropped Arrays
+// First synchronize all GPU operations to ensure completion
+// Call eval() on the new momentum arrays to force synchronization
+let _ = m_new.eval();
+let _ = v_new.eval();
+
 mlx_rs::transforms::compile::clear_cache();
+let _ = crate::utils::mlx_memory::clear_cache();
 ```
 
-**Rationale**: Clear MLX compilation cache before gradient computation to prevent unbounded growth.
+**Rationale:**
+- Replaced non-deterministic sleep with explicit GPU synchronization
+- `.eval()` calls force MLX to complete all pending operations
+- Cache clearing ensures immediate deallocation of freed arrays
+- Deterministic memory management prevents OOM crashes
 
----
+### 2. Checkpoint Reload Bug Fix (Lines ~754-780)
+**Status**: ✅ COMPLETED
 
-### 2. Step-Level Cache Clearing
-**Location**: `rust/src/training/trainer.rs` ~ Line 1683
+**Problem:**
+When checkpointing is disabled (`checkpoint_manager` is `None`), the code would:
+1. Call `save_checkpoint()` which returns `Ok()` without saving
+2. Attempt to reload from the non-existent checkpoint file
+3. Cause errors or undefined behavior
 
-**Added**:
+**Fixed Code:**
 ```rust
-// Drop gradients and cleanup
-drop(grads);
-mlx_rs::transforms::compile::clear_cache();
-```
+if should_reload {
+    // Skip reload if checkpointing is disabled
+    if self.checkpoint_manager.is_none() {
+        eprintln!("\n⚠️ Warning: Skipping model reload because checkpointing is disabled");
+        eprintln!("   Enable checkpointing in config to use memory-reset reloads.\n");
+    } else {
+        // Save checkpoint before reload
+        let checkpoint_path = PathBuf::from(&self.config.paths.output_dir)
+            .join(format!("checkpoint-step-{}.json", self.global_step));
 
-**Rationale**: Clear cache after dropping gradients to ensure immediate memory release.
-
----
-
-### 3. Memory Pressure Release Delay
-**Location**: `rust/src/training/trainer.rs` ~ Line 1276
-
-**Added**:
-```rust
-// Memory pressure release - give system time to reclaim memory
-if let Some(ref mut monitor) = self.memory_monitor {
-    if let Ok(info) = monitor.check() {
-        let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-        if available_gb < 15.0 {
-            println!("💤 Memory pressure detected ({:.1} GB available). Pausing...", available_gb);
-            std::thread::sleep(std::time::Duration::from_secs(2));
-        }
-    }
-}
-```
-
-**Rationale**: When available memory drops below 15GB, pause execution to allow system to reclaim memory.
-
----
-
-### 4. Leak Monitoring Enhancement
-**Location**: `rust/src/training/trainer.rs` ~ Line 1675
-
-**Added**:
-```rust
-// Leak monitoring - track memory growth per step
-if let Some(ref mut monitor) = self.memory_monitor {
-    if let Ok(info) = monitor.check() {
-        let rss_gb = info.rss_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-        println!("📊 Memory usage: {:.1} GB RSS", rss_gb);
-        
-        // Track leak rate
-        if let Some(prev_rss) = self.prev_memory_usage {
-            let leak_mb = (rss_gb - prev_rss) * 1024.0;
-            if leak_mb > self.memory_leak_threshold {
-                println!("⚠️  Memory leak detected: {:.1} MB/step (threshold: {:.1} MB)", 
-                         leak_mb, self.memory_leak_threshold);
+        if let Err(e) = self.save_checkpoint(self.global_step, false) {
+            eprintln!("Warning: Failed to save checkpoint before reload: {}", e);
+        } else {
+            // Reload model to reset MLX memory
+            match self.reload_from_checkpoint(&checkpoint_path) {
+                Ok(()) => {
+                    if let Ok(mem) = crate::utils::mlx_memory::get_active_memory() {
+                        let mem_gb = mem as f64 / 1024.0 / 1024.0 / 1024.0;
+                        println!("  Current MLX memory after reload: {:.2} GB", mem_gb);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Model reload failed: {}", e);
+                    eprintln!("Continuing training without reload...");
+                }
             }
         }
-        self.prev_memory_usage = Some(rss_gb);
     }
 }
 ```
 
-**Rationale**: Track memory growth per step and warn when exceeding configurable threshold (default: 1.0 MB/step).
+**Rationale:**
+- Added guard to skip reload when checkpointing is disabled
+- Provides clear warning message to users
+- Prevents attempts to reload non-existent checkpoints
+- Maintains training continuity when checkpointing is disabled
 
----
+### 3. Cache Clearing at Gradient Computation (Line ~1597)
+**Status**: ✅ COMPLETED
 
-### 5. Emergency Safeguard (Fixed Borrow Checker Error)
-**Location**: `rust/src/training/trainer.rs` ~ Line 1689
-
-**Before (Borrow Checker Error)**:
+**Fixed Code:**
 ```rust
-if let Some(ref monitor) = self.memory_monitor {
-    if let Err(e) = monitor.check() {
-        // ...
-    }
-}
+// Clear MLX cache before gradient computation to prevent memory accumulation
+mlx_rs::transforms::compile::clear_cache();
+let _ = crate::utils::mlx_memory::clear_cache();
 ```
 
-**After (Fixed)**:
+**Rationale:**
+- Prevents intermediate tensor accumulation during gradient computation
+- Reduces memory pressure before expensive operations
+- Part of proactive memory management strategy
+
+### 4. Cache Clearing After Gradient Drop (Line ~1683)
+**Status**: ✅ COMPLETED
+
+**Fixed Code:**
 ```rust
-if let Some(ref mut monitor) = self.memory_monitor {
-    if let Err(e) = monitor.check() {
-        println!("⚠️  Memory threshold exceeded: {}", e);
-        mlx_rs::transforms::compile::clear_cache();
-        if batch_size > 1 {
-            let new_batch_size = (batch_size as f32 * 0.5) as usize;
-            println!("📉 Reduced batch size to {} for safety", new_batch_size);
+// Clear MLX cache after dropping gradients to ensure immediate deallocation
+mlx_rs::transforms::compile::clear_cache();
+let _ = crate::utils::mlx_memory::clear_cache();
+```
+
+**Rationale:**
+- Ensures gradients are immediately deallocated after use
+- Prevents memory accumulation in MLX's internal cache
+- Critical for long-running training sessions
+
+### 5. Leak Monitoring and Emergency Safeguards (Lines ~1675-1689)
+**Status**: ✅ COMPLETED
+
+**Fixed Code:**
+```rust
+// Monitor memory leak per step
+if let Ok(current_mem) = crate::utils::mlx_memory::get_active_memory() {
+    let leak_per_step_mb = (current_mem - previous_mem) as f64 / 1024.0 / 1024.0;
+    
+    // Update memory monitor with latest leak data
+    self.memory_monitor.update_leak(leak_per_step_mb);
+    
+    // Check if emergency reload needed
+    let ref mut monitor = self.memory_monitor;
+    if monitor.needs_emergency_reload(self.memory_leak_threshold_mb) {
+        eprintln!("\n⚠️ Emergency memory reload triggered!");
+        eprintln!("   Leak detected: {:.1} MB/step (threshold: {:.1} MB)", 
+                  leak_per_step_mb, self.memory_leak_threshold_mb);
+        
+        // Force immediate reload
+        let checkpoint_path = PathBuf::from(&self.config.paths.output_dir)
+            .join(format!("checkpoint-emergency-{}.json", self.global_step));
+        
+        if let Err(e) = self.save_checkpoint(self.global_step, false) {
+            eprintln!("Warning: Failed to save emergency checkpoint: {}", e);
+        } else if let Err(e) = self.reload_from_checkpoint(&checkpoint_path) {
+            eprintln!("Warning: Emergency reload failed: {}", e);
         }
     }
 }
 ```
 
-**Rationale**: Fixed borrow checker error by using mutable reference. The `check()` method requires mutable access to update internal state.
+**Rationale:**
+- Continuous monitoring of memory leaks
+- Emergency reload when threshold exceeded
+- Prevents OOM crashes with proactive intervention
+- Configurable threshold (default: 1.0 MB/step)
 
----
+### 6. Threshold-Based Reload Logic (Lines ~726-750)
+**Status**: ✅ COMPLETED
+
+**Fixed Code:**
+```rust
+// Determine if reload is needed based on interval OR memory threshold
+let should_reload = if self.global_step > 0 {
+    // Interval-based reload (if interval > 0)
+    let interval_reload = reload_interval > 0 && self.global_step.is_multiple_of(reload_interval);
+    
+    // Memory threshold-based reload
+    let threshold_reload = if reload_interval == 0 || interval_reload {
+        // Only check memory threshold when:
+        // - reload_interval is 0 (threshold-only mode), OR
+        // - we're already doing an interval reload (check both conditions)
+        if let Ok(current_mem) = crate::utils::mlx_memory::get_active_memory() {
+            let current_mem_gb = current_mem as f64 / 1024.0 / 1024.0 / 1024.0;
+            current_mem_gb > reload_threshold_gb
+        } else {
+            // If we can't get memory info, don't reload based on threshold
+            false
+        }
+    } else {
+        false
+    };
+    
+    interval_reload || threshold_reload
+} else {
+    false
+};
+```
+
+**Rationale:**
+- Dual reload strategy: interval-based AND threshold-based
+- Configurable via `reload_interval_steps` and `reload_memory_threshold_gb`
+- Prevents memory accumulation over time
+- Adaptive to actual memory usage patterns
 
 ## Verification Results
 
 ### Compilation
-```bash
-cargo check
-# Result: ✓ Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.72s
 ```
-
-### Unit Tests
-```bash
-cargo test --lib distrust_loss
-# Result: ✓ 6 passed; 0 failed; 0 ignored
-
-cargo test --lib
-# Result: ✓ 16 passed; 0 failed; 2 ignored
+Checking your_ai_rs v0.1.0 (/Users/arosboro/your_ai/rust)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s
 ```
+✅ PASSED
 
-### Integration Tests
-All integration tests pass with the applied fixes.
+### Unit Tests - Distrust Loss
+```
+test distrust_loss::tests::test_invalid_alpha ... ok
+test distrust_loss::tests::test_invalid_authority_weight ... ok
+test distrust_loss::tests::test_invalid_provenance_entropy ... ok
+test distrust_loss::tests::test_empirical_distrust_loss_primary_source ... ok
+test distrust_loss::tests::test_empirical_distrust_loss_modern_consensus ... ok
+test distrust_loss::tests::test_reward_multiplier ... ok
 
----
+6 passed; 0 failed; 0 ignored
+```
+✅ PASSED
 
-## Expected Behavior After Fixes
-
-1. **Memory Stability**: Memory usage should stabilize after each training step, with no unbounded growth
-2. **Leak Detection**: System will detect and warn about memory leaks exceeding 1.0 MB/step
-3. **Emergency Response**: When memory threshold is exceeded, cache is cleared and batch size is reduced
-4. **System Protection**: When available memory drops below 10GB, training will abort gracefully
-5. **Memory Pressure Relief**: When available memory drops below 15GB, system pauses to reclaim memory
-
----
+### Unit Tests - All
+```
+16 passed; 0 failed; 2 ignored; 0 measured
+```
+✅ PASSED
 
 ## Configuration Options
 
-The following parameters are configurable in the training configuration:
+### Memory Leak Threshold (config/training.yaml)
+```yaml
+training:
+  memory_leak_threshold_mb: 1.0  # Emergency reload threshold
+```
 
-- `memory_leak_threshold_mb`: Default 1.0 MB/step (configurable via environment variable)
-- `memory_threshold_percentage`: Default 80% of system memory
-- `batch_size_reduction_factor`: Default 0.5 (reduce batch size by 50% when threshold exceeded)
+### Reload Interval (config/training.yaml)
+```yaml
+training:
+  reload_interval_steps: 100     # Reload every N steps
+  reload_memory_threshold_gb: 65.0 # Reload when memory exceeds N GB
+```
 
----
+### Cache Clearing Frequency (config/training.yaml)
+```yaml
+training:
+  periodic_cache_clear_interval: 10 # Clear cache every N steps
+```
 
 ## Testing Recommendations
 
-1. **Short Test**: Run 50-100 steps to verify no memory leak
-2. **Long Test**: Run 1000+ steps to ensure stability at scale
-3. **Memory Pressure Test**: Monitor behavior when available memory < 15GB
-4. **Threshold Test**: Verify emergency safeguards trigger at expected thresholds
+### Short Test (100 steps)
+```bash
+cargo run --release -- --config configs/hardware/base_16gb.yaml \
+    --steps 100 --checkpoint-interval 50
+```
 
----
+### Full Test (1000 steps)
+```bash
+cargo run --release -- --config configs/hardware/pro_32gb.yaml \
+    --steps 1000 --checkpoint-interval 100 \
+    --reload-interval 200 --reload-threshold 65.0
+```
 
-## Files Modified
-- `rust/src/training/trainer.rs` (Primary file with all fixes)
+### Memory Stress Test
+```bash
+cargo run --release -- --config configs/hardware/ultra_96gb.yaml \
+    --steps 10000 --checkpoint-interval 500 \
+    --reload-threshold 80.0
+```
 
-## Backward Compatibility
-All fixes are backward compatible. No API changes were made to public interfaces.
+## Known Limitations
+
+1. **MLX Memory Management**: MLX-RS doesn't respect traditional GPU/CPU boundaries on Apple Silicon
+2. **Lazy Allocation**: MLX may delay deallocation for performance optimization
+3. **Cache Behavior**: Clear_cache() is best-effort and may not free all memory immediately
+4. **Emergency Reloads**: May cause small training interruptions but prevent OOM crashes
+
+## Future Improvements
+
+1. **Memory Profiling**: Add detailed memory usage tracking per tensor type
+2. **Adaptive Thresholds**: Dynamically adjust thresholds based on training phase
+3. **Memory Budgeting**: Implement strict memory budget enforcement
+4. **Automatic Tuning**: Auto-tune cache clearing frequency based on leak patterns
+
+## References
+
+- [MEMORY_LEAK_ANALYSIS.md](MEMORY_LEAK_ANALYSIS.md) - Root cause analysis
+- [MEMORY_LEAK_SUMMARY.md](MEMORY_LEAK_SUMMARY.md) - Quick reference
+- [RELOAD_THRESHOLD_FIX.md](RELOAD_THRESHOLD_FIX.md) - Threshold reload details

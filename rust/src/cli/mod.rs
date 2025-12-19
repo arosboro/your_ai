@@ -137,7 +137,7 @@ enum Commands {
     },
 }
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -149,13 +149,13 @@ pub fn run() -> Result<()> {
             output,
             single_model,
             force,
-        } => commands::benchmark(max_memory, optimize, output, single_model, force),
+        } => commands::benchmark(max_memory, optimize, output, single_model, force).await,
         Commands::Optimize {
             model,
             max_memory,
             quick,
             output,
-        } => commands::optimize(model, max_memory, quick, output),
+        } => commands::optimize(model, max_memory, quick, output).await,
         Commands::Train {
             model,
             batch_size,
@@ -168,19 +168,22 @@ pub fn run() -> Result<()> {
             metrics_file,
             save_best,
             reload_interval,
-        } => commands::train(
-            model,
-            batch_size,
-            lora_rank,
-            max_steps,
-            resume,
-            max_memory,
-            memory_report_interval,
-            auto_optimize,
-            metrics_file,
-            save_best,
-            reload_interval,
-        ),
+        } => {
+            commands::train(
+                model,
+                batch_size,
+                lora_rank,
+                max_steps,
+                resume,
+                max_memory,
+                memory_report_interval,
+                auto_optimize,
+                metrics_file,
+                save_best,
+                reload_interval,
+            )
+            .await
+        }
         Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
         Commands::Generate {
             model,
@@ -191,7 +194,15 @@ pub fn run() -> Result<()> {
 
             compare,
             eos_token,
-        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare, eos_token),
+        } => commands::generate(
+            model,
+            prompt,
+            checkpoint,
+            max_tokens,
+            temperature,
+            compare,
+            eos_token,
+        ),
         Commands::Export {
             model,
             checkpoint,
