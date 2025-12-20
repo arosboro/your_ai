@@ -78,11 +78,11 @@ fn load_safetensors_weights(model_path: &Path) -> Result<HashMap<String, Array>>
 
     for entry in entries {
         let entry = entry?;
-        if entry.file_type()?.is_file()
-            && entry.path().extension().is_some_and(|e| e == "safetensors")
-        {
-            let tensor_data = std::fs::read(entry.path())?;
-            let tensor_file = SafeTensors::deserialize(&tensor_data)?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "safetensors") {
+            let file = std::fs::File::open(&path)?;
+            let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+            let tensor_file = SafeTensors::deserialize(&mmap)?;
 
             for (tensor_name, _tensor_info) in tensor_file.tensors() {
                 // MLX will handle the tensor data appropriately
@@ -101,10 +101,16 @@ fn load_safetensors_weights(model_path: &Path) -> Result<HashMap<String, Array>>
                         },
                         &shape,
                     ),
-                    _ => anyhow::bail!("Unsupported dtype: {:?}", tensor.dtype()),
+                    _ => {
+                        eprintln!("Warning: Skipping tensor {} with unsupported dtype {:?}", tensor_name, tensor.dtype());
+                        continue;
+                    }
                 };
                 weights.insert(tensor_name.to_string(), data);
             }
+            // Note: mmap must live as long as SafeTensors, which it does here.
+            // However, MLX Array::from_slice copies the data, so it's safe to drop mmap
+            // after the loop finishes for this file.
         }
     }
 

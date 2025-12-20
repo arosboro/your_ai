@@ -20,6 +20,7 @@ pub struct Checkpoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelState {
+    #[serde(skip_serializing)]
     pub weights: Vec<(String, (Vec<f32>, Vec<i32>))>,
 }
 

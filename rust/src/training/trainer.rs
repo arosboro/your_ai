@@ -258,6 +258,12 @@ impl DistrustTrainer {
         self
     }
 
+    /// Set checkpoint manager
+    pub fn with_checkpoint_manager(mut self, manager: CheckpointManager) -> Self {
+        self.checkpoint_manager = Some(manager);
+        self
+    }
+
     /// Set memory leak threshold (MB/step)
     ///
     /// WARNING: This is a workaround for MLX-rs framework memory leak (~2000 MB/step).
@@ -704,14 +710,14 @@ impl DistrustTrainer {
                     eprintln!("   Enable checkpointing in config to use memory-reset reloads.\n");
                 } else {
                     // Save checkpoint before reload
-                    let checkpoint_path = PathBuf::from(&self.config.paths.output_dir)
-                        .join(format!("checkpoint-step-{}.json", self.global_step));
-
-                    if let Err(e) = self.save_checkpoint(self.global_step, false) {
+                    if let Err(e) = self.save_checkpoint(self.global_step, false).await {
                         eprintln!("Warning: Failed to save checkpoint before reload: {}", e);
                     } else {
+                        // The checkpoint manager saves as .safetensors
+                        let step = self.global_step;
+
                         // Reload model to reset MLX memory
-                        match self.reload_from_checkpoint(&checkpoint_path) {
+                        match self.reload_from_checkpoint_step(step).await {
                             Ok(()) => {
                                 if let Ok(mem) = crate::utils::mlx_memory::get_active_memory() {
                                     let mem_gb = mem as f64 / 1024.0 / 1024.0 / 1024.0;
@@ -719,7 +725,7 @@ impl DistrustTrainer {
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Warning: Model reload failed: {}", e);
+                                eprintln!("Warning: Model reload failed: {:?}", e); // Use {:?} for full causal chain
                                 eprintln!("Continuing training without reload...");
                             }
                         }
@@ -843,7 +849,7 @@ impl DistrustTrainer {
                 }
                 // #endregion agent log
 
-                self.save_checkpoint(self.global_step, false)?;
+                self.save_checkpoint(self.global_step, false).await?;
 
                 // #region agent log - after checkpoint
                 if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -925,7 +931,7 @@ impl DistrustTrainer {
         }
 
         // Final checkpoint
-        self.save_checkpoint(self.global_step, true)?;
+        self.save_checkpoint(self.global_step, true).await?;
 
         pb.finish_with_message("Training complete");
 
@@ -1273,18 +1279,17 @@ impl DistrustTrainer {
         Ok(())
     }
 
-    /// Reload model from checkpoint to reset MLX memory
-    /// This works around the 2GB/step MLX-rs framework leak, enabling unlimited training
-    /// Reload model from checkpoint to reset MLX memory
-    /// This works around the 2GB/step MLX-rs framework leak, enabling unlimited training
-    fn reload_from_checkpoint(&mut self, checkpoint_path: &PathBuf) -> anyhow::Result<()> {
-        println!("\n🔄 Reloading model from checkpoint to reset MLX memory...");
+    /// Reload model from a specific step using the checkpoint manager
+    async fn reload_from_checkpoint_step(&mut self, step: usize) -> anyhow::Result<()> {
+        let manager = self.checkpoint_manager.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Checkpoint manager not initialized"))?;
 
-        // Load using manager format
-        let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
-        let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+        println!("\n🔄 Reloading model from step {} to reset MLX memory...", step);
 
-        println!("  Loading checkpoint from step {}", checkpoint.step);
+        // Load using manager format (async)
+        let checkpoint = manager.load(step).await?;
+
+        println!("  Loaded checkpoint with {} tensors", checkpoint.model_state.weights.len());
 
         // Step 2: Drop current model to free ALL MLX Arrays
         let lora_rank = self.model.lora_rank;
@@ -1298,7 +1303,7 @@ impl DistrustTrainer {
         mlx_rs::transforms::compile::clear_cache();
         let _ = crate::utils::mlx_memory::clear_cache();
 
-        println!("  Dropped old model, MLX memory released");
+        println!("  Cleaned up MLX caches, preparing to reload weights");
 
         // Step 4: Load base model weights + Checkpoint weights
         let (mut weights, _) = load_model(Path::new(&self.config.paths.model_path))?;
@@ -1318,17 +1323,7 @@ impl DistrustTrainer {
         self.model = fresh_model;
         println!("  Model reloaded with full weight restoration");
 
-        // Step 6: Restore optimizer momentum to GPU from CPU cache
-        // Note: The checkpoint contains momentum in optimizer_state,
-        // but 'self.adam_m' might be more up-to-date if we just saved?
-        // Actually, if we are reloading, we should use the checkpoint's optimizer state if available.
-        // But for "reset memory" loop, we often save -> reload immediately.
-        // trainer.rs main_loop saves right before reload check?
-        // Let's assume self.adam_m is populated (save_checkpoint calls extract).
-        // If not, we should try to load from checkpoint.optimizer_state for consistency?
-        // The original code used self.adam_m. We'll stick to that for now to minimize risk
-        // (assuming save_checkpoint was called).
-
+        // Step 6: Restore optimizer momentum to GPU
         for (param_name, (data, shape)) in &self.adam_m {
             let m_array = Array::from_slice(data, shape);
             let _ = m_array.eval();
@@ -1343,7 +1338,7 @@ impl DistrustTrainer {
 
         println!("  Optimizer state restored to GPU");
 
-        // Step 7: Reset baseline memory (will recapture on next verification)
+        // Step 7: Reset baseline memory
         self.baseline_mlx_memory = None;
 
         // Step 8: Force final cleanup
@@ -1366,7 +1361,6 @@ impl DistrustTrainer {
         );
         // #endregion agent log
 
-        // #region agent log
         self.log_debug(
             "trainer.rs:dataset_fetch_start",
             "Fetching batch from dataset",
@@ -1374,6 +1368,9 @@ impl DistrustTrainer {
             "dataset",
         );
         // #endregion agent log
+
+        // Capture memory BEFORE the step starts (for accurate leak detection)
+        let memory_before = crate::utils::mlx_memory::get_active_memory().unwrap_or(0);
 
         // Get batch from dataset
         let batch = if let Some(ref mut dataset) = self.dataset {
@@ -1624,9 +1621,8 @@ impl DistrustTrainer {
         // This is the ONLY way to achieve zero memory leak - no as_slice() calls!
         self.apply_gpu_optimizer_update(&full_grads, lr)?;
 
-        // Monitor memory leak rate
-        if let Ok(memory_before) = crate::utils::mlx_memory::get_active_memory() {
-            let memory_after = crate::utils::mlx_memory::get_active_memory().unwrap_or(0);
+        // Monitor memory leak rate using the memory_before captured at the start
+        if let Ok(memory_after) = crate::utils::mlx_memory::get_active_memory() {
             let leak_per_step = memory_after.saturating_sub(memory_before);
             if leak_per_step > (self.memory_leak_threshold_mb as usize * 1024 * 1024) {
                 println!("⚠️ Memory leak detected: {:.2} MB/step",
@@ -1674,7 +1670,7 @@ impl DistrustTrainer {
         Ok(loss_val)
     }
 
-    fn save_checkpoint(&mut self, step: usize, is_final: bool) -> anyhow::Result<()> {
+    async fn save_checkpoint(&mut self, step: usize, is_final: bool) -> anyhow::Result<()> {
         if let Some(manager) = self.checkpoint_manager.clone() {
             if is_final {
                 println!("Saving final checkpoint at step {}", step);
@@ -1741,8 +1737,7 @@ impl DistrustTrainer {
             );
 
             // Save checkpoint using manager
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(manager.save(&checkpoint))?;
+            manager.save(&checkpoint).await?;
 
             if is_final {
                 println!("✓ Saved final checkpoint to {}", manager.get_checkpoint_dir().display());

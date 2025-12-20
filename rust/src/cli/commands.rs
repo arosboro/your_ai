@@ -701,6 +701,10 @@ pub async fn train(
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
 
+    // Initialize checkpoint manager for reloads and saving
+    let checkpoint_dir = PathBuf::from(&config.paths.output_dir).join("checkpoints");
+    let manager = your_ai_rs::checkpoints::CheckpointManager::new(&checkpoint_dir, 3)?;
+
     // Create trainer
     let model_path = PathBuf::from(&config.paths.model_path);
     let mut trainer = DistrustTrainer::new(&model_path).await?
@@ -744,6 +748,7 @@ pub async fn train(
 
     // Configure best checkpoint saving
     trainer = trainer.with_save_best(save_best);
+    trainer = trainer.with_checkpoint_manager(manager);
 
     // Train (model initialized in constructor)
     trainer.train().await?;

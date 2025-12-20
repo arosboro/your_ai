@@ -7,6 +7,8 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use memmap2::MmapOptions;
+use std::fs::File;
 
 /// CheckpointManager manages checkpoint operations
 #[derive(Clone)]
@@ -40,7 +42,7 @@ impl CheckpointManager {
             .join(format!("checkpoint-{}.safetensors", step));
 
         // Save model state with embedded metadata
-        save_safetensors_with_metadata(&checkpoint_path, checkpoint).with_context(|| {
+        save_safetensors_with_metadata(&checkpoint_path, checkpoint, true).with_context(|| {
             format!("Failed to save checkpoint to {}", checkpoint_path.display())
         })?;
 
@@ -57,9 +59,23 @@ impl CheckpointManager {
             .join(format!("checkpoint-{}.safetensors", step));
 
         // Load checkpoint with embedded metadata
-        load_safetensors_with_metadata(&checkpoint_path).with_context(|| {
+        load_safetensors_with_metadata(&checkpoint_path, true).with_context(|| {
             format!(
                 "Failed to load checkpoint from {}",
+                checkpoint_path.display()
+            )
+        })
+    }
+
+    /// Loads only the model weights from a checkpoint (skips optimizer state)
+    pub async fn load_weights_only(&self, step: usize) -> Result<Checkpoint> {
+        let checkpoint_path = self
+            .checkpoint_dir
+            .join(format!("checkpoint-{}.safetensors", step));
+
+        load_safetensors_with_metadata(&checkpoint_path, false).with_context(|| {
+            format!(
+                "Failed to load checkpoint weights from {}",
                 checkpoint_path.display()
             )
         })
@@ -139,7 +155,9 @@ pub use crate::checkpoints::state::{Checkpoint, ModelState};
 #[derive(Default)]
 pub struct OptimizerState {
     pub param_groups: Vec<ParamGroup>,
+    #[serde(skip_serializing)]
     pub exp_avg: std::collections::HashMap<String, (Vec<f32>, Vec<i32>)>,
+    #[serde(skip_serializing)]
     pub exp_avg_sq: std::collections::HashMap<String, (Vec<f32>, Vec<i32>)>,
     pub step: usize,
 }
@@ -172,109 +190,152 @@ impl Default for TrainingConfig {
 }
 
 
-/// Saves model state with embedded metadata to safetensors file
-fn save_safetensors_with_metadata(path: &Path, checkpoint: &Checkpoint) -> Result<()> {
-    use crate::checkpoints::mlx_utils::from_flat;
+/// Saves model state with flattened optimizer tensors to safetensors file
+fn save_safetensors_with_metadata(path: &Path, checkpoint: &Checkpoint, save_optimizer: bool) -> Result<()> {
     use safetensors::tensor::TensorView;
+    use safetensors::Dtype;
 
-    // We need to keep the data alive until the end of the function
-    let mut _tensors_data = Vec::new();
-    let mut tensor_views = std::collections::HashMap::new();
+    let mut tensor_views = Vec::new();
 
-    // Add all model weights
-    for (name, (data, shape)) in &checkpoint.model_state.weights {
-        let array = from_flat(data, shape);
-        let shape: Vec<usize> = array.shape().iter().map(|&s| s as usize).collect();
-
-        // MLX arrays in this project are typically F32
-        let data_f32 = array.as_slice::<f32>();
+    // Helper to create view from (Vec<f32>, Vec<i32>)
+    // We strictly use F32 for now
+    let create_view = |data: &Vec<f32>, shape: &Vec<i32>| -> Result<TensorView> {
+        let shape_usize: Vec<usize> = shape.iter().map(|&s| s as usize).collect();
+        // Safety: data is slice of f32, we cast to u8.
+        // Lifetime is bound to checkpoint which exists during this call.
         let data_bytes = unsafe {
-            std::slice::from_raw_parts(data_f32.as_ptr() as *const u8, data_f32.len() * 4)
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
         };
 
-        // Store the Array itself to keep the underlying buffer alive if needed
-        _tensors_data.push(array);
+        TensorView::new(Dtype::F32, shape_usize, data_bytes)
+            .with_context(|| "Failed to create TensorView")
+    };
 
-        let view = TensorView::new(safetensors::Dtype::F32, shape, data_bytes)
-            .with_context(|| format!("Failed to create TensorView for {}", name))?;
-        tensor_views.insert(name.clone(), view);
+    // 1. Model weights
+    for (name, (data, shape)) in &checkpoint.model_state.weights {
+        tensor_views.push((name.clone(), create_view(data, shape)?));
     }
 
-    // Add metadata
-    let metadata_json = serde_json::to_string(&serde_json::json!({
+    if save_optimizer {
+        // 2. Optimizer exp_avg
+        for (name, (data, shape)) in &checkpoint.optimizer_state.exp_avg {
+            tensor_views.push((format!("optimizer.exp_avg.{}", name), create_view(data, shape)?));
+        }
+
+        // 3. Optimizer exp_avg_sq
+        for (name, (data, shape)) in &checkpoint.optimizer_state.exp_avg_sq {
+            tensor_views.push((format!("optimizer.exp_avg_sq.{}", name), create_view(data, shape)?));
+        }
+    }
+
+    // 4. Metadata (loss history, config, step)
+    let metadata_data = serde_json::json!({
         "step": checkpoint.step,
         "loss_history": checkpoint.loss_history,
         "config": checkpoint.config,
-    }))?;
-    let metadata_bytes = metadata_json.into_bytes();
+    });
+    let metadata_bytes = serde_json::to_vec(&metadata_data)?;
+    tensor_views.push(("_metadata".to_string(), TensorView::new(Dtype::U8, vec![metadata_bytes.len()], &metadata_bytes)?));
 
-    // Add optimizer state
-    let optimizer_json = serde_json::to_string(&checkpoint.optimizer_state)?;
-    let optimizer_bytes = optimizer_json.into_bytes();
+    // OPTIMIZER CONFIG (Prepared outside if block to keep lifetime valid)
+    let opt_meta_bytes = if save_optimizer {
+        #[derive(serde::Serialize)]
+        struct OptMeta<'a> {
+            param_groups: &'a Vec<ParamGroup>,
+            step: usize,
+        }
+        let opt_meta = OptMeta {
+            param_groups: &checkpoint.optimizer_state.param_groups,
+            step: checkpoint.optimizer_state.step,
+        };
+        Some(serde_json::to_vec(&opt_meta)?)
+    } else {
+        None
+    };
 
-    // Create views for metadata and optimizer
-    let metadata_view = TensorView::new(
-        safetensors::Dtype::U8,
-        vec![metadata_bytes.len()],
-        &metadata_bytes,
-    )?;
-    let optimizer_view = TensorView::new(
-        safetensors::Dtype::U8,
-        vec![optimizer_bytes.len()],
-        &optimizer_bytes,
-    )?;
+    if let Some(bytes) = &opt_meta_bytes {
+         tensor_views.push(("_optimizer_config".to_string(), TensorView::new(Dtype::U8, vec![bytes.len()], bytes)?));
+    }
 
-    tensor_views.insert("_metadata".to_string(), metadata_view);
-    tensor_views.insert("_optimizer".to_string(), optimizer_view);
-
-    // Save using SafeTensors
-    safetensors::serialize_to_file(&tensor_views, &None, path)
+    // Save using SafeTensors iterative API
+    safetensors::serialize_to_file(tensor_views, &None, path)
         .with_context(|| format!("Failed to save safetensors to {}", path.display()))?;
 
     Ok(())
 }
 
-/// Loads model state with embedded metadata from safetensors file
-fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
+/// Loads model state with flattened optimizer tensors from safetensors file
+fn load_safetensors_with_metadata(path: &Path, load_optimizer: bool) -> Result<Checkpoint> {
     use safetensors::SafeTensors;
 
-    let tensor_data = std::fs::read(path)
-        .with_context(|| format!("Failed to read safetensors from {}", path.display()))?;
-    let tensor_file = SafeTensors::deserialize(&tensor_data)
+    let file = File::open(path).with_context(|| format!("Failed to open file {}", path.display()))?;
+    // Use mmap options to safely map
+    let mmap = unsafe { MmapOptions::new().map(&file).with_context(|| format!("Failed to map file {}", path.display()))? };
+    let tensor_file = SafeTensors::deserialize(&mmap)
         .with_context(|| format!("Failed to deserialize safetensors from {}", path.display()))?;
 
     let mut weights = Vec::new();
-    let mut metadata: Option<serde_json::Value> = None;
-    let mut optimizer_state: Option<OptimizerState> = None;
+    let mut exp_avg = std::collections::HashMap::new();
+    let mut exp_avg_sq = std::collections::HashMap::new();
 
-    for (name, _tensor_info) in tensor_file.tensors() {
+    let mut metadata: Option<serde_json::Value> = None;
+    let mut optimizer_config_val: Option<serde_json::Value> = None;
+    let mut legacy_optimizer_state: Option<OptimizerState> = None;
+
+    for (name, tensor) in tensor_file.tensors() {
         if name == "_metadata" {
-            // Load metadata
-            let tensor_data = tensor_file.tensor(&name)?;
-            let metadata_str = String::from_utf8_lossy(tensor_data.data());
-            metadata = Some(serde_json::from_str(&metadata_str)?);
+            let data = tensor.data();
+            metadata = Some(serde_json::from_slice(data)?);
+        } else if name == "_optimizer_config" {
+            if load_optimizer {
+                let data = tensor.data();
+                optimizer_config_val = Some(serde_json::from_slice(data)?);
+            }
         } else if name == "_optimizer" {
-            // Load optimizer state
-            let tensor_data = tensor_file.tensor(&name)?;
-            let optimizer_str = String::from_utf8_lossy(tensor_data.data());
-            optimizer_state = Some(serde_json::from_str(&optimizer_str)?);
+            if load_optimizer {
+                // Legacy fallback
+                let data = tensor.data();
+                legacy_optimizer_state = Some(serde_json::from_slice(data)?);
+            }
         } else {
-            // Regular weight tensor
-            let tensor = tensor_file.tensor(&name)?;
+            // Check if it's an optimizer tensor
+            let is_optimizer_tensor = name.starts_with("optimizer.exp_avg.") || name.starts_with("optimizer.exp_avg_sq.");
+
+            if is_optimizer_tensor && !load_optimizer {
+                continue;
+            }
+
+            // Regular tensor (weights or optimizer moments)
             let shape: Vec<i32> = tensor.shape().iter().map(|&x| x as i32).collect();
-            // Convert TensorView to Array
-            let tensor_array = mlx_rs::Array::from_slice(
-                unsafe {
-                    std::slice::from_raw_parts(
-                        tensor.data().as_ptr() as *const f32,
-                        tensor.data().len() / 4,
-                    )
-                },
-                &shape,
-            );
-            use crate::checkpoints::mlx_utils::to_flat;
-            let (data, shape) = to_flat(&tensor_array);
-            weights.push((name.to_string(), (data, shape)));
+
+            // Read data into Vec<f32>. This copies, eliminating need for mmap to live longer
+            let data_u8 = tensor.data();
+            let f32_len = data_u8.len() / 4;
+            let mut data_f32 = Vec::with_capacity(f32_len);
+
+            // Handle potentially unaligned data safely
+            let src_ptr = data_u8.as_ptr() as *const f32;
+            if (src_ptr as usize) % std::mem::align_of::<f32>() == 0 {
+                // Aligned
+                let slice = unsafe { std::slice::from_raw_parts(src_ptr, f32_len) };
+                data_f32.extend_from_slice(slice);
+            } else {
+                // Unaligned fallback
+                for chunk in data_u8.chunks_exact(4) {
+                    let val = f32::from_ne_bytes(chunk.try_into().unwrap());
+                    data_f32.push(val);
+                }
+            }
+
+            if name.starts_with("optimizer.exp_avg.") {
+                let key = name.trim_start_matches("optimizer.exp_avg.").to_string();
+                exp_avg.insert(key, (data_f32, shape));
+            } else if name.starts_with("optimizer.exp_avg_sq.") {
+                let key = name.trim_start_matches("optimizer.exp_avg_sq.").to_string();
+                exp_avg_sq.insert(key, (data_f32, shape));
+            } else {
+                weights.push((name.to_string(), (data_f32, shape)));
+            }
         }
     }
 
@@ -284,6 +345,7 @@ fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
         .and_then(|m| m["step"].as_u64())
         .map(|s| s as usize)
         .unwrap_or(0);
+
     let loss_history = metadata
         .as_ref()
         .and_then(|m| m["loss_history"].as_array())
@@ -293,6 +355,7 @@ fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
                 .collect()
         })
         .unwrap_or_default();
+
     let config = metadata
         .as_ref()
         .and_then(|m| m["config"].as_object())
@@ -301,7 +364,32 @@ fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
         })
         .unwrap_or_default();
 
-    let optimizer_state = optimizer_state.unwrap_or_default();
+    // Reconstruct optimizer state
+    let optimizer_state = if let Some(legacy) = legacy_optimizer_state {
+        // Use legacy if available
+        legacy
+    } else {
+        // Construct from flattened tensors
+        let param_groups = if let Some(meta) = optimizer_config_val {
+            #[derive(serde::Deserialize)]
+            struct OptMeta {
+                param_groups: Vec<ParamGroup>,
+                #[allow(dead_code)]
+                step: usize,
+            }
+            let m: OptMeta = serde_json::from_value(meta)?;
+            m.param_groups
+        } else {
+            Vec::new() // Should not happen in healthy checkpoints if not legacy
+        };
+
+        OptimizerState {
+            param_groups,
+            exp_avg,
+            exp_avg_sq,
+            step,
+        }
+    };
 
     Ok(Checkpoint::new(
         step,
