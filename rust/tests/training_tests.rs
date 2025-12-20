@@ -1,60 +1,26 @@
-use std::fs;
 use tempfile::TempDir;
-use your_ai_rs::config::Config;
 use your_ai_rs::training::DistrustTrainer;
 
-#[test]
-fn test_trainer_initialization() {
+#[tokio::test]
+async fn test_trainer_initialization() {
     // Create a minimal config for testing
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("test_config.yaml");
-
-    let config_yaml = r#"
-model:
-  name: test-model
-  base_model: NousResearch/Hermes-2-Pro-Mistral-7B
-  lora_rank: 8
-  lora_alpha: 16
-  lora_dropout: 0.05
-
-training:
-  batch_size: 2
-  learning_rate: 0.0001
-  max_steps: 5
-  warmup_steps: 1
-  alpha: 2.0
-  lambda_weight: 0.5
-  weight_decay: 0.01
-  gradient_accumulation_steps: 1
-
-paths:
-  model_path: "./models/test"
-  data_dir: "./data"
-  output_dir: "./output"
-
-performance:
-  checkpoint_enabled: false
-"#;
-
-    fs::write(&config_path, config_yaml).unwrap();
+    let _config_path = temp_dir.path().join("test_config.yaml");
 
     // Load config
-    // Use default config since Config::from_yaml is not available
-    let config = Config::for_model("llama-8b").unwrap();
+    // Actually, DistrustTrainer::new now takes Path and PathBuf
+    let model_path = std::path::Path::new("./models/test");
+    let checkpoint_dir = std::path::PathBuf::from("./output");
 
     // Test that trainer can be created (even if model path doesn't exist)
-    // This will use random initialization
-    let result = DistrustTrainer::new(config);
+    let result = DistrustTrainer::new(model_path, checkpoint_dir).await;
 
     // We expect this to fail gracefully if model doesn't exist
-    // but the initialization code should work
     match result {
         Ok(_trainer) => {
-            // Success - trainer was created
             println!("Trainer initialized successfully");
         }
         Err(e) => {
-            // Expected to fail due to missing model files
             println!("Trainer initialization failed as expected: {}", e);
             let err_str = e.to_string().to_lowercase();
             assert!(

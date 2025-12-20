@@ -10,6 +10,7 @@ use anyhow::Result;
 use mlx_rs::transforms::compile::clear_cache;
 use mlx_rs::transforms::eval;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::Instant;
 
 /// Result from testing a single configuration
@@ -80,7 +81,7 @@ impl EmpiricalOptimizer {
     }
 
     /// Find optimal configuration by testing all configs
-    pub fn find_optimal(&self) -> Result<Vec<OptimizationResult>> {
+    pub async fn find_optimal(&self) -> Result<Vec<OptimizationResult>> {
         let configs = self.get_test_configs();
         let total = configs.len();
 
@@ -110,7 +111,9 @@ impl EmpiricalOptimizer {
             );
             std::io::Write::flush(&mut std::io::stdout()).ok();
 
-            let result = self.test_config(*batch_size, *lora_rank, *lora_layers);
+            let result = self
+                .test_config(*batch_size, *lora_rank, *lora_layers)
+                .await;
 
             if result.success {
                 println!(
@@ -135,7 +138,7 @@ impl EmpiricalOptimizer {
     }
 
     /// Test a single configuration
-    fn test_config(
+    async fn test_config(
         &self,
         batch_size: usize,
         lora_rank: usize,
@@ -155,7 +158,10 @@ impl EmpiricalOptimizer {
         };
 
         // Run the test
-        match self.run_training_test(batch_size, lora_rank, lora_layers) {
+        match self
+            .run_training_test(batch_size, lora_rank, lora_layers)
+            .await
+        {
             Ok((peak_memory_mb, avg_step_time_ms)) => {
                 // Add 15% safety margin to memory measurement
                 result.peak_memory_mb = peak_memory_mb * 1.15;
@@ -183,7 +189,7 @@ impl EmpiricalOptimizer {
     }
 
     /// Run actual training steps and measure performance
-    fn run_training_test(
+    async fn run_training_test(
         &self,
         batch_size: usize,
         lora_rank: usize,
@@ -207,7 +213,8 @@ impl EmpiricalOptimizer {
         memory_monitor.check()?;
 
         // Initialize trainer
-        let mut trainer = DistrustTrainer::new(config)?;
+        let model_path = PathBuf::from(&config.paths.model_path);
+        let mut trainer = DistrustTrainer::new(&model_path).await?;
 
         // Run training steps
         let mut step_times = Vec::new();
@@ -217,7 +224,7 @@ impl EmpiricalOptimizer {
             let start = Instant::now();
 
             // Run one training step
-            let _loss = trainer.training_step()?;
+            let _loss = trainer.train_step(&[], &[]).await?;
 
             let elapsed = start.elapsed();
             step_times.push(elapsed.as_millis() as f64);
@@ -255,7 +262,7 @@ impl EmpiricalOptimizer {
 
     /// Quick validation test for a model (5 steps with conservative config)
     /// Returns true if model can train without OOM
-    pub fn quick_validate(model_path: &str, max_memory_gb: f64) -> Result<bool> {
+    pub async fn quick_validate(model_path: &str, max_memory_gb: f64) -> Result<bool> {
         // Conservative config: batch=2, rank=64, layers=16
         let batch_size = 2;
         let lora_rank = 64;
@@ -283,11 +290,12 @@ impl EmpiricalOptimizer {
         let _ = memory_monitor.check();
 
         // Try to initialize trainer and run a few steps
-        match DistrustTrainer::new(config) {
+        let model_path = PathBuf::from(&config.paths.model_path);
+        match DistrustTrainer::new(&model_path).await {
             Ok(mut trainer) => {
                 for step in 0..test_steps {
                     // Run training step
-                    match trainer.training_step() {
+                    match trainer.train_step(&[], &[]).await {
                         Ok(_) => {
                             // Success - continue
                         }

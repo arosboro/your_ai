@@ -86,6 +86,15 @@ enum Commands {
         /// Save checkpoint when best loss is achieved
         #[arg(long, default_value = "true")]
         save_best: bool,
+        /// Interval (in steps) to reload model and reset MLX memory (default: 20)
+        #[arg(long)]
+        reload_interval: Option<usize>,
+        /// Alpha parameter for empirical distrust loss (default: 2.7)
+        #[arg(long)]
+        alpha: Option<f32>,
+        /// Lambda weight for empirical distrust loss (default: 0.6)
+        #[arg(long)]
+        lambda_weight: Option<f32>,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -116,10 +125,25 @@ enum Commands {
         /// Compare base model with checkpoint (requires --checkpoint)
         #[arg(long)]
         compare: bool,
+        /// Optional EOS token ID override
+        #[arg(long)]
+        eos_token: Option<i32>,
+    },
+    /// Export fine-tuned model to safetensors
+    Export {
+        /// Base model name
+        #[arg(long)]
+        model: String,
+        /// Checkpoint path
+        #[arg(long)]
+        checkpoint: std::path::PathBuf,
+        /// Output path
+        #[arg(long)]
+        output: std::path::PathBuf,
     },
 }
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -131,13 +155,13 @@ pub fn run() -> Result<()> {
             output,
             single_model,
             force,
-        } => commands::benchmark(max_memory, optimize, output, single_model, force),
+        } => commands::benchmark(max_memory, optimize, output, single_model, force).await,
         Commands::Optimize {
             model,
             max_memory,
             quick,
             output,
-        } => commands::optimize(model, max_memory, quick, output),
+        } => commands::optimize(model, max_memory, quick, output).await,
         Commands::Train {
             model,
             batch_size,
@@ -149,18 +173,27 @@ pub fn run() -> Result<()> {
             auto_optimize,
             metrics_file,
             save_best,
-        } => commands::train(
-            model,
-            batch_size,
-            lora_rank,
-            max_steps,
-            resume,
-            max_memory,
-            memory_report_interval,
-            auto_optimize,
-            metrics_file,
-            save_best,
-        ),
+            reload_interval,
+            alpha,
+            lambda_weight,
+        } => {
+            commands::train(
+                model,
+                batch_size,
+                lora_rank,
+                max_steps,
+                resume,
+                max_memory,
+                memory_report_interval,
+                auto_optimize,
+                metrics_file,
+                save_best,
+                reload_interval,
+                alpha,
+                lambda_weight,
+            )
+            .await
+        }
         Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
         Commands::Generate {
             model,
@@ -168,7 +201,22 @@ pub fn run() -> Result<()> {
             checkpoint,
             max_tokens,
             temperature,
+
             compare,
-        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare),
+            eos_token,
+        } => commands::generate(
+            model,
+            prompt,
+            checkpoint,
+            max_tokens,
+            temperature,
+            compare,
+            eos_token,
+        ),
+        Commands::Export {
+            model,
+            checkpoint,
+            output,
+        } => commands::export_command(&model, &checkpoint, &output),
     }
 }

@@ -8,7 +8,6 @@
 //! empirical reality instead.
 
 use mlx_rs::Array;
-// use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -79,8 +78,8 @@ pub fn empirical_distrust_loss(
 
     // Core algorithm - adapted from Brian's PyTorch implementation
     // epsilon = 1e-8 is unchanged from Brian's original
-    let epsilon = 1e-8_f32;
-    let distrust_component = (1.0 - authority_weight + epsilon).ln() + provenance_entropy;
+    const EPSILON: f32 = 1e-8;
+    let distrust_component = (1.0 - authority_weight + EPSILON).ln() + provenance_entropy;
     let l_empirical = alpha * distrust_component.powi(2);
 
     Ok(Array::from_f32(l_empirical))

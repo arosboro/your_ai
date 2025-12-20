@@ -1,17 +1,14 @@
-//! MLX memory management bindings
+//! MLX memory management utilities
 //!
-//! Wrappers around MLX C API memory functions from mlx-sys
+//! High-level wrappers around mlx-sys C API functions for memory management.
+//!
+//! These functions provide safe Rust interfaces to MLX's memory control APIs.
 
-// Import the generated bindings from mlx-sys
-use mlx_sys::{mlx_clear_cache, mlx_get_memory_limit, mlx_set_cache_limit, mlx_set_memory_limit};
-
-// Additional memory functions - declare extern if not in mlx_sys
-extern "C" {
-    fn mlx_get_active_memory(res: *mut usize) -> i32;
-    fn mlx_get_peak_memory(res: *mut usize) -> i32;
-    fn mlx_get_cache_memory(res: *mut usize) -> i32;
-    fn mlx_reset_peak_memory() -> i32;
-}
+// Import all necessary bindings from mlx-sys
+use mlx_sys::{
+    mlx_clear_cache, mlx_get_active_memory, mlx_get_cache_memory, mlx_get_memory_limit,
+    mlx_get_peak_memory, mlx_reset_peak_memory, mlx_set_cache_limit, mlx_set_memory_limit,
+};
 
 /// Set MLX memory limit in bytes
 pub fn set_memory_limit(limit_bytes: usize) -> anyhow::Result<usize> {
@@ -89,4 +86,34 @@ pub fn clear_cache() -> anyhow::Result<()> {
         anyhow::bail!("Failed to clear MLX cache");
     }
     Ok(())
+}
+
+/// Stop gradient on an Array (detach from computation graph)
+///
+/// Prevents gradients from flowing back through this Array during backward pass.
+///
+/// # Implementation Note
+/// Robust "Deep Detach" implementation:
+/// 1. Evaluate the array
+/// 2. Extract data to CPU
+/// 3. Create fresh Array from data
+///
+/// This guarantees the new array has NO connection to the previous computation graph,
+/// solving memory leaks where `add(0)` would keep the history alive.
+///
+/// Performance Warning: This involves GPU->CPU->GPU copy. It is heavy but safe.
+pub fn stop_gradient(array: &mlx_rs::Array) -> mlx_rs::error::Result<mlx_rs::Array> {
+    use mlx_rs::Array;
+
+    // Force evaluation
+    array.eval()?;
+
+    // Extract data and shape
+    // Note: We assume float32 for this specific use case in trainer
+    let data: Vec<f32> = array.as_slice::<f32>().to_vec();
+    let shape = array.shape();
+
+    // Create new independent array
+    let new_array = Array::from_slice(&data, shape);
+    Ok(new_array)
 }

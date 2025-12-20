@@ -1,33 +1,36 @@
 //! Checkpoint state container
 
-use mlx_rs::Array;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-// use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
-use crate::config::Config;
+
+use crate::checkpoints::manager::{OptimizerState, TrainingConfig};
 
 /// Complete training state snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     pub step: usize,
-    #[serde(skip)]
-    pub model_state: HashMap<String, Array>,
-    #[serde(skip)]
-    pub optimizer_state: HashMap<String, serde_json::Value>,
+    pub model_state: ModelState,
+    pub optimizer_state: OptimizerState,
     pub loss_history: Vec<f32>,
-    pub config: Config,
+    pub config: TrainingConfig,
     pub random_state: HashMap<String, serde_json::Value>,
     pub timestamp: f64,
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelState {
+    #[serde(skip_serializing)]
+    pub weights: Vec<(String, (Vec<f32>, Vec<i32>))>,
+}
+
 impl Checkpoint {
     pub fn new(
         step: usize,
-        model_state: HashMap<String, Array>,
-        optimizer_state: HashMap<String, serde_json::Value>,
+        model_state: ModelState,
+        optimizer_state: OptimizerState,
         loss_history: Vec<f32>,
-        config: Config,
+        config: TrainingConfig,
     ) -> Self {
         Self {
             step,
@@ -45,7 +48,7 @@ impl Checkpoint {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
-        if self.model_state.is_empty() {
+        if self.model_state.weights.is_empty() {
             anyhow::bail!("model_state cannot be empty");
         }
         Ok(())
