@@ -214,8 +214,7 @@ impl EmpiricalOptimizer {
 
         // Initialize trainer
         let model_path = PathBuf::from(&config.paths.model_path);
-        let checkpoint_dir = PathBuf::from("benchmarks/checkpoints");
-        let mut trainer = DistrustTrainer::new(&model_path, checkpoint_dir).await?;
+        let mut trainer = DistrustTrainer::new(&model_path).await?;
 
         // Run training steps
         let mut step_times = Vec::new();
@@ -292,8 +291,7 @@ impl EmpiricalOptimizer {
 
         // Try to initialize trainer and run a few steps
         let model_path = PathBuf::from(&config.paths.model_path);
-        let checkpoint_dir = PathBuf::from("benchmarks/checkpoints");
-        match DistrustTrainer::new(&model_path, checkpoint_dir).await {
+        match DistrustTrainer::new(&model_path).await {
             Ok(mut trainer) => {
                 for step in 0..test_steps {
                     // Run training step

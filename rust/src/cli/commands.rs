@@ -582,6 +582,8 @@ pub async fn train(
     metrics_file: Option<String>,
     save_best: bool,
     reload_interval: Option<usize>,
+    alpha: Option<f32>,
+    lambda_weight: Option<f32>,
 ) -> Result<()> {
     use your_ai_rs::config::model::AVAILABLE_MODELS;
 
@@ -649,9 +651,18 @@ pub async fn train(
     }
     config.training.max_steps = max_steps;
 
-    // Apply reload interval override
     if let Some(interval) = reload_interval {
         config.training.reload_interval_steps = interval;
+    }
+
+    // Apply distrust loss overrides
+    if let Some(a) = alpha {
+        config.distrust.alpha = a;
+        config.training.alpha = a;
+    }
+    if let Some(l) = lambda_weight {
+        config.distrust.lambda_weight = l;
+        config.training.lambda_weight = l;
     }
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -692,8 +703,8 @@ pub async fn train(
 
     // Create trainer
     let model_path = PathBuf::from(&config.paths.model_path);
-    let checkpoint_dir = PathBuf::from(&config.paths.output_dir);
-    let mut trainer = DistrustTrainer::new(&model_path, checkpoint_dir).await?;
+    let mut trainer = DistrustTrainer::new(&model_path).await?
+        .with_config(config);
 
     // Configure memory settings - auto-detect if not specified
     let effective_max_memory = if let Some(mem) = max_memory {

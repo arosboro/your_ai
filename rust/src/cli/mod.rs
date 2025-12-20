@@ -89,6 +89,12 @@ enum Commands {
         /// Interval (in steps) to reload model and reset MLX memory (default: 20)
         #[arg(long)]
         reload_interval: Option<usize>,
+        /// Alpha parameter for empirical distrust loss (default: 2.7)
+        #[arg(long)]
+        alpha: Option<f32>,
+        /// Lambda weight for empirical distrust loss (default: 0.6)
+        #[arg(long)]
+        lambda_weight: Option<f32>,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -168,6 +174,8 @@ pub async fn run() -> Result<()> {
             metrics_file,
             save_best,
             reload_interval,
+            alpha,
+            lambda_weight,
         } => {
             commands::train(
                 model,
@@ -181,6 +189,8 @@ pub async fn run() -> Result<()> {
                 metrics_file,
                 save_best,
                 reload_interval,
+                alpha,
+                lambda_weight,
             )
             .await
         }

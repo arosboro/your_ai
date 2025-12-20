@@ -1,12 +1,12 @@
-use crate::checkpoints::manager::{Checkpoint, CheckpointManager, OptimizerState as CheckpointOptimizerState, ParamGroup, TrainingConfig};
-use crate::checkpoints::ModelState;
+//! DistrustTrainer - Real transformer training with gradient-based updates
+
+use crate::checkpoints::{Checkpoint, CheckpointManager};
 use crate::config::Config;
 use crate::data::StreamingDataset;
 use crate::distrust_loss::batch_empirical_distrust_loss;
-use crate::model::{LlamaConfig, LlamaForCausalLM, load_model, TrainableHead};
+use crate::model::{LlamaConfig, LlamaForCausalLM, ModelLoader, TrainableHead};
 use crate::training::scheduler::{LearningRateScheduler, WarmupCosineSchedule};
 use crate::utils::MemoryMonitor;
-use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use mlx_rs::builder::Builder;
 use mlx_rs::losses::{CrossEntropyBuilder, LossReduction};
@@ -14,11 +14,11 @@ use mlx_rs::module::ModuleParameters;
 use mlx_rs::Array;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 /// Optimizer state stored as raw data to prevent MLX memory accumulation
-type RawOptimizerState = (Vec<f32>, Vec<i32>); // (data, shape) - CPU storage for checkpointing
+type OptimizerState = (Vec<f32>, Vec<i32>); // (data, shape) - CPU storage for checkpointing
 type OptimizerStateGPU = Array; // GPU storage for training (zero-leak)
 
 pub struct DistrustTrainer {
@@ -30,8 +30,8 @@ pub struct DistrustTrainer {
     adam_v_gpu: std::collections::HashMap<String, OptimizerStateGPU>, // Second moment (GPU)
     adam_step: usize, // Step counter for bias correction
     // CPU storage only for checkpointing (populated on-demand)
-    adam_m: std::collections::HashMap<String, RawOptimizerState>,
-    adam_v: std::collections::HashMap<String, RawOptimizerState>,
+    adam_m: std::collections::HashMap<String, OptimizerState>,
+    adam_v: std::collections::HashMap<String, OptimizerState>,
     dataset: Option<StreamingDataset>,
     global_step: usize,
     loss_history: Vec<f32>,
@@ -87,14 +87,52 @@ fn debug_log_path() -> Option<PathBuf> {
 }
 
 impl DistrustTrainer {
-    pub async fn new(model_path: &Path) -> Result<Self> {
-        let config = Config::default();
-
+    pub fn new(config: Config) -> anyhow::Result<Self> {
         // Initialize memory monitoring
-        let memory_monitor = MemoryMonitor::new(80.0); // 80% threshold
+        let mut memory_monitor = MemoryMonitor::new(80.0); // 80% threshold
+
+        // Check initial memory state
+        if let Ok(info) = memory_monitor.check() {
+            println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("Initial Memory Status");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("  System Total:      {}", info.total_formatted());
+            println!("  System Available:  {}", info.available_formatted());
+            println!("  Process RSS:       {}", info.rss_formatted());
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+        }
+        // Silently continue if memory check fails - not critical for initialization
+
+        // Verify GPU/Metal device usage (MLX automatically uses Metal on Apple Silicon)
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("Device Configuration");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("  Backend:           MLX (Apple Metal)");
+        println!("  Acceleration:      GPU (Metal backend automatic)");
+        println!("  Unified Memory:    Enabled (Apple Silicon)");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+        let memory_monitor = Some(memory_monitor);
+
+        let scheduler = Box::new(WarmupCosineSchedule::new(
+            config.training.learning_rate,
+            config.training.warmup_steps,
+            config.training.max_steps,
+        ));
+
+        let checkpoint_manager = if config.performance.checkpoint_enabled {
+            Some(CheckpointManager::new(
+                &config.performance.checkpoint_dir,
+                config.performance.checkpoint_keep_last_n,
+                config.performance.checkpoint_interval,
+                config.performance.checkpoint_async,
+            )?)
+        } else {
+            None
+        };
 
         // Load model config and initialize architecture
-        let model_dir = model_path.to_path_buf();
+        let model_dir = PathBuf::from(&config.paths.model_path);
         let config_path = model_dir.join("config.json");
         let llama_config = LlamaConfig::from_json(&config_path)?;
 
@@ -105,7 +143,12 @@ impl DistrustTrainer {
             llama_config.num_attention_heads
         );
 
-        let (weights, _) = load_model(model_path)?;
+        let loader = ModelLoader::new(&config.paths.model_path);
+        let weights = loader.load_safetensors().unwrap_or_else(|e| {
+            eprintln!("Warning: Could not load weights from safetensors: {}", e);
+            eprintln!("Model will use random initialization");
+            std::collections::HashMap::new()
+        });
 
         let lora_rank = config.model.lora_rank;
 
@@ -120,11 +163,14 @@ impl DistrustTrainer {
             if lora_rank > 0 {
                 println!("Applying LoRA adapters with rank={}", lora_rank);
 
+                // Use config-driven target modules (not hardcoded)
+                // Normalize from "self_attn.q_proj" format to "q_proj" for apply_lora_to_model
                 let target_modules: Vec<String> = config
                     .model
                     .lora_target_modules
                     .iter()
                     .map(|m| {
+                        // Extract the projection name (e.g., "self_attn.q_proj" → "q_proj")
                         m.split('.').next_back().unwrap_or(m).to_string()
                     })
                     .collect();
@@ -144,9 +190,13 @@ impl DistrustTrainer {
 
             crate::model::llama::load_model_with_weights(llama_config.clone(), weights)?
         } else {
+            eprintln!("⚠️  WARNING: Initializing model with random weights");
+            eprintln!("⚠️  This defeats the purpose of fine-tuning from pretrained weights!");
+            eprintln!("⚠️  Training will likely produce poor results.");
             LlamaForCausalLM::new(llama_config.clone())?
         };
 
+        // Store LoRA rank in model for reference
         model.lora_rank = lora_rank;
 
         // Load tokenizer
@@ -155,66 +205,72 @@ impl DistrustTrainer {
             crate::model::TokenizerWrapper::from_file(&tokenizer_path).map_err(|e| {
                 anyhow::anyhow!("Failed to load tokenizer from {:?}: {}", tokenizer_path, e)
             })?;
+        println!("Loaded tokenizer from {}", tokenizer_path.display());
 
-        let scheduler = Box::new(WarmupCosineSchedule::new(
-            config.training.learning_rate,
-            config.training.warmup_steps,
-            config.training.max_steps,
-        ));
+        // Initialize manual AdamW state - GPU only for zero-leak training
+        let adam_m_gpu = std::collections::HashMap::new();
+        let adam_v_gpu = std::collections::HashMap::new();
+        let adam_step = 0;
+        let adam_m = std::collections::HashMap::new(); // CPU cache for checkpointing
+        let adam_v = std::collections::HashMap::new();
 
-        let checkpoint_manager = None; // Will be set later if needed
+        // Auto-detect training mode from lora_rank
+        let training_mode =
+            crate::config::training::TrainingMode::from_lora_rank(config.model.lora_rank);
+        println!("Training mode: {:?}", training_mode);
+
+        // Load dataset - check both data/ and python/data/ locations
+        let train_file = PathBuf::from(&config.paths.data_dir).join("train.jsonl");
+        let train_file = if !train_file.exists() {
+            PathBuf::from("python/data/train.jsonl")
+        } else {
+            train_file
+        };
+        let dataset = if train_file.exists() {
+            println!("Loading training dataset from {}", train_file.display());
+            Some(StreamingDataset::new(
+                vec![train_file],
+                config.training.batch_size,
+                config.training.batch_size * 4,
+                true,
+                Some(config.seed),
+                true,
+            )?)
+        } else {
+            println!("Warning: train.jsonl not found, will use dummy data");
+            None
+        };
+
+        // Update config with detected training mode
+        let mut config = config;
+        config.training.training_mode = Some(training_mode);
 
         Ok(Self {
             config,
             model,
             tokenizer,
-            adam_m_gpu: std::collections::HashMap::new(),
-            adam_v_gpu: std::collections::HashMap::new(),
-            adam_step: 0,
-            adam_m: std::collections::HashMap::new(),
-            adam_v: std::collections::HashMap::new(),
-            dataset: None,
+            adam_m_gpu,
+            adam_v_gpu,
+            adam_step,
+            adam_m,
+            adam_v,
+            dataset,
             global_step: 0,
             loss_history: Vec::new(),
             scheduler,
             checkpoint_manager,
-            memory_monitor: Some(memory_monitor),
+            memory_monitor,
             max_memory_gb: None,
-            memory_report_interval: 10,
+            memory_report_interval: 10, // Report every 10 steps
             best_loss: f32::INFINITY,
             best_loss_step: 0,
             metrics_file: None,
             save_best_checkpoint: true,
             training_start_time: None,
             baseline_mlx_memory: None,
-            memory_leak_threshold_mb: 1.0,
-            memory_warning_margin_percent: 20.0,
+            memory_leak_threshold_mb: 1.0, // Fixed: Leak resolved, setting nominal threshold for safety
+            memory_warning_margin_percent: 20.0, // Warn when within 20% of memory limit
         })
-    }
-
-    pub fn with_config(mut self, config: Config) -> Self {
-        self.config = config;
-
-        // Re-initialize scheduler and dataset with new config
-        self.scheduler = Box::new(WarmupCosineSchedule::new(
-            self.config.training.learning_rate,
-            self.config.training.warmup_steps,
-            self.config.training.max_steps,
-        ));
-
-        let train_file = PathBuf::from(&self.config.paths.data_dir).join("train.jsonl");
-        if train_file.exists() {
-            self.dataset = StreamingDataset::new(
-                vec![train_file],
-                self.config.training.batch_size,
-                self.config.training.batch_size * 4,
-                true,
-                Some(self.config.seed),
-                true,
-            ).ok();
-        }
-
-        self
     }
 
     /// Set maximum memory limit in GB
@@ -339,7 +395,7 @@ impl DistrustTrainer {
         }
     }
 
-    pub async fn train(&mut self) -> anyhow::Result<()> {
+    pub fn train(&mut self) -> anyhow::Result<()> {
         println!(
             "Starting training for {} steps",
             self.config.training.max_steps
@@ -512,7 +568,7 @@ impl DistrustTrainer {
             }
             // #endregion agent log
 
-            let loss = self.train_step(&[], &[]).await?;
+            let loss = self.training_step()?;
 
             // #region agent log - after training_step
             if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -670,12 +726,12 @@ impl DistrustTrainer {
             // Check if model reload needed to reset MLX memory
             let reload_interval = self.config.training.reload_interval_steps;
             let reload_threshold_gb = self.config.training.reload_memory_threshold_gb;
-
+            
             // Determine if reload is needed based on interval OR memory threshold
             let should_reload = if self.global_step > 0 {
                 // Interval-based reload (if interval > 0)
                 let interval_reload = reload_interval > 0 && self.global_step.is_multiple_of(reload_interval);
-
+                
                 // Memory threshold-based reload
                 let threshold_reload = if reload_interval == 0 || interval_reload {
                     // Only check memory threshold when:
@@ -691,7 +747,7 @@ impl DistrustTrainer {
                 } else {
                     false
                 };
-
+                
                 interval_reload || threshold_reload
             } else {
                 false
@@ -971,38 +1027,37 @@ impl DistrustTrainer {
             self.best_loss
         );
 
-        let mut weights = Vec::new();
-        let all_params = self.model.parameters().flatten();
-        for (param_name, param) in all_params.iter() {
-            // Only save trainable parameters (head/LoRA) to prevent OOM
-            if !self.adam_m_gpu.contains_key(param_name.as_ref()) {
-                continue;
-            }
+        // Create checkpoint with best loss metadata
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("best_loss".to_string(), serde_json::json!(self.best_loss));
+        metadata.insert("step".to_string(), serde_json::json!(step));
 
+        // Save trainable head parameters to model_state
+        let mut model_state = std::collections::HashMap::new();
+        let head_params = self.model.head.parameters().flatten();
+        for (param_name, param) in head_params.iter() {
             let _ = param.eval();
             let param_data: Vec<f32> = param.as_slice::<f32>().to_vec();
             let param_shape: Vec<i32> = param.shape().to_vec();
-            weights.push((
+            model_state.insert(
                 param_name.to_string(),
                 (param_data, param_shape),
-            ));
+            );
         }
 
-        let model_state = ModelState { weights };
-
-        let training_config = TrainingConfig {
-            batch_size: self.config.training.batch_size,
-            learning_rate: self.config.training.learning_rate,
-            max_steps: self.config.training.max_steps,
-        };
-
-        let checkpoint = Checkpoint::new(
+        let checkpoint = Checkpoint {
             step,
             model_state,
-            CheckpointOptimizerState::default(),
-            self.loss_history.clone(),
-            training_config,
-        );
+            optimizer_state: std::collections::HashMap::new(),
+            loss_history: self.loss_history.clone(),
+            config: self.config.clone(),
+            random_state: std::collections::HashMap::new(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            metadata,
+        };
 
         // Save checkpoint metadata to file
         let checkpoint_path = best_dir.join("checkpoint.json");
@@ -1236,7 +1291,7 @@ impl DistrustTrainer {
             // Call eval() on the new momentum arrays to force synchronization
             let _ = m_new.eval();
             let _ = v_new.eval();
-
+            
             mlx_rs::transforms::compile::clear_cache();
             let _ = crate::utils::mlx_memory::clear_cache();
 
@@ -1280,8 +1335,10 @@ impl DistrustTrainer {
     fn reload_from_checkpoint(&mut self, checkpoint_path: &PathBuf) -> anyhow::Result<()> {
         println!("\n🔄 Reloading model from checkpoint to reset MLX memory...");
 
-        // Load using manager format
+        // Step 1: Load checkpoint file (contains serialized params and optimizer state)
         let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+
+        // Parse using strict Checkpoint struct to get model_state
         let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
 
         println!("  Loading checkpoint from step {}", checkpoint.step);
@@ -1290,28 +1347,40 @@ impl DistrustTrainer {
         let lora_rank = self.model.lora_rank;
         let config_clone = self.model.config().clone();
 
-        // Step 3: Clear GPU momentum
+        // Explicitly drop model to release memory
+        drop(std::mem::replace(
+            &mut self.model,
+            LlamaForCausalLM::new(config_clone.clone())?, // Temporary dummy
+        ));
+
+        // Clear GPU momentum
         self.adam_m_gpu.clear();
         self.adam_v_gpu.clear();
 
-        // Force MLX to release ALL memory
+        // Step 3: Force MLX to release ALL memory
         mlx_rs::transforms::compile::clear_cache();
         let _ = crate::utils::mlx_memory::clear_cache();
 
         println!("  Dropped old model, MLX memory released");
 
         // Step 4: Load base model weights + Checkpoint weights
-        let (mut weights, _) = load_model(Path::new(&self.config.paths.model_path))?;
+        // We MUST reload base weights because they were dropped
+        let model_path = self.config.paths.model_path.clone();
+        let loader = crate::model::ModelLoader::new(&model_path);
+        let mut weights = loader.load_safetensors()?;
         println!("  Reloaded {} base tensors", weights.len());
 
-        // Merge checkpoint weights
-        for (name, (data, shape)) in checkpoint.model_state.weights {
+        // Merge checkpoint weights (overwriting base weights)
+        let checkpoint_weights_count = checkpoint.model_state.len();
+        for (name, (data, shape)) in checkpoint.model_state {
             let array = Array::from_slice(&data, &shape);
+            // Insert or overwrite
             weights.insert(name, array);
         }
-        println!("  Merged trained tensors from checkpoint");
+        println!("  Merged {} trained tensors from checkpoint", checkpoint_weights_count);
 
         // Step 5: Create fresh model with merged weights
+        // This restores PRE-TRAINED backbone + FINE-TUNED head
         let mut fresh_model = crate::model::llama::load_model_with_weights(config_clone, weights)?;
         fresh_model.lora_rank = lora_rank;
 
@@ -1356,7 +1425,7 @@ impl DistrustTrainer {
     }
 
     /// Run a single training step (public for benchmarking)
-    pub async fn train_step(&mut self, _bench_inputs: &[Array], _bench_targets: &[Array]) -> anyhow::Result<f32> {
+    pub fn training_step(&mut self) -> anyhow::Result<f32> {
         // #region agent log
         self.log_debug(
             "trainer.rs:step_start",
@@ -1614,28 +1683,23 @@ impl DistrustTrainer {
             );
         }
 
-        // Step 4: Map gradient names to FULL model names (e.g., "norm.weight" -> "head.norm.weight")
-        let mut full_grads = std::collections::HashMap::new();
-        for (name, grad) in grads {
-            full_grads.insert(format!("head.{}", name).into(), grad);
-        }
-
         // CRITICAL: Apply optimizer update DIRECTLY on GPU without CPU extraction
         // This is the ONLY way to achieve zero memory leak - no as_slice() calls!
-        self.apply_gpu_optimizer_update(&full_grads, lr)?;
+        self.apply_gpu_optimizer_update(&grads, lr)?;
 
         // Monitor memory leak rate
         if let Ok(memory_before) = crate::utils::mlx_memory::get_active_memory() {
             let memory_after = crate::utils::mlx_memory::get_active_memory().unwrap_or(0);
             let leak_per_step = memory_after.saturating_sub(memory_before);
             if leak_per_step > (self.memory_leak_threshold_mb as usize * 1024 * 1024) {
-                println!("⚠️ Memory leak detected: {:.2} MB/step",
+                println!("⚠️ Memory leak detected: {:.2} MB/step", 
                          leak_per_step as f64 / 1024.0 / 1024.0);
                 mlx_rs::transforms::compile::clear_cache();
             }
         }
 
-        // Drop gradients and cleanup (redundant since moved above, but keeping for clarity if loop was &grads)
+        // Drop gradients and cleanup
+        drop(grads);
         mlx_rs::transforms::compile::clear_cache();
 
         // Emergency safeguard: Check memory threshold
@@ -1675,77 +1739,86 @@ impl DistrustTrainer {
     }
 
     fn save_checkpoint(&mut self, step: usize, is_final: bool) -> anyhow::Result<()> {
-        if let Some(manager) = self.checkpoint_manager.clone() {
+        if let Some(ref _manager) = self.checkpoint_manager {
             if is_final {
-                println!("Saving final checkpoint at step {}", step);
+                println!("Saving full checkpoint at step {}", step);
             }
 
             // Extract optimizer state from GPU to CPU for serialization
             self.extract_momentum_for_checkpoint()?;
 
-            // Save trainable parameters to model_state
-            let mut weights = Vec::new();
-            let all_params = self.model.parameters().flatten();
-            for (param_name, param) in all_params.iter() {
-                // Only save trainable parameters (head/LoRA) to prevent OOM
-                if !self.adam_m.contains_key(param_name.as_ref()) {
-                    continue;
-                }
-
+            // Save trainable head parameters to model_state
+            let mut model_state = std::collections::HashMap::new();
+            let head_params = self.model.head.parameters().flatten();
+            for (param_name, param) in head_params.iter() {
                 let _ = param.eval();
                 let param_data: Vec<f32> = param.as_slice::<f32>().to_vec();
                 let param_shape: Vec<i32> = param.shape().to_vec();
-                weights.push((
+                model_state.insert(
                     param_name.to_string(),
                     (param_data, param_shape),
-                ));
+                );
             }
 
-            let model_state = ModelState { weights };
+            // Save optimizer state (just momentum)
+            let mut optimizer_state = std::collections::HashMap::new();
 
-            // Save optimizer state
-            let mut exp_avg = std::collections::HashMap::new();
-            let mut exp_avg_sq = std::collections::HashMap::new();
-
-            for (name, data) in &self.adam_m {
-                exp_avg.insert(name.clone(), data.clone());
+            // Save optimizer momentum
+            for (param_name, (data, shape)) in &self.adam_m {
+                optimizer_state.insert(
+                    format!("{}.m", param_name),
+                    serde_json::json!({
+                        "data": data,
+                        "shape": shape,
+                    }),
+                );
             }
-            for (name, data) in &self.adam_v {
-                exp_avg_sq.insert(name.clone(), data.clone());
+            for (param_name, (data, shape)) in &self.adam_v {
+                optimizer_state.insert(
+                    format!("{}.v", param_name),
+                    serde_json::json!({
+                        "data": data,
+                        "shape": shape,
+                    }),
+                );
             }
+            optimizer_state.insert("adam_step".to_string(), serde_json::json!(self.adam_step));
 
-            let optimizer_state = CheckpointOptimizerState {
-                param_groups: vec![ParamGroup {
-                    params: self.adam_m.keys().cloned().collect(),
-                    lr: self.scheduler.get_lr(step),
-                    betas: (self.config.training.adam_beta1, self.config.training.adam_beta2),
-                    weight_decay: self.config.training.weight_decay,
-                }],
-                exp_avg,
-                exp_avg_sq,
-                step: self.adam_step,
-            };
+            // Create checkpoint with metadata
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert(
+                "learning_rate".to_string(),
+                serde_json::json!(self.scheduler.get_lr(step)),
+            );
+            metadata.insert("best_loss".to_string(), serde_json::json!(self.best_loss));
+            metadata.insert(
+                "best_loss_step".to_string(),
+                serde_json::json!(self.best_loss_step),
+            );
 
-            let training_config = TrainingConfig {
-                batch_size: self.config.training.batch_size,
-                learning_rate: self.config.training.learning_rate,
-                max_steps: self.config.training.max_steps,
-            };
-
-            let checkpoint = Checkpoint::new(
+            let checkpoint = Checkpoint {
                 step,
                 model_state,
                 optimizer_state,
-                self.loss_history.clone(),
-                training_config,
-            );
+                loss_history: self.loss_history.clone(),
+                config: self.config.clone(),
+                random_state: std::collections::HashMap::new(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64(),
+                metadata,
+            };
 
-            // Save checkpoint using manager
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(manager.save(&checkpoint))?;
+            // Save checkpoint to file
+            let checkpoint_dir = PathBuf::from(&self.config.paths.output_dir);
+            std::fs::create_dir_all(&checkpoint_dir)?;
+            let checkpoint_path = checkpoint_dir.join(format!("checkpoint-step-{}.json", step));
+            let checkpoint_json = serde_json::to_string_pretty(&checkpoint)?;
+            std::fs::write(&checkpoint_path, checkpoint_json)?;
 
             if is_final {
-                println!("✓ Saved final checkpoint to {}", manager.get_checkpoint_dir().display());
+                println!("✓ Saved final checkpoint to {}", checkpoint_path.display());
             }
         }
         Ok(())

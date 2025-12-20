@@ -5,7 +5,6 @@
 // with proper error handling and memory management.
 
 use anyhow::{Context, Result};
-use safetensors::tensor::TensorView;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,18 +13,11 @@ use std::path::{Path, PathBuf};
 pub struct CheckpointManager {
     checkpoint_dir: PathBuf,
     max_checkpoints: usize,
-    reload_interval_steps: Option<usize>,
-    keep_best_only: bool,
 }
 
 impl CheckpointManager {
     /// Creates a new CheckpointManager
-    pub fn new(
-        checkpoint_dir: &Path,
-        max_checkpoints: usize,
-        reload_interval_steps: Option<usize>,
-        keep_best_only: bool,
-    ) -> Result<Self> {
+    pub fn new(checkpoint_dir: &Path, max_checkpoints: usize) -> Result<Self> {
         // Create checkpoint directory if it doesn't exist
         fs::create_dir_all(checkpoint_dir).with_context(|| {
             format!(
@@ -37,8 +29,6 @@ impl CheckpointManager {
         Ok(Self {
             checkpoint_dir: checkpoint_dir.to_path_buf(),
             max_checkpoints,
-            reload_interval_steps,
-            keep_best_only,
         })
     }
 
@@ -181,38 +171,6 @@ impl Default for TrainingConfig {
     }
 }
 
-/// Saves model state to safetensors file
-fn save_safetensors(path: &Path, model_state: &ModelState) -> Result<()> {
-    use crate::checkpoints::mlx_utils::from_flat;
-
-    // Create a map of tensors with their shapes
-    let mut tensors = std::collections::HashMap::new();
-
-    // Add all model weights - convert flat data back to MLX Arrays
-    for (name, (data, shape)) in &model_state.weights {
-        let array = from_flat(data, shape);
-        tensors.insert(name.clone(), array);
-    }
-
-    // Convert Array values to TensorView for safetensors
-    let mut tensor_views = std::collections::HashMap::new();
-    for (name, array) in &tensors {
-        let shape: Vec<usize> = array.shape().iter().map(|&s| s as usize).collect();
-        let data_f32 = array.as_slice::<f32>();
-        let data = unsafe {
-            std::slice::from_raw_parts(data_f32.as_ptr() as *const u8, data_f32.len() * 4)
-        };
-        let view = TensorView::new(safetensors::Dtype::F32, shape, data)
-            .with_context(|| format!("Failed to create TensorView for {}", name))?;
-        tensor_views.insert(name.clone(), view);
-    }
-
-    // Save using SafeTensors
-    safetensors::serialize_to_file(&tensor_views, &None, path)
-        .with_context(|| format!("Failed to save safetensors to {}", path.display()))?;
-
-    Ok(())
-}
 
 /// Saves model state with embedded metadata to safetensors file
 fn save_safetensors_with_metadata(path: &Path, checkpoint: &Checkpoint) -> Result<()> {
@@ -289,7 +247,7 @@ fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
     let mut metadata: Option<serde_json::Value> = None;
     let mut optimizer_state: Option<OptimizerState> = None;
 
-    for (name, tensor_info) in tensor_file.tensors() {
+    for (name, _tensor_info) in tensor_file.tensors() {
         if name == "_metadata" {
             // Load metadata
             let tensor_data = tensor_file.tensor(&name)?;
@@ -354,34 +312,3 @@ fn load_safetensors_with_metadata(path: &Path) -> Result<Checkpoint> {
     ))
 }
 
-/// Loads model state from safetensors file (legacy - for backward compatibility)
-fn load_safetensors(path: &Path) -> Result<ModelState> {
-    use safetensors::SafeTensors;
-
-    let tensor_data = std::fs::read(path)?;
-    let tensor_file = SafeTensors::deserialize(&tensor_data)
-        .with_context(|| format!("Failed to load safetensors from {}", path.display()))?;
-
-    let mut weights = Vec::new();
-
-    for (name, tensor) in tensor_file.tensors() {
-        // Convert array to flat data and shape
-        use crate::checkpoints::mlx_utils::to_flat;
-        let tensor = tensor;
-        let shape: Vec<i32> = tensor.shape().iter().map(|&x| x as i32).collect();
-        // Convert TensorView to Array
-        let tensor_array = mlx_rs::Array::from_slice(
-            unsafe {
-                std::slice::from_raw_parts(
-                    tensor.data().as_ptr() as *const f32,
-                    tensor.data().len() / 4,
-                )
-            },
-            &shape,
-        );
-        let (data, shape) = to_flat(&tensor_array);
-        weights.push((name.to_string(), (data, shape)));
-    }
-
-    Ok(ModelState { weights })
-}

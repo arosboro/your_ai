@@ -40,7 +40,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
         let original_checkpoint = create_test_checkpoint(42);
 
         // Save checkpoint
@@ -70,7 +70,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
         let mut checkpoint = create_test_checkpoint(100);
 
         // Add custom metadata through loss history
@@ -96,7 +96,7 @@ mod tests {
 
         // Set max_checkpoints to 2. Since save() calls cleanup(),
         // older checkpoints will be removed automatically.
-        let manager = CheckpointManager::new(&checkpoint_dir, 2, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 2)?;
 
         // Save multiple checkpoints
         for step in [10, 20, 30] {
@@ -129,7 +129,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
         let checkpoint = create_test_checkpoint(50);
 
         // Save checkpoint
@@ -153,7 +153,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, Some(10), false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
 
         // Simulate training with periodic reloads
         for step in 0..=25 {
@@ -182,7 +182,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
         let checkpoint = create_test_checkpoint(100);
 
         manager.save(&checkpoint).await?;
@@ -202,7 +202,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
 
         // Try to load non-existent checkpoint
         let result = manager.load(999).await;
@@ -217,7 +217,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let checkpoint_dir = temp_dir.path().join("checkpoints");
 
-        let manager = CheckpointManager::new(&checkpoint_dir, 3, None, false)?;
+        let manager = CheckpointManager::new(&checkpoint_dir, 3)?;
 
         let checkpoint = Checkpoint::new(
             0,
