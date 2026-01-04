@@ -214,7 +214,7 @@ impl EmpiricalOptimizer {
 
         // Initialize trainer
         let model_path = PathBuf::from(&config.paths.model_path);
-        let mut trainer = DistrustTrainer::new(&model_path).await?;
+        let mut trainer = DistrustTrainer::new(&model_path, config.clone(), None).await?;
 
         // Run training steps
         let mut step_times = Vec::new();
@@ -224,7 +224,8 @@ impl EmpiricalOptimizer {
             let start = Instant::now();
 
             // Run one training step
-            let _loss = trainer.train_step(&[], &[]).await?;
+            let batch = trainer.fetch_next_batch().ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?;
+            let (_loss, _ce) = trainer.train_step(batch, 1.0).await?;
 
             let elapsed = start.elapsed();
             step_times.push(elapsed.as_millis() as f64);
@@ -291,18 +292,24 @@ impl EmpiricalOptimizer {
 
         // Try to initialize trainer and run a few steps
         let model_path = PathBuf::from(&config.paths.model_path);
-        match DistrustTrainer::new(&model_path).await {
+        match DistrustTrainer::new(&model_path, config.clone(), None).await {
             Ok(mut trainer) => {
                 for step in 0..test_steps {
                     // Run training step
-                    match trainer.train_step(&[], &[]).await {
-                        Ok(_) => {
-                            // Success - continue
-                        }
-                        Err(e) => {
-                            eprintln!("Training step {} failed: {}", step, e);
-                            return Ok(false);
-                        }
+                    let batch = trainer.fetch_next_batch().unwrap_or_else(|| vec![]); // Should probably handle better but this is quick validate
+                    if !batch.is_empty() {
+                         match trainer.train_step(batch, 1.0).await {
+                             Ok(_) => {
+                                 // Success - continue
+                             }
+                             Err(e) => {
+                                 eprintln!("Training step {} failed: {}", step, e);
+                                 return Ok(false);
+                             }
+                         }
+                    } else {
+                         eprintln!("Training step {} failed: Empty batch", step);
+                         return Ok(false);
                     }
 
                     // Check memory if monitoring is working

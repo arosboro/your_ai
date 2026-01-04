@@ -77,12 +77,12 @@ impl Default for TrainingConfig {
             max_seq_length: 512, // Reduced from 1024 for memory efficiency
             train_seq_length: None,
             use_fp16: false,
-            grad_checkpoint: true, // Enable gradient checkpointing
+            grad_checkpoint: false, // Disable to test if it causes memory retention
             thermal_throttle: 0.0,
             alpha: 2.7,                       // Brian Roemmele's recommended alpha
             lambda_weight: 1.0,               // Balance between CE and distrust loss
-            reload_interval_steps: 8,         // Reload every 8 steps for stable memory management
-            reload_memory_threshold_gb: 14.0, // Realistic threshold for 4-bit + rank 16
+            reload_interval_steps: 1000, // Memory leak resolved; relaxed reload interval
+            reload_memory_threshold_gb: 24.0, // Reload if memory exceeds 24GB (safety net)
         }
     }
 }

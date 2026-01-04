@@ -31,9 +31,12 @@ cargo run --release -- train \
     --max-steps 10000 \
     --save-best \
     --batch-size 2 \
+    --gradient-accumulation-steps 16 \
     --max-memory "$MEMORY_LIMIT_GB" \
     --metrics-file "$OUTPUT_DIR/training_metrics.jsonl" \
-    --memory-report-interval 10
+    --memory-report-interval 10 \
+    --reload-interval 40 \
+    --output-dir "$OUTPUT_DIR"
 
 echo ""
 echo "Training Complete. Model saved to configured output directory."

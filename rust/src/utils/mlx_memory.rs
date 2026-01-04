@@ -91,29 +91,14 @@ pub fn clear_cache() -> anyhow::Result<()> {
 /// Stop gradient on an Array (detach from computation graph)
 ///
 /// Prevents gradients from flowing back through this Array during backward pass.
-///
-/// # Implementation Note
-/// Robust "Deep Detach" implementation:
-/// 1. Evaluate the array
-/// 2. Extract data to CPU
-/// 3. Create fresh Array from data
-///
-/// This guarantees the new array has NO connection to the previous computation graph,
-/// solving memory leaks where `add(0)` would keep the history alive.
-///
-/// Performance Warning: This involves GPU->CPU->GPU copy. It is heavy but safe.
+/// Using the native MLX transformation to avoid CPU roundtrips.
 pub fn stop_gradient(array: &mlx_rs::Array) -> mlx_rs::error::Result<mlx_rs::Array> {
-    use mlx_rs::Array;
+    // Native MLX stop_gradient is O(1) and keeps data on GPU
+    mlx_rs::stop_gradient(array)
+}
 
-    // Force evaluation
-    array.eval()?;
-
-    // Extract data and shape
-    // Note: We assume float32 for this specific use case in trainer
-    let data: Vec<f32> = array.as_slice::<f32>().to_vec();
-    let shape = array.shape();
-
-    // Create new independent array
-    let new_array = Array::from_slice(&data, shape);
-    Ok(new_array)
+/// Force immediate release of all unused MLX buffers and clear compilation caches
+pub fn clear_cache_all() -> anyhow::Result<()> {
+    mlx_rs::transforms::compile::clear_cache();
+    clear_cache()
 }

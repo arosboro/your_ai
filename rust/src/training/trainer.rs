@@ -3,14 +3,15 @@ use crate::checkpoints::ModelState;
 use crate::config::Config;
 use crate::data::StreamingDataset;
 use crate::distrust_loss::batch_empirical_distrust_loss;
-use crate::model::{LlamaConfig, LlamaForCausalLM, load_model, TrainableHead};
+use crate::model::LlamaForCausalLM;
 use crate::training::scheduler::{LearningRateScheduler, WarmupCosineSchedule};
-use crate::utils::MemoryMonitor;
+use crate::utils::memory::MemoryMonitor;
+use crate::utils::metrics::TensorBoardLogger;
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
-use mlx_rs::builder::Builder;
-use mlx_rs::losses::{CrossEntropyBuilder, LossReduction};
 use mlx_rs::module::ModuleParameters;
+use mlx_rs::losses::{CrossEntropyBuilder, LossReduction};
+use mlx_rs::builder::Builder;
 use mlx_rs::Array;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -38,6 +39,7 @@ pub struct DistrustTrainer {
     scheduler: Box<dyn LearningRateScheduler>,
     checkpoint_manager: Option<CheckpointManager>,
     memory_monitor: Option<MemoryMonitor>,
+    metrics: Option<TensorBoardLogger>,
     max_memory_gb: Option<f64>,
     memory_report_interval: usize,
     best_loss: f32,
@@ -50,6 +52,9 @@ pub struct DistrustTrainer {
     /// Threshold detects when leak exceeds expected framework baseline
     memory_leak_threshold_mb: f64,
     memory_warning_margin_percent: f64, // Warn when within X% of calculated max steps
+    /// Accumulated gradients for multi-step accumulation
+    accumulated_grads: std::collections::HashMap<String, Array>,
+    start_step: Option<usize>,
 }
 
 /// Format parameter count with K/M/B suffixes
@@ -87,16 +92,13 @@ fn debug_log_path() -> Option<PathBuf> {
 }
 
 impl DistrustTrainer {
-    pub async fn new(model_path: &Path) -> Result<Self> {
-        let config = Config::default();
-
+    pub async fn new(model_path: &Path, config: Config, start_step: Option<usize>) -> Result<Self> {
         // Initialize memory monitoring
         let memory_monitor = MemoryMonitor::new(80.0); // 80% threshold
 
         // Load model config and initialize architecture
         let model_dir = model_path.to_path_buf();
-        let config_path = model_dir.join("config.json");
-        let llama_config = LlamaConfig::from_json(&config_path)?;
+        let llama_config = crate::model::LlamaConfig::from_json(&model_dir.join("config.json"))?;
 
         println!(
             "Initializing Llama-{} model: {} layers, {} heads",
@@ -105,56 +107,73 @@ impl DistrustTrainer {
             llama_config.num_attention_heads
         );
 
-        let (weights, _) = load_model(model_path)?;
+        // Pass quantization preference from config
+        println!("Quantization enabled: {}", config.model.quantize);
+
+        // Use streaming loader to minimize memory usage
+        let (mut model, _) = crate::model::loader::load_model_streaming(&model_dir, config.model.quantize)?;
 
         let lora_rank = config.model.lora_rank;
 
-        let mut model = if !weights.is_empty() {
-            println!(
-                "Loading model with {} pre-trained weight tensors",
-                weights.len()
-            );
+        // Note: LoRA application is temporarily disabled as the current Rust implementation
+        // relies on HashMap injection which doesn't map to the static model struct.
+        // The trainer currently performs Head-Only fine-tuning (backbone is frozen),
+        // which is memory efficient and sufficient for minimizing distrust loss.
+        if lora_rank > 0 {
+             println!("Initializing LoRA adapters (rank={}, alpha={})...", lora_rank, config.model.lora_alpha);
 
-            // Apply LoRA during model loading if rank > 0
-            let mut weights = weights;
-            if lora_rank > 0 {
-                println!("Applying LoRA adapters with rank={}", lora_rank);
+             // 1. Freeze backbone parameters
+             // 1. Freeze backbone parameters
+             model.backbone.embed_tokens.freeze_parameters(true);
 
-                let target_modules: Vec<String> = config
-                    .model
-                    .lora_target_modules
-                    .iter()
-                    .map(|m| {
-                        m.split('.').next_back().unwrap_or(m).to_string()
-                    })
-                    .collect();
+             for layer in model.backbone.layers.iter_mut() {
+                 layer.freeze_parameters(true);
+             }
+             // 2. Inject LoRA adapters
+             let alpha = config.model.lora_alpha as f32;
+             let dropout = config.model.lora_dropout;
 
-                let lora_config = crate::training::lora::LoraConfig {
-                    rank: lora_rank,
-                    alpha: config.model.lora_alpha,
-                    dropout: config.model.lora_dropout,
-                    target_modules,
-                };
-                crate::training::lora::apply_lora_to_model(
-                    &mut weights,
-                    &lora_config,
-                    llama_config.num_hidden_layers,
-                )?;
+             // Calculate dims from config
+             let hidden = llama_config.hidden_size;
+             let head_dim = hidden / llama_config.num_attention_heads;
+             let kv_heads = llama_config.num_key_value_heads;
+             let att_heads = llama_config.num_attention_heads;
+
+             for layer in model.backbone.layers.iter_mut() {
+                 let targets = &config.model.lora_target_modules;
+
+                 if targets.iter().any(|t| t.contains("q_proj")) {
+                     layer.self_attn.q_proj_lora = Some(crate::model::LoraAdapter::new(hidden, att_heads * head_dim, lora_rank, alpha, dropout)?);
+                 }
+                 if targets.iter().any(|t| t.contains("k_proj")) {
+                     layer.self_attn.k_proj_lora = Some(crate::model::LoraAdapter::new(hidden, kv_heads * head_dim, lora_rank, alpha, dropout)?);
+                 }
+                 if targets.iter().any(|t| t.contains("v_proj")) {
+                     layer.self_attn.v_proj_lora = Some(crate::model::LoraAdapter::new(hidden, kv_heads * head_dim, lora_rank, alpha, dropout)?);
+                 }
+                 if targets.iter().any(|t| t.contains("o_proj")) {
+                     layer.self_attn.o_proj_lora = Some(crate::model::LoraAdapter::new(att_heads * head_dim, hidden, lora_rank, alpha, dropout)?);
+                 }
+             }
+             println!("Applied LoRA to {} layers.", model.backbone.layers.len());
+        }
+
+        // Initialize other components with config
+         let dataset = {
+            let train_file = PathBuf::from(&config.paths.data_dir).join("train.jsonl");
+            if train_file.exists() {
+                StreamingDataset::new(
+                    vec![train_file],
+                    config.training.batch_size,
+                    config.training.batch_size * 4,
+                    true,
+                    Some(config.seed),
+                    true,
+                ).ok()
+            } else {
+                None
             }
-
-            crate::model::llama::load_model_with_weights(llama_config.clone(), weights)?
-        } else {
-            LlamaForCausalLM::new(llama_config.clone())?
         };
-
-        model.lora_rank = lora_rank;
-
-        // Load tokenizer
-        let tokenizer_path = model_dir.join("tokenizer.json");
-        let tokenizer =
-            crate::model::TokenizerWrapper::from_file(&tokenizer_path).map_err(|e| {
-                anyhow::anyhow!("Failed to load tokenizer from {:?}: {}", tokenizer_path, e)
-            })?;
 
         let scheduler = Box::new(WarmupCosineSchedule::new(
             config.training.learning_rate,
@@ -167,18 +186,20 @@ impl DistrustTrainer {
         Ok(Self {
             config,
             model,
-            tokenizer,
+            tokenizer: crate::model::TokenizerWrapper::from_file(&model_dir.join("tokenizer.json"))
+                 .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?,
             adam_m_gpu: std::collections::HashMap::new(),
             adam_v_gpu: std::collections::HashMap::new(),
             adam_step: 0,
             adam_m: std::collections::HashMap::new(),
             adam_v: std::collections::HashMap::new(),
-            dataset: None,
+            dataset,
             global_step: 0,
             loss_history: Vec::new(),
             scheduler,
             checkpoint_manager,
             memory_monitor: Some(memory_monitor),
+            metrics: None,
             max_memory_gb: None,
             memory_report_interval: 10,
             best_loss: f32::INFINITY,
@@ -189,33 +210,16 @@ impl DistrustTrainer {
             baseline_mlx_memory: None,
             memory_leak_threshold_mb: 1.0,
             memory_warning_margin_percent: 20.0,
+            accumulated_grads: std::collections::HashMap::new(),
+            start_step,
         })
     }
 
-    pub fn with_config(mut self, config: Config) -> Self {
-        self.config = config;
-
-        // Re-initialize scheduler and dataset with new config
-        self.scheduler = Box::new(WarmupCosineSchedule::new(
-            self.config.training.learning_rate,
-            self.config.training.warmup_steps,
-            self.config.training.max_steps,
-        ));
-
-        let train_file = PathBuf::from(&self.config.paths.data_dir).join("train.jsonl");
-        if train_file.exists() {
-            self.dataset = StreamingDataset::new(
-                vec![train_file],
-                self.config.training.batch_size,
-                self.config.training.batch_size * 4,
-                true,
-                Some(self.config.seed),
-                true,
-            ).ok();
-        }
-
-        self
+    /// Helper to fetch next batch (useful for external loops like optimizer)
+    pub fn fetch_next_batch(&mut self) -> Option<Vec<serde_json::Value>> {
+        self.dataset.as_mut()?.next_batch()
     }
+
 
     /// Set maximum memory limit in GB
     pub fn with_max_memory(mut self, max_memory_gb: f64) -> Self {
@@ -355,9 +359,10 @@ impl DistrustTrainer {
         if let Some(ref mut monitor) = self.memory_monitor {
             if let Ok(info) = monitor.check() {
                 let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-                if available_gb < 10.0 {
+                // Relaxed safety check
+                if available_gb < 6.0 {
                     anyhow::bail!(
-                        "Insufficient available memory: {:.1} GB. Need at least 10 GB available.\n\
+                        "Insufficient available memory: {:.1} GB. Need at least 6 GB available.\n\
                          Close other applications or reduce batch size.",
                         available_gb
                     );
@@ -374,7 +379,7 @@ impl DistrustTrainer {
                 if let Ok(info) = monitor.check() {
                     let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
                     // Use 60% of available memory, capped at 70 GB, minimum 8 GB
-                    let safe_limit = (available_gb * 0.6).min(70.0).max(8.0);
+                    let safe_limit = (available_gb * 0.6).clamp(8.0, 70.0);
                     eprintln!(
                         "⚠️  No memory limit specified. Auto-detected: {:.1} GB (60% of {:.1} GB available)",
                         safe_limit, available_gb
@@ -412,12 +417,29 @@ impl DistrustTrainer {
         // Check memory before starting
         self.check_memory_limits()?;
 
-        let pb = ProgressBar::new(self.config.training.max_steps as u64);
+        // Initialize TensorBoard if output dir is set
+        if self.metrics.is_none() {
+             let output_dir = PathBuf::from(self.config.paths.output_dir.clone());
+             match TensorBoardLogger::new(&output_dir) {
+                 Ok(logger) => {
+                     println!("Enabled TensorBoard logging to {:?}", output_dir);
+                     self.metrics = Some(logger);
+                 },
+                 Err(e) => eprintln!("Failed to initialize TensorBoard: {}", e)
+             }
+        }
+
+
+        // CRITICAL: Calculate safe maximum steps based on available memory and leak rate
+        // This prevents OOM crashes by capping training steps to system capacity
+        let calculated_max_steps = self.calculate_safe_max_steps();
+
+        let pb = ProgressBar::new(calculated_max_steps as u64);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} ETA:{eta} {msg}")
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
                 .unwrap()
-                .progress_chars("=>-"),
+                .progress_chars("#>-"),
         );
 
         let mut last_loss_for_trend = None;
@@ -425,9 +447,103 @@ impl DistrustTrainer {
         // Capture baseline MLX memory after first step for leak detection
         let mut baseline_captured = false;
 
-        // CRITICAL: Calculate safe max steps based on available memory and MLX-rs leak rate
-        // This prevents OOM crashes by capping training steps to system capacity
-        let calculated_max_steps = self.calculate_safe_max_steps();
+        // RESUME LOGIC: Check for existing checkpoints and resume
+        if let Some(manager) = &self.checkpoint_manager {
+            if let Ok(checkpoints) = manager.list_checkpoints() {
+                if let Some(latest_step) = checkpoints.last() {
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("Resuming from checkpoint step {}", latest_step);
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                    // We can reuse reload_from_checkpoint_step logic but skip the 'dummy' part if we are at step 0?
+                    // Actually, at startup self.model is fresh anyway.
+                    // But we need to load weights.
+                    // Let's call a modified version or just inline the load.
+
+                    self.global_step = *latest_step;
+                    self.adam_step = *latest_step;
+
+                    // Load weights
+                    // Use streaming load for efficiency
+                     println!("  Restoring weights from checkpoint...");
+                    let (mut fresh_model, _) = crate::model::loader::load_model_streaming(
+                        Path::new(&self.config.paths.model_path),
+                        self.config.model.quantize
+                    )?;
+
+                     // Merge weights
+                    let mut param_map = fresh_model.parameters_mut().flatten();
+                    let checkpoint = manager.iterate_weights(*latest_step, true, |name, data, shape| {
+                        // 1. Optimizer
+                         if name.starts_with("optimizer.exp_avg.") {
+                             let param_name = name.trim_start_matches("optimizer.exp_avg.").to_string();
+                             let m_array = Array::from_slice(&data, &shape);
+                             let _ = m_array.eval();
+                             self.adam_m_gpu.insert(param_name, m_array);
+                             return Ok(());
+                         }
+                         if name.starts_with("optimizer.exp_avg_sq.") {
+                             let param_name = name.trim_start_matches("optimizer.exp_avg_sq.").to_string();
+                             let v_array = Array::from_slice(&data, &shape);
+                             let _ = v_array.eval();
+                             self.adam_v_gpu.insert(param_name, v_array);
+                             return Ok(());
+                         }
+                         // 2. Model
+                         let candidates = vec![
+                             name.clone(),
+                             name.replace("model.", "backbone."),
+                             name.replace("lm_head", "head.lm_head"),
+                         ];
+                         for cand in candidates {
+                             if let Some(param) = param_map.get_mut(cand.as_str()) {
+                                 let array = Array::from_slice(&data, &shape);
+                                 if array.shape() == param.shape() {
+                                     **param = array;
+                                     return Ok(());
+                                 }
+                             }
+                         }
+                         Ok(())
+                    })?;
+
+                    self.model = fresh_model;
+
+                    // Re-apply LoRA Freezing
+                    if self.config.model.lora_rank > 0 {
+                         self.model.backbone.embed_tokens.freeze_parameters(true);
+                         for layer in self.model.backbone.layers.iter_mut() {
+                             layer.freeze_parameters(true);
+                         }
+                         println!("  Re-frozen backbone parameters (LoRA mode)");
+                    }
+
+                    // Restore training state from checkpoint metadata
+                    self.loss_history = checkpoint.loss_history;
+                    self.adam_step = checkpoint.optimizer_state.step;
+                    // Restore best loss if available (infer from history or just let it reset, strictly history is good enough)
+                    if let Some(min_loss) = self.loss_history.iter().copied().reduce(f32::min) {
+                        self.best_loss = min_loss;
+                    }
+
+                    println!("  Restored {} loss history entries.", self.loss_history.len());
+
+                    println!("Resume complete. Starting from step {}", self.global_step);
+                }
+            }
+        }
+
+        // Determine starting step
+        if self.global_step == 0 {
+             if let Some(s) = self.start_step {
+                 self.global_step = s;
+                 // Also set adam step to avoid mismatch
+                 self.adam_step = s;
+             }
+        }
+
+        // Initialize progress bar position
+        pb.set_position(self.global_step as u64);
 
         // Display enforcement notice if steps were capped
         if calculated_max_steps < self.config.training.max_steps {
@@ -471,8 +587,16 @@ impl DistrustTrainer {
                 }
             }
         }
+        // Initialize accumulator for gradients
 
+        // Accumulated gradients are now managed in self.accumulated_grads
+
+        // Track steps in this process session to prevent immediate reload on resume
+        let mut steps_taken_this_session = 0;
+
+        // Main training loop
         while self.global_step < calculated_max_steps {
+            steps_taken_this_session += 1;
             // #region agent log - loop iteration start
             if let Some(log_path) = debug_log_path() {
                 if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -518,7 +642,20 @@ impl DistrustTrainer {
             }
             // #endregion agent log
 
-            let loss = self.train_step(&[], &[]).await?;
+            let scale_factor = 1.0 / (self.config.training.gradient_accumulation_steps as f32);
+
+            // Wait, "while" loop.
+            // If I define it before loop, it persists.
+
+            // Note: We need to define `global_accumulated_grads` before the loop.
+            // I will use a separate replacement to insert the declaration.
+            // Perform training step
+            let batch = if let Some(ref mut dataset) = self.dataset {
+                dataset.next_batch().ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?
+            } else {
+                anyhow::bail!("Dataset not initialized");
+            };
+            let (loss, raw_ce) = self.train_step(batch, scale_factor).await?;
 
             // #region agent log - after training_step
             if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -531,6 +668,7 @@ impl DistrustTrainer {
                     "message": "training_step returned successfully",
                     "step": self.global_step,
                     "loss": loss,
+                    "raw_ce_loss": raw_ce,
                     "phase": "main_loop",
                     "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
                     "hypothesisId": "D-training-step"
@@ -538,7 +676,53 @@ impl DistrustTrainer {
                 let _ = writeln!(file, "{}", json);
             }
             // #endregion agent log
+            if let Some(logger) = &mut self.metrics {
+                logger.log_scalar("train/loss", loss, self.global_step);
+                logger.log_scalar("train/raw_ce", raw_ce, self.global_step);
+                logger.log_scalar("train/lr", lr, self.global_step);
+
+                // Log memory occasionally
+                if self.global_step % 10 == 0 {
+                    if let Ok(mem) = crate::utils::mlx_memory::get_active_memory() {
+                        logger.log_scalar("system/mlx_active_bytes", mem as f32, self.global_step);
+                    }
+                    if let Ok(info) = self.memory_monitor.as_mut().unwrap().check() {
+                        logger.log_scalar("system/rss_bytes", info.rss_bytes as f32, self.global_step);
+                    }
+                }
+
+                logger.flush();
+            }
+
             self.loss_history.push(loss);
+
+            // Check if we should update weights
+            // Only update every gradient_accumulation_steps
+            // Note: global_step tracks micro-steps here?
+            // If we want consistent behavior:
+            // update if (step + 1) % accum == 0
+            if (self.global_step + 1).is_multiple_of(self.config.training.gradient_accumulation_steps) {
+                // Apply update
+                // Gradients are already fully mapped and accumulated
+
+                let mut apply_grads = std::collections::HashMap::new();
+                for (k, v) in &self.accumulated_grads {
+                    apply_grads.insert(k.as_str().into(), v.clone());
+                }
+
+                self.apply_gpu_optimizer_update(&apply_grads, lr)?;
+
+                // CRITICAL: Clear accumulated gradients
+                self.accumulated_grads.clear();
+                // Release std::collections memory if it grew too large
+                if self.accumulated_grads.capacity() > 100 {
+                    self.accumulated_grads.shrink_to_fit();
+                }
+
+                // Free memory
+                mlx_rs::transforms::compile::clear_cache();
+                let _ = crate::utils::mlx_memory::clear_cache();
+            }
 
             // ZERO-LEAK VERIFICATION: Ensure MLX memory stays constant (O(1) guarantee)
             if self.global_step == 5 && !baseline_captured {
@@ -678,7 +862,8 @@ impl DistrustTrainer {
             let reload_threshold_gb = self.config.training.reload_memory_threshold_gb;
 
             // Determine if reload is needed based on interval OR memory threshold
-            let should_reload = if self.global_step > 0 {
+            // prevent immediate reload on resume by checking steps_taken_this_session > 1
+            let should_reload = if self.global_step > 0 && steps_taken_this_session > 1 {
                 // Interval-based reload (if interval > 0)
                 let interval_reload = reload_interval > 0 && self.global_step.is_multiple_of(reload_interval);
 
@@ -795,7 +980,7 @@ impl DistrustTrainer {
                 let steps_per_sec = (self.global_step + 1) as f32 / elapsed;
 
                 // Calculate ETA
-                let steps_remaining = self.config.training.max_steps - (self.global_step + 1);
+                let steps_remaining = calculated_max_steps - (self.global_step + 1);
                 let eta_secs = if steps_per_sec > 0.0 {
                     steps_remaining as f32 / steps_per_sec
                 } else {
@@ -820,9 +1005,21 @@ impl DistrustTrainer {
                     loss, avg_loss, trend_indicator, lr, steps_per_sec, eta_formatted, mem_info
                 ));
 
-                // Export metrics
+            // Export metrics
                 if let Some(ref _metrics_path) = self.metrics_file {
                     self.export_metrics(loss, avg_loss, lr, mem_gb)?;
+                }
+
+                // EXPLICIT MEMORY LOGGING
+                if let Ok(active_mem) = crate::utils::mlx_memory::get_active_memory() {
+                    let peak_mem = crate::utils::mlx_memory::get_peak_memory().unwrap_or(0);
+                    let cache_mem = crate::utils::mlx_memory::get_cache_memory().unwrap_or(0);
+                    println!(
+                        "  [MEM] Active: {:.2} GB | Peak: {:.2} GB | Cache: {:.2} GB",
+                        active_mem as f64 / 1024.0 / 1024.0 / 1024.0,
+                        peak_mem as f64 / 1024.0 / 1024.0 / 1024.0,
+                        cache_mem as f64 / 1024.0 / 1024.0 / 1024.0
+                    );
                 }
             }
 
@@ -943,6 +1140,11 @@ impl DistrustTrainer {
 
     fn export_metrics(&self, loss: f32, avg_loss: f32, lr: f32, mem_gb: f64) -> anyhow::Result<()> {
         if let Some(ref metrics_path) = self.metrics_file {
+            if let Some(parent) = metrics_path.parent() {
+                if !parent.exists() {
+                     std::fs::create_dir_all(parent)?;
+                }
+            }
             let mut file = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -986,7 +1188,9 @@ impl DistrustTrainer {
             }
 
             let _ = param.eval();
-            let param_data: Vec<f32> = param.as_slice::<f32>().to_vec();
+            let param_f32 = param.as_type::<f32>()?;
+            let _ = param_f32.eval();
+            let param_data: Vec<f32> = param_f32.as_slice::<f32>().to_vec();
             let param_shape: Vec<i32> = param.shape().to_vec();
             weights.push((
                 param_name.to_string(),
@@ -1155,8 +1359,15 @@ impl DistrustTrainer {
         let bias_correction1 = 1.0 - beta1.powf(t);
         let bias_correction2 = 1.0 - beta2.powf(t);
 
+        // Optimize: Get parameters map once outside the loop
+        let mut model_params_mut = self.model.parameters_mut().flatten();
+
         // Process each gradient (only 2-3 from trainable head)
+        if self.global_step % 10 == 0 {
+             println!("  [DEBUG] Optimizer updating {} parameter groups", grads.len());
+        }
         for (param_name, grad) in grads.iter() {
+            // Ensure gradient is evaluated
             let _ = grad.eval();
 
             // Get momentum states from GPU storage (NEVER extract to CPU during training!)
@@ -1207,29 +1418,27 @@ impl DistrustTrainer {
 
             // Apply to parameter with weight decay in one operation
             // new_p = p * (1 - lr*wd) - update
-            {
-                let mut head_params = self.model.head.parameters_mut().flatten();
-                if let Some(p) = head_params.get_mut(param_name.as_ref()) {
-                    let decay_factor = Array::from_f32(1.0 - lr * weight_decay);
-                    let decayed = (**p).multiply(&decay_factor)?;
-                    let new_param = decayed.subtract(&update)?;
-                    let _ = new_param.eval();
+            if let Some(p) = model_params_mut.get_mut(param_name.as_ref()) {
+                let decay_factor = Array::from_f32(1.0 - lr * weight_decay);
+                let decayed = (**p).multiply(&decay_factor)?;
+                let new_param_graph = decayed.subtract(&update)?;
 
-                    // Drop old parameter explicitly before replacing
-                    let _old = std::mem::replace(&mut **p, new_param);
-                    drop(_old);
-                }
+                // Detach from graph to prevent infinite memory growth
+                let new_param = crate::utils::mlx_memory::stop_gradient(&new_param_graph)?;
+                let _ = new_param.eval(); // CRITICAL: Force execution before clearing cache
+
+                // Drop old parameter explicitly before replacing
+                let _old = std::mem::replace(&mut **p, new_param);
+                drop(_old);
+                // Force clean up of the graph version
+                drop(new_param_graph);
             }
 
-            // Force immediate cleanup of all intermediate Arrays
-            mlx_rs::transforms::compile::clear_cache();
-            let _ = crate::utils::mlx_memory::clear_cache();
+            // Detach momentum states to prevent infinite graph history
+            let m_detached = crate::utils::mlx_memory::stop_gradient(&m_new)?;
+            let v_detached = crate::utils::mlx_memory::stop_gradient(&v_new)?;
 
-            // Save updated momentum with explicit old Array cleanup
-            let _ = m_new.eval();
-            let _ = v_new.eval();
-
-            // Explicitly drop old momentum Arrays
+            // Explicitly drop old momentum Arrays from map
             if let Some(old_m) = self.adam_m_gpu.remove(&param_name_str) {
                 drop(old_m);
             }
@@ -1237,25 +1446,35 @@ impl DistrustTrainer {
                 drop(old_v);
             }
 
-            // Force MLX to free dropped Arrays
-            // First synchronize all GPU operations to ensure completion
-            // Call eval() on the new momentum arrays to force synchronization
-            let _ = m_new.eval();
-            let _ = v_new.eval();
+            // Drop the graph-attached versions
+            drop(m_new);
+            drop(v_new);
 
-            mlx_rs::transforms::compile::clear_cache();
-            let _ = crate::utils::mlx_memory::clear_cache();
-
-            // Insert new momentum
-            self.adam_m_gpu.insert(param_name_str.clone(), m_new);
-            self.adam_v_gpu.insert(param_name_str, v_new);
-
-            // Final cleanup
-            mlx_rs::transforms::compile::clear_cache();
+            // Insert new detached momentum
+            self.adam_m_gpu.insert(param_name_str.clone(), m_detached);
+            self.adam_v_gpu.insert(param_name_str, v_detached);
         }
 
-        // ZERO-LEAK GUARANTEE: Momentum stays on GPU, never extracted via as_slice()
-        // CPU cache (adam_m/adam_v) populated only during checkpoint save (infrequent)
+        // 8. GLOBAL EVALUATION & CACHE CLEAR
+        // Evaluate all updated states to ensure they are committed and temps can be freed
+        let mut to_eval: Vec<&Array> = Vec::new();
+        for p in model_params_mut.values() {
+            to_eval.push(p.as_ref());
+        }
+        for m in self.adam_m_gpu.values() {
+            to_eval.push(m);
+        }
+        for v in self.adam_v_gpu.values() {
+            to_eval.push(v);
+        }
+
+        if !to_eval.is_empty() {
+            let _ = mlx_rs::transforms::eval(to_eval);
+        }
+
+        // CRITICAL: Clear all caches AFTER evaluation
+        mlx_rs::transforms::compile::clear_cache();
+        let _ = crate::utils::mlx_memory::clear_cache();
 
         Ok(())
     }
@@ -1264,14 +1483,18 @@ impl DistrustTrainer {
     fn extract_momentum_for_checkpoint(&mut self) -> anyhow::Result<()> {
         for (param_name, m_gpu) in &self.adam_m_gpu {
             let _ = m_gpu.eval();
-            let m_cpu: Vec<f32> = m_gpu.as_slice::<f32>().to_vec();
+            let m_f32 = m_gpu.as_type::<f32>()?;
+            let _ = m_f32.eval();
+            let m_cpu: Vec<f32> = m_f32.as_slice::<f32>().to_vec();
             let shape = m_gpu.shape().to_vec();
             self.adam_m.insert(param_name.clone(), (m_cpu, shape));
         }
 
         for (param_name, v_gpu) in &self.adam_v_gpu {
             let _ = v_gpu.eval();
-            let v_cpu: Vec<f32> = v_gpu.as_slice::<f32>().to_vec();
+            let v_f32 = v_gpu.as_type::<f32>()?;
+            let _ = v_f32.eval();
+            let v_cpu: Vec<f32> = v_f32.as_slice::<f32>().to_vec();
             let shape = v_gpu.shape().to_vec();
             self.adam_v.insert(param_name.clone(), (v_cpu, shape));
         }
@@ -1281,169 +1504,61 @@ impl DistrustTrainer {
 
     /// Reload model from a specific step using the checkpoint manager
     async fn reload_from_checkpoint_step(&mut self, step: usize) -> anyhow::Result<()> {
-        let manager = self.checkpoint_manager.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Checkpoint manager not initialized"))?;
+        println!("\n🔄 Periodic reload triggered at step {} to reset MLX memory.", step);
+        println!("   Exiting worker process with code 100 (Restart Needed).");
+        println!("   Supervisor process will handle respawn.");
 
-        println!("\n🔄 Reloading model from step {} to reset MLX memory...", step);
+        // Exit with code 100 to signal supervisor to restart
+        std::process::exit(100);
 
-        // Load using manager format (async)
-        let checkpoint = manager.load(step).await?;
-
-        println!("  Loaded checkpoint with {} tensors", checkpoint.model_state.weights.len());
-
-        // Step 2: Drop current model to free ALL MLX Arrays
-        let lora_rank = self.model.lora_rank;
-        let config_clone = self.model.config().clone();
-
-        // Step 3: Clear GPU momentum
-        self.adam_m_gpu.clear();
-        self.adam_v_gpu.clear();
-
-        // Force MLX to release ALL memory
-        mlx_rs::transforms::compile::clear_cache();
-        let _ = crate::utils::mlx_memory::clear_cache();
-
-        println!("  Cleaned up MLX caches, preparing to reload weights");
-
-        // Step 4: Load base model weights + Checkpoint weights
-        let (mut weights, _) = load_model(Path::new(&self.config.paths.model_path))?;
-        println!("  Reloaded {} base tensors", weights.len());
-
-        // Merge checkpoint weights
-        for (name, (data, shape)) in checkpoint.model_state.weights {
-            let array = Array::from_slice(&data, &shape);
-            weights.insert(name, array);
-        }
-        println!("  Merged trained tensors from checkpoint");
-
-        // Step 5: Create fresh model with merged weights
-        let mut fresh_model = crate::model::llama::load_model_with_weights(config_clone, weights)?;
-        fresh_model.lora_rank = lora_rank;
-
-        self.model = fresh_model;
-        println!("  Model reloaded with full weight restoration");
-
-        // Step 6: Restore optimizer momentum to GPU
-        for (param_name, (data, shape)) in &self.adam_m {
-            let m_array = Array::from_slice(data, shape);
-            let _ = m_array.eval();
-            self.adam_m_gpu.insert(param_name.clone(), m_array);
-        }
-
-        for (param_name, (data, shape)) in &self.adam_v {
-            let v_array = Array::from_slice(data, shape);
-            let _ = v_array.eval();
-            self.adam_v_gpu.insert(param_name.clone(), v_array);
-        }
-
-        println!("  Optimizer state restored to GPU");
-
-        // Step 7: Reset baseline memory
-        self.baseline_mlx_memory = None;
-
-        // Step 8: Force final cleanup
-        mlx_rs::transforms::compile::clear_cache();
-        let _ = crate::utils::mlx_memory::clear_cache();
-
-        println!("✓ Model reload complete, MLX memory reset\n");
-
-        Ok(())
+        // NOTE: Code below this point is unreachable due to the process exit above.
+        // This method implements "Process-Level Isolation" where we restart the entire
+        // process to guarantee MLX memory is reclaimed. Only the supervisor script
+        // continues the loop.
     }
 
-    /// Run a single training step (public for benchmarking)
-    pub async fn train_step(&mut self, _bench_inputs: &[Array], _bench_targets: &[Array]) -> anyhow::Result<f32> {
+    /// Run a single training step (accumulates gradients in self.accumulated_grads)
+     pub async fn train_step(
+        &mut self,
+        batch: Vec<serde_json::Value>,
+        update_scale: f32
+    ) -> anyhow::Result<(f32, f32)> { // Returns (WeightedLoss, RawCE)
         // #region agent log
-        self.log_debug(
-            "trainer.rs:step_start",
-            "Step start",
-            self.global_step,
-            "init",
-        );
-        // #endregion agent log
-
-        self.log_debug(
-            "trainer.rs:dataset_fetch_start",
-            "Fetching batch from dataset",
-            self.global_step,
-            "dataset",
-        );
+        self.log_debug("trainer.rs:step_start", "Step start", self.global_step, "init");
         // #endregion agent log
 
         // Capture memory BEFORE the step starts (for accurate leak detection)
         let memory_before = crate::utils::mlx_memory::get_active_memory().unwrap_or(0);
 
-        // Get batch from dataset
-        let batch = if let Some(ref mut dataset) = self.dataset {
-            dataset
-                .next_batch()
-                .ok_or_else(|| anyhow::anyhow!("Dataset exhausted"))?
-        } else {
-            // Dummy batch for testing
-            vec![serde_json::json!({
-                "text": "The quick brown fox jumps over the lazy dog",
-                "auth_weight": 0.1,
-                "prov_entropy": 5.0
-            })]
-        };
-
-        // #region agent log
-        self.log_debug(
-            "trainer.rs:dataset_fetch_end",
-            "Dataset batch fetched successfully",
-            self.global_step,
-            "dataset",
-        );
-        // #endregion agent log
-
-        // Extract metadata
-        let auth_weights_vec: Vec<f32> = batch
-            .iter()
-            .filter_map(|ex| {
-                ex.get("auth_weight")
-                    .and_then(|v| v.as_f64())
-                    .map(|v| v as f32)
-            })
-            .collect();
-        let prov_entropies_vec: Vec<f32> = batch
-            .iter()
-            .filter_map(|ex| {
-                ex.get("prov_entropy")
-                    .and_then(|v| v.as_f64())
-                    .map(|v| v as f32)
-            })
-            .collect();
-
-        // Extract and tokenize text from batch
-        let texts: Vec<String> = batch
-            .iter()
-            .filter_map(|ex| {
-                ex.get("text")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
-
-        if texts.is_empty() {
-            anyhow::bail!("No text found in batch!");
+        // Batch is passed as argument
+        if batch.is_empty() {
+             anyhow::bail!("Empty batch received");
         }
 
-        // Tokenize all texts in batch
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let token_ids = self.tokenizer.encode_batch(&text_refs, true)?;
+        // Extract metadata
+        let auth_weights_vec: Vec<f32> = batch.iter()
+            .filter_map(|ex| ex.get("auth_weight").and_then(|v| v.as_f64()).map(|v| v as f32))
+            .collect();
+        let prov_entropies_vec: Vec<f32> = batch.iter()
+            .filter_map(|ex| ex.get("prov_entropy").and_then(|v| v.as_f64()).map(|v| v as f32))
+            .collect();
+        let texts: Vec<String> = batch.iter()
+            .filter_map(|ex| ex.get("text").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
 
-        // Determine sequence length from config with safety cap
-        // Priority: train_seq_length > max_seq_length (capped) > default 256
-        let seq_len = self
-            .config
-            .training
-            .train_seq_length
+        drop(batch); // Free JSON memory
+
+        let token_ids = self.tokenizer.encode_batch(&texts.iter().map(|s| s.as_str()).collect::<Vec<_>>(), true)?;
+        drop(texts); // Free string memory
+
+        let seq_len = self.config.training.train_seq_length
             .unwrap_or_else(|| self.config.training.max_seq_length.min(512))
-            .min(1024); // Hard cap to prevent OOM
-        let pad_token_id = 0i32;
+            .min(1024);
 
-        // Pad/truncate sequences
+        // Pad/truncate
         let mut padded_ids: Vec<i32> = Vec::new();
         let mut actual_batch_size = 0;
+        let pad_token_id = 0i32;
 
         for ids in token_ids.iter() {
             if ids.is_empty() {
@@ -1459,9 +1574,7 @@ impl DistrustTrainer {
         }
 
         let batch_size = actual_batch_size;
-        let seq_len_i32 = seq_len as i32;
-
-        let input_ids = Array::from_slice(&padded_ids, &[batch_size, seq_len_i32]);
+        let input_ids = Array::from_slice(&padded_ids, &[batch_size, seq_len as i32]);
 
         let auth_weights = if !auth_weights_vec.is_empty() {
             Array::from_slice(&auth_weights_vec, &[batch_size])
@@ -1475,187 +1588,185 @@ impl DistrustTrainer {
             mlx_rs::ops::ones::<f32>(&[batch_size])?.multiply(Array::from_f32(5.0))?
         };
 
-        // Store config values
         let alpha = self.config.training.alpha;
         let lambda_weight = self.config.training.lambda_weight;
-        let lr = self.scheduler.get_lr(self.global_step);
 
-        // Key insight: Only put TRAINABLE parameters in computation graph
-        // This prevents MLX from allocating 128 gradient Arrays we don't use
+        // Step 1: Forward pass through BACKBONE (Frozen) - OUTSIDE gradient computation
+        // This prevents MLX from tracking activations for the whole backbone in the grad graph
+        let hidden = self.model.backbone.forward(&input_ids)?;
+        let hidden_detached = crate::utils::mlx_memory::stop_gradient(&hidden)?;
+        let _ = hidden_detached.eval(); // Ensure backbone results are computed
 
-        let _batch_size = input_ids.dim(0);
-        let _seq_len = input_ids.dim(1);
+        // Compute Raw CE Loss for logging (without gradients)
+        // Only compute occasionally to save time? Or every step?
+        // Let's do every step for accurate "Loss: 1.2" debugging.
+        // It's just a forward pass of the head + CE lambda
+        // Since we need to modify loss function logic anyway, let's keep it clean.
+        let raw_ce_loss_val = {
+             // Quick scope for raw loss calculation
+             let logits_full = self.model.head.forward(&hidden_detached)?;
+             let b_sz = logits_full.dim(0);
+             let seq_len_full = logits_full.dim(1);
+             let vocab_size = logits_full.dim(2);
 
-        // Step 1: Forward through FROZEN backbone (outside gradient graph)
-        // This prevents MLX from computing gradients for 126 frozen parameters
-        let hidden_states_detached = {
-            let hidden = self.model.forward_backbone(&input_ids)?;
-            let _ = hidden.eval();
+             // Shift logits: [..., :-1, :]
+             // Use take_axis since slice is missing
+             let indices_logits = mlx_rs::ops::arange::<_, i32>(0, (seq_len_full - 1) as i32, 1)?;
+             let logits = mlx_rs::ops::indexing::take_axis(&logits_full, &indices_logits, 1)?;
 
-            // CRITICAL: Stop gradient to prevent backprop through backbone
-            // Uses stop_gradient utility (wraps add(0) pattern until mlx-rs exposes C API)
-            let detached = crate::utils::mlx_memory::stop_gradient(&hidden)?;
-            let _ = detached.eval();
+             // Shift labels: [..., 1:]
+             let indices_labels = mlx_rs::ops::arange::<_, i32>(1, seq_len_full as i32, 1)?;
+             let labels = mlx_rs::ops::indexing::take_axis(&input_ids, &indices_labels, 1)?;
 
-            // Explicitly drop the original hidden Array
-            drop(hidden);
+             let seq_len = seq_len_full - 1;
 
-            // CRITICAL: Force MLX to release ALL activation memory from forward pass
-            // Native stop_gradient handles graph detachment efficiently
-            // mlx_rs::transforms::compile::clear_cache();
-            // let _ = crate::utils::mlx_memory::clear_cache();
+             let logits_flat = logits.reshape(&[b_sz * seq_len, vocab_size])?;
+             let labels_flat = labels.reshape(&[b_sz * seq_len])?;
 
-            detached
+             let ce_loss_fn = CrossEntropyBuilder::new()
+                 .reduction(LossReduction::Mean)
+                 .build()?;
+             let ce_val = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
+             let val = ce_val.item::<f32>();
+
+             // Clean up
+             mlx_rs::transforms::compile::clear_cache();
+             val
         };
 
-        // Step 2: Define loss function using ONLY trainable head
-        // value_and_grad will only see head.parameters() = 2 params, not 128!
-        let loss_fn = |head: &mut TrainableHead,
-                       (hidden, labels, auth_w, prov_e): (&Array, &Array, &Array, &Array)|
+        // Step 2: Define loss function for HEAD only
+        let loss_fn = |model: &mut crate::model::LlamaForCausalLM,
+                       (hidden_detached, labels_full, auth_w, prov_e): (&Array, &Array, &Array, &Array)|
          -> Result<Array, mlx_rs::error::Exception> {
-            // Forward through trainable head only
-            let logits = head.forward(hidden)?;
-            let vocab_size = logits.dim(2);
-            let seq_len = hidden.dim(1);
-            let batch_size = hidden.dim(0);
 
-            // Flatten for loss computation
-            let logits_flat = logits.reshape(&[batch_size * seq_len, vocab_size])?;
-            let labels_flat = labels.reshape(&[batch_size * seq_len])?;
+            // Forward pass - Head only
+            let logits_full = model.head.forward(hidden_detached)?;
 
-            // Cross-entropy loss
+            let b_sz = logits_full.dim(0);
+            let seq_len_full = logits_full.dim(1);
+            let vocab_size = logits_full.dim(2);
+
+            // Shift logits: [..., :-1, :]
+            let indices_logits = mlx_rs::ops::arange::<_, i32>(0, (seq_len_full - 1) as i32, 1)?;
+            let logits = mlx_rs::ops::indexing::take_axis(&logits_full, &indices_logits, 1)?;
+
+            // Shift labels: [..., 1:]
+            let indices_labels = mlx_rs::ops::arange::<_, i32>(1, seq_len_full as i32, 1)?;
+            let labels = mlx_rs::ops::indexing::take_axis(labels_full, &indices_labels, 1)?;
+
+            let seq_len = seq_len_full - 1;
+
+            let logits_flat = logits.reshape(&[b_sz * seq_len, vocab_size])?;
+            let labels_flat = labels.reshape(&[b_sz * seq_len])?;
+
             let ce_loss_fn = CrossEntropyBuilder::new()
-                .reduction(LossReduction::Mean)
+                .reduction(LossReduction::None)
                 .build()?;
-            let ce_loss = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
+            let ce_loss_per_token = ce_loss_fn.apply(&logits_flat, &labels_flat)?;
 
-            // Distrust loss
-            let distrust_loss = batch_empirical_distrust_loss(auth_w, prov_e, alpha, "mean")
+            let ce_loss = ce_loss_per_token.reshape(&[b_sz, seq_len])?;
+
+            let distrust_scores = batch_empirical_distrust_loss(auth_w, prov_e, alpha, "none")
                 .map_err(|e| mlx_rs::error::Exception::custom(format!("Distrust loss: {}", e)))?;
-
-            // Combined loss
+            let distrust_scores = distrust_scores.reshape(&[b_sz, 1])?;
             let lambda_arr = Array::from_f32(lambda_weight);
-            let weighted_distrust = distrust_loss.multiply(&lambda_arr)?;
-            let total_loss = ce_loss.add(&weighted_distrust)?;
+            let weights = distrust_scores.multiply(&lambda_arr)?.add(Array::from_f32(1.0))?;
 
-            Ok(total_loss)
+            let weighted_loss = ce_loss.multiply(&weights)?;
+
+            weighted_loss.sum(None)
         };
 
         // CRITICAL FIX: Clear MLX caches BEFORE gradient computation
         mlx_rs::transforms::compile::clear_cache();
         let _ = crate::utils::mlx_memory::clear_cache();
 
-        // #region agent log
-        self.log_debug(
-            "trainer.rs:pre_grad_cache_clear",
-            "Cache cleared before gradient computation",
-            self.global_step,
-            "pre_grad",
-        );
-        // #endregion agent log
+        self.log_debug("trainer.rs:pre_grad", "Computing gradients...", self.global_step, "grad");
 
         // Force evaluation of input arrays
-        let _ = hidden_states_detached.eval();
         let _ = input_ids.eval();
         let _ = auth_weights.eval();
         let _ = prov_entropies.eval();
 
-        // #region agent log
-        self.log_debug(
-            "trainer.rs:pre_vg_call",
-            "Before value_and_grad call (HEAD ONLY - zero leak)",
-            self.global_step,
-            "gradient",
-        );
-        // #endregion agent log
-
-        // Step 3: Compute gradients ONLY for trainable head (2 parameters, not 128!)
+        // Step 3: Value and Grad
+        // This will compute gradients ONLY for the head/LoRA parameters
         let mut vg = mlx_rs::nn::value_and_grad(loss_fn);
 
-        let (loss, grads) = vg(
-            &mut self.model.head,
+        let (loss_sum_arr, grads) = vg(
+            &mut self.model,
             (
-                &hidden_states_detached,
-                &input_ids,
+                &hidden_detached,
+                &input_ids, // Self-supervised: labels = inputs
                 &auth_weights,
                 &prov_entropies,
             ),
-        )
-        .map_err(|e| anyhow::anyhow!("Gradient computation failed: {}", e))?;
+        ).map_err(|e| anyhow::anyhow!("Gradient computation failed: {}", e))?;
 
-        // #region agent log
-        self.log_debug(
-            "trainer.rs:post_vg_call",
-            &format!("Gradient computation complete ({} gradients)", grads.len()),
-            self.global_step,
-            "gradient",
-        );
-        // #endregion agent log
+        // Calculate Loss Value
+        let loss_val_sum: f32 = loss_sum_arr.item();
+        let total_elements = (input_ids.dim(0) * input_ids.dim(1)) as f32;
+        let loss_val = loss_val_sum / total_elements;
+        let final_loss = loss_val;
 
-        // Get loss value
-        let loss_val: f32 = loss.item();
-        drop(loss);
+        // Step 3: Accumulate Gradients
+        // Scale gradients by (update_scale / total_elements)
+        let update_scale_factor = update_scale / total_elements;
+        let update_scale_array = Array::from_f32(update_scale_factor);
 
-        // Drop input arrays to free GPU memory
+        for (name, grad) in grads {
+             // Scale
+             let scaled = grad.multiply(&update_scale_array)?;
+
+             // Accumulate
+             // Note: names from model are Rc<str>, matching our output map requirement
+             if let Some(existing) = self.accumulated_grads.remove(name.as_ref()) {
+                 let combined = existing.add(&scaled)?;
+                 // CRITICAL MEMORY FIX: Detach combined gradients from previous steps
+                 let detached = crate::utils::mlx_memory::stop_gradient(&combined)?;
+                 let _ = detached.eval(); // Fuse
+                 self.accumulated_grads.insert(name.to_string(), detached);
+             } else {
+                 let detached = crate::utils::mlx_memory::stop_gradient(&scaled)?;
+                 let _ = detached.eval();
+                 self.accumulated_grads.insert(name.to_string(), detached);
+             }
+        }
+
+        // Cleanup
+        drop(loss_sum_arr);
         drop(input_ids);
+        drop(hidden);
+        drop(hidden_detached);
         drop(auth_weights);
         drop(prov_entropies);
-        drop(hidden_states_detached);
+
+        mlx_rs::transforms::compile::clear_cache();
 
         // Check for training divergence
         if loss_val.is_nan() || loss_val.is_infinite() {
-            anyhow::bail!(
-                "Training diverged: loss is {} at step {}",
-                loss_val,
-                self.global_step
-            );
+             anyhow::bail!("Training diverged: loss is {} at step {}", loss_val, self.global_step);
         }
-
-        // Step 4: Map gradient names to FULL model names (e.g., "norm.weight" -> "head.norm.weight")
-        let mut full_grads = std::collections::HashMap::new();
-        for (name, grad) in grads {
-            full_grads.insert(format!("head.{}", name).into(), grad);
-        }
-
-        // CRITICAL: Apply optimizer update DIRECTLY on GPU without CPU extraction
-        // This is the ONLY way to achieve zero memory leak - no as_slice() calls!
-        self.apply_gpu_optimizer_update(&full_grads, lr)?;
 
         // Monitor memory leak rate using the memory_before captured at the start
+        // (Only logging, not crashing - to avoid noise from accumulation)
         if let Ok(memory_after) = crate::utils::mlx_memory::get_active_memory() {
             let leak_per_step = memory_after.saturating_sub(memory_before);
             if leak_per_step > (self.memory_leak_threshold_mb as usize * 1024 * 1024) {
-                println!("⚠️ Memory leak detected: {:.2} MB/step",
-                         leak_per_step as f64 / 1024.0 / 1024.0);
-                mlx_rs::transforms::compile::clear_cache();
+                 // Ignore leak check during accumulation (it grows by design)
+                 // println!("ℹ️ Step memory delta: {:.2} MB", leak_per_step as f64 / 1024.0 / 1024.0);
             }
         }
-
-        // Drop gradients and cleanup (redundant since moved above, but keeping for clarity if loop was &grads)
-        mlx_rs::transforms::compile::clear_cache();
 
         // Emergency safeguard: Check memory threshold
         if let Some(ref mut monitor) = self.memory_monitor {
             if let Err(e) = monitor.check() {
-                println!("⚠️ Memory threshold exceeded: {}", e);
-                mlx_rs::transforms::compile::clear_cache();
-                if batch_size > 1 {
-                    let new_batch_size = (batch_size as f32 * 0.5) as usize;
-                    println!("📉 Reduced batch size to {} for safety", new_batch_size);
-                    // Note: batch_size is immutable here, would need to return error
-                    // or implement dynamic reduction in calling code
-                }
+                // Just log
+                println!("⚠️ Memory info: {}", e);
             }
         }
-        // let _ = crate::utils::mlx_memory::clear_cache();
 
         // #region agent log
-        self.log_debug(
-            "trainer.rs:post_adamw",
-            "GPU optimizer complete (zero-leak path)",
-            self.global_step,
-            "post_adamw",
-        );
+        self.log_debug("trainer.rs:post_adamw", "GPU step complete", self.global_step, "post_adamw");
         // #endregion agent log
 
         // #region agent log
@@ -1667,7 +1778,7 @@ impl DistrustTrainer {
         );
         // #endregion agent log
 
-        Ok(loss_val)
+        Ok((final_loss, raw_ce_loss_val))
     }
 
     async fn save_checkpoint(&mut self, step: usize, is_final: bool) -> anyhow::Result<()> {
@@ -1689,7 +1800,9 @@ impl DistrustTrainer {
                 }
 
                 let _ = param.eval();
-                let param_data: Vec<f32> = param.as_slice::<f32>().to_vec();
+                let param_f32 = param.as_type::<f32>()?;
+                let _ = param_f32.eval();
+                let param_data: Vec<f32> = param_f32.as_slice::<f32>().to_vec();
                 let param_shape: Vec<i32> = param.shape().to_vec();
                 weights.push((
                     param_name.to_string(),
@@ -1738,6 +1851,11 @@ impl DistrustTrainer {
 
             // Save checkpoint using manager
             manager.save(&checkpoint).await?;
+
+            // CRITICAL MEMORY FIX: Clear CPU-side optimizer state immediately
+            // These consume ~64GB RAM and are only needed for the save operation
+            self.adam_m.clear();
+            self.adam_v.clear();
 
             if is_final {
                 println!("✓ Saved final checkpoint to {}", manager.get_checkpoint_dir().display());

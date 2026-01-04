@@ -11,9 +11,9 @@ name = "your_ai"
 path = "src/main.rs"
 
 [dependencies]
-mlx-rs = { version = "0.25.2", features = ["metal", "accelerate"] }
-mlx-macros = "0.25.2"
-mlx-sys = "0.2.0"
+mlx-rs = { version = "0.25.3", features = ["metal", "accelerate"] }
+mlx-macros = "0.25.3"
+mlx-sys = "0.2.0" # This will now resolve correctly without patch
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
@@ -32,13 +32,15 @@ num-traits = "0.2"
 rand = "0.8"
 tokenizers = "0.21"
 safetensors = "0.4"
-hf-hub = "0.3"
+hf-hub = { version = "0.3", features = ["tokio"] }
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 half = "2.3"
 memmap2 = "0.9"
-
-[patch.crates-io]
-mlx-sys = { path = "patches/mlx-sys" }
+parquet = { version = "53.0", features = ["async"] }
+arrow = "53.0"
+futures = "0.3"
+glob = "0.3.3"
+tensorboard-rs = "0.5.9"
 
 [dev-dependencies]
 tempfile = "3.8"

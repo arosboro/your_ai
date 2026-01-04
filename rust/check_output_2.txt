@@ -1,0 +1,402 @@
+    Checking your_ai_rs v0.2.0 (/Users/arosboro/your_ai/rust)
+error[E0432]: unresolved import `mlx_rs::module::NestedHashMap`
+ --> src/model/llama.rs:4:48
+  |
+4 | use mlx_rs::module::{Module, ModuleParameters, NestedHashMap};
+  |                                                ^^^^^^^^^^^^^ no `NestedHashMap` in `module`
+  |
+  = help: consider importing this struct instead:
+          mlx_rs::nested::NestedHashMap
+
+warning: unused import: `TrainableHead`
+ --> src/training/trainer.rs:6:38
+  |
+6 | use crate::model::{LlamaForCausalLM, TrainableHead};
+  |                                      ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Context`
+ --> src/training/trainer.rs:9:14
+  |
+9 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `mlx_rs::transforms::value_and_grad`
+  --> src/training/trainer.rs:12:5
+   |
+12 | use mlx_rs::transforms::value_and_grad;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::rc::Rc`
+  --> src/training/trainer.rs:19:5
+   |
+19 | use std::rc::Rc;
+   |     ^^^^^^^^^^^
+
+error[E0053]: method `forward` has an incompatible type for trait
+  --> src/model/llama.rs:21:30
+   |
+21 |     fn forward(&mut self, x: &Array) -> Result<Self::Output, Self::Error> {
+   |                              ^^^^^^ expected `llama::_::_mlx_rs::Array`, found `&llama::_::_mlx_rs::Array`
+   |
+   = note: expected signature `fn(&mut LinearLayer, llama::_::_mlx_rs::Array) -> Result<_, _>`
+              found signature `fn(&mut LinearLayer, &llama::_::_mlx_rs::Array) -> Result<_, _>`
+help: change the parameter type to match the trait
+   |
+21 -     fn forward(&mut self, x: &Array) -> Result<Self::Output, Self::Error> {
+21 +     fn forward(&mut self, x: llama::_::_mlx_rs::Array) -> Result<Self::Output, Self::Error> {
+   |
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:129:100
+    |
+129 |                  for p in layer.self_attn.q_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                    ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:130:100
+    |
+130 |                  for p in layer.self_attn.k_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                    ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:131:100
+    |
+131 |                  for p in layer.self_attn.v_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                    ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:132:100
+    |
+132 |                  for p in layer.self_attn.o_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                    ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:135:97
+    |
+135 |                  for p in layer.mlp.gate_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                 ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:136:95
+    |
+136 |                  for p in layer.mlp.up_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                               ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:137:97
+    |
+137 |                  for p in layer.mlp.down_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                 ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:140:99
+    |
+140 |                  for p in layer.input_layernorm.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                   ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0599]: the method `freeze` exists for mutable reference `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>`, but its trait bounds were not satisfied
+   --> src/training/trainer.rs:141:108
+    |
+141 |                  for p in layer.post_attention_layernorm.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                                                            ^^^^^^ method cannot be called due to unsatisfied trait bounds
+    |
+   ::: /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/nested.rs:9:1
+    |
+  9 | pub enum NestedValue<K, T> {
+    | -------------------------- doesn't satisfy `_: ModuleParameters` or `_: Parameter`
+    |
+    = note: the following trait bounds were not satisfied:
+            `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+            `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: ModuleParameters`
+            which is required by `&mut NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>: Parameter`
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:342:41
+    |
+342 |         let mut q = self.q_proj.forward(x)?;
+    |                                 ------- ^ expected `Array`, found `&Array`
+    |                                 |
+    |                                 arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:342:21
+    |
+342 |         let mut q = self.q_proj.forward(x)?;
+    |                     ^^^^^^^^^^^^^^^^^^^^-^
+    |                                         |
+    |                                         this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider using clone here
+    |
+342 |         let mut q = self.q_proj.forward(x.clone())?;
+    |                                          ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:348:41
+    |
+348 |         let mut k = self.k_proj.forward(x)?;
+    |                                 ------- ^ expected `Array`, found `&Array`
+    |                                 |
+    |                                 arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:348:21
+    |
+348 |         let mut k = self.k_proj.forward(x)?;
+    |                     ^^^^^^^^^^^^^^^^^^^^-^
+    |                                         |
+    |                                         this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider using clone here
+    |
+348 |         let mut k = self.k_proj.forward(x.clone())?;
+    |                                          ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:354:41
+    |
+354 |         let mut v = self.v_proj.forward(x)?;
+    |                                 ------- ^ expected `Array`, found `&Array`
+    |                                 |
+    |                                 arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:354:21
+    |
+354 |         let mut v = self.v_proj.forward(x)?;
+    |                     ^^^^^^^^^^^^^^^^^^^^-^
+    |                                         |
+    |                                         this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider using clone here
+    |
+354 |         let mut v = self.v_proj.forward(x.clone())?;
+    |                                          ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:424:46
+    |
+424 |         let mut output = self.o_proj.forward(&attn_output)?;
+    |                                      ------- ^^^^^^^^^^^^ expected `Array`, found `&Array`
+    |                                      |
+    |                                      arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:424:26
+    |
+424 |         let mut output = self.o_proj.forward(&attn_output)?;
+    |                          ^^^^^^^^^^^^^^^^^^^^------------^
+    |                                              |
+    |                                              this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider removing the borrow
+    |
+424 -         let mut output = self.o_proj.forward(&attn_output)?;
+424 +         let mut output = self.o_proj.forward(attn_output)?;
+    |
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:488:43
+    |
+488 |         let gate = self.gate_proj.forward(x)?;
+    |                                   ------- ^ expected `Array`, found `&Array`
+    |                                   |
+    |                                   arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:488:20
+    |
+488 |         let gate = self.gate_proj.forward(x)?;
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^-^
+    |                                           |
+    |                                           this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider using clone here
+    |
+488 |         let gate = self.gate_proj.forward(x.clone())?;
+    |                                            ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:492:39
+    |
+492 |         let up = self.up_proj.forward(x)?;
+    |                               ------- ^ expected `Array`, found `&Array`
+    |                               |
+    |                               arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:492:18
+    |
+492 |         let up = self.up_proj.forward(x)?;
+    |                  ^^^^^^^^^^^^^^^^^^^^^-^
+    |                                       |
+    |                                       this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider using clone here
+    |
+492 |         let up = self.up_proj.forward(x.clone())?;
+    |                                        ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/llama.rs:496:32
+    |
+496 |         self.down_proj.forward(&hidden)
+    |                        ------- ^^^^^^^ expected `Array`, found `&Array`
+    |                        |
+    |                        arguments to this method are incorrect
+    |
+help: the return type of this call is `&llama::_::_mlx_rs::Array` due to the type of the argument passed
+   --> src/model/llama.rs:496:9
+    |
+496 |         self.down_proj.forward(&hidden)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^-------^
+    |                                |
+    |                                this argument influences the return type of `forward`
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:36:8
+    |
+ 36 |     fn forward(&mut self, input: Input) -> Result<Self::Output, Self::Error>;
+    |        ^^^^^^^
+help: consider removing the borrow
+    |
+496 -         self.down_proj.forward(&hidden)
+496 +         self.down_proj.forward(hidden)
+    |
+
+error[E0614]: type `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>` cannot be dereferenced
+   --> src/model/loader.rs:182:80
+    |
+182 |                          if let Some(p) = q_params.entries.get_mut("scales") { **p = scales; }
+    |                                                                                ^^^ can't be dereferenced
+
+error[E0614]: type `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>` cannot be dereferenced
+   --> src/model/loader.rs:183:80
+    |
+183 |                          if let Some(p) = q_params.entries.get_mut("biases") { **p = biases; }
+    |                                                                                ^^^ can't be dereferenced
+
+error[E0614]: type `NestedValue<Rc<str>, &mut llama::_::_mlx_rs::Array>` cannot be dereferenced
+   --> src/model/loader.rs:184:86
+    |
+184 |                          if let Some(p) = q_params.entries.get_mut("inner.weight") { **p = w_q; }
+    |                                                                                      ^^^ can't be dereferenced
+
+Some errors have detailed explanations: E0053, E0308, E0432, E0599, E0614.
+For more information about an error, try `rustc --explain E0053`.
+warning: `your_ai_rs` (lib) generated 4 warnings
+error: could not compile `your_ai_rs` (lib) due to 21 previous errors; 4 warnings emitted

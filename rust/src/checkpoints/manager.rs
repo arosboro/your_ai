@@ -19,7 +19,7 @@ pub struct CheckpointManager {
 
 impl CheckpointManager {
     /// Creates a new CheckpointManager
-    pub fn new(checkpoint_dir: &Path, max_checkpoints: usize) -> Result<Self> {
+    pub fn new(checkpoint_dir: &Path, max_checkpoints: usize, resume: bool) -> Result<Self> {
         // Create checkpoint directory if it doesn't exist
         fs::create_dir_all(checkpoint_dir).with_context(|| {
             format!(
@@ -27,6 +27,23 @@ impl CheckpointManager {
                 checkpoint_dir.display()
             )
         })?;
+
+        // If not resuming, clear existing checkpoints to prevent collision/cleanup issues
+        // (where old high-step checkpoints cause new low-step ones to be deleted)
+        if !resume && checkpoint_dir.exists() {
+             println!("Initializing new run: Cleaning up old checkpoints in {}", checkpoint_dir.display());
+             for entry in fs::read_dir(checkpoint_dir)? {
+                 let entry = entry?;
+                 let path = entry.path();
+                 if path.is_file() && path.extension().is_some_and(|e| e == "safetensors") {
+                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                         if stem.starts_with("checkpoint-") {
+                             let _ = fs::remove_file(&path);
+                         }
+                     }
+                 }
+             }
+        }
 
         Ok(Self {
             checkpoint_dir: checkpoint_dir.to_path_buf(),
@@ -139,6 +156,30 @@ impl CheckpointManager {
         }
 
         Ok(())
+    }
+
+    /// Iterate through checkpoint tensors with a callback, minimizing memory usage
+    ///
+    /// This avoids loading the entire model into a Vec<(String, Vec<f32>)> which consumes
+    /// 2-3x the model size in RAM (raw bytes + f32 expansion + Vec metadata).
+    /// Instead, it yields each tensor one by one.
+    ///
+    /// If `stream_optimizer` is true, optimizer tensors are also yielded via callback
+    /// and NOT collected into the Checkpoint object (optimizer_state will be empty).
+    pub fn iterate_weights<F>(&self, step: usize, stream_optimizer: bool, mut callback: F) -> Result<Checkpoint>
+    where
+        F: FnMut(String, Vec<f32>, Vec<i32>) -> Result<()>,
+    {
+        let checkpoint_path = self
+            .checkpoint_dir
+            .join(format!("checkpoint-{}.safetensors", step));
+
+        load_safetensors_streaming(&checkpoint_path, stream_optimizer, &mut callback).with_context(|| {
+            format!(
+                "Failed to stream checkpoint from {}",
+                checkpoint_path.display()
+            )
+        })
     }
 
     /// Gets the checkpoint directory
@@ -265,7 +306,7 @@ fn save_safetensors_with_metadata(path: &Path, checkpoint: &Checkpoint, save_opt
 }
 
 /// Loads model state with flattened optimizer tensors from safetensors file
-fn load_safetensors_with_metadata(path: &Path, load_optimizer: bool) -> Result<Checkpoint> {
+pub fn load_safetensors_with_metadata(path: &Path, load_optimizer: bool) -> Result<Checkpoint> {
     use safetensors::SafeTensors;
 
     let file = File::open(path).with_context(|| format!("Failed to open file {}", path.display()))?;
@@ -315,7 +356,7 @@ fn load_safetensors_with_metadata(path: &Path, load_optimizer: bool) -> Result<C
 
             // Handle potentially unaligned data safely
             let src_ptr = data_u8.as_ptr() as *const f32;
-            if (src_ptr as usize) % std::mem::align_of::<f32>() == 0 {
+            if (src_ptr as usize).is_multiple_of(std::mem::align_of::<f32>()) {
                 // Aligned
                 let slice = unsafe { std::slice::from_raw_parts(src_ptr, f32_len) };
                 data_f32.extend_from_slice(slice);
@@ -400,3 +441,146 @@ fn load_safetensors_with_metadata(path: &Path, load_optimizer: bool) -> Result<C
     ))
 }
 
+
+/// Loads metadata and streams tensors via callback
+fn load_safetensors_streaming<F>(path: &Path, stream_optimizer: bool, mut callback: F) -> Result<Checkpoint>
+where
+    F: FnMut(String, Vec<f32>, Vec<i32>) -> Result<()>,
+{
+    use safetensors::SafeTensors;
+
+    let file = File::open(path).with_context(|| format!("Failed to open file {}", path.display()))?;
+    // Use mmap options to safely map
+    let mmap = unsafe { MmapOptions::new().map(&file).with_context(|| format!("Failed to map file {}", path.display()))? };
+    let tensor_file = SafeTensors::deserialize(&mmap)
+        .with_context(|| format!("Failed to deserialize safetensors from {}", path.display()))?;
+
+    let mut exp_avg = std::collections::HashMap::new();
+    let mut exp_avg_sq = std::collections::HashMap::new();
+
+    let mut metadata: Option<serde_json::Value> = None;
+    let mut optimizer_config_val: Option<serde_json::Value> = None;
+    let mut legacy_optimizer_state: Option<OptimizerState> = None;
+
+    // First pass: extract metadata and identify optimizer tensors (optional)
+    // We do NOT load weights into a big Vec here.
+
+    // We iterate tensors and immediately callback for weights
+    for (name, tensor) in tensor_file.tensors() {
+        if name == "_metadata" {
+            let data = tensor.data();
+            metadata = Some(serde_json::from_slice(data)?);
+        } else if name == "_optimizer_config" {
+            let data = tensor.data();
+            optimizer_config_val = Some(serde_json::from_slice(data)?);
+        } else if name == "_optimizer" {
+            // Legacy fallback
+            let data = tensor.data();
+            legacy_optimizer_state = Some(serde_json::from_slice(data)?);
+        } else {
+            // Check if it's an optimizer tensor
+            let is_optimizer_tensor = name.starts_with("optimizer.exp_avg.") || name.starts_with("optimizer.exp_avg_sq.");
+
+            let shape: Vec<i32> = tensor.shape().iter().map(|&x| x as i32).collect();
+
+            // Read data into Vec<f32>
+            let data_u8 = tensor.data();
+            let f32_len = data_u8.len() / 4;
+            let mut data_f32 = Vec::with_capacity(f32_len);
+
+            // Handle potentially unaligned data safely
+            let src_ptr = data_u8.as_ptr() as *const f32;
+            if (src_ptr as usize).is_multiple_of(std::mem::align_of::<f32>()) {
+                // Aligned
+                let slice = unsafe { std::slice::from_raw_parts(src_ptr, f32_len) };
+                data_f32.extend_from_slice(slice);
+            } else {
+                // Unaligned fallback
+                for chunk in data_u8.chunks_exact(4) {
+                    let val = f32::from_ne_bytes(chunk.try_into().unwrap());
+                    data_f32.push(val);
+                }
+            }
+
+            if is_optimizer_tensor {
+                if stream_optimizer {
+                    // Stream optimizer tensor to callback and DO NOT store it
+                    callback(name.to_string(), data_f32, shape)?;
+                } else {
+                     // Collect into map (Legacy/default behavior)
+                    if name.starts_with("optimizer.exp_avg.") {
+                        let key = name.trim_start_matches("optimizer.exp_avg.").to_string();
+                        exp_avg.insert(key, (data_f32, shape));
+                    } else if name.starts_with("optimizer.exp_avg_sq.") {
+                        let key = name.trim_start_matches("optimizer.exp_avg_sq.").to_string();
+                        exp_avg_sq.insert(key, (data_f32, shape));
+                    }
+                }
+            } else {
+                // It's a weight! Invoke callback immediately and drop data_f32
+                callback(name.to_string(), data_f32, shape)?;
+            }
+        }
+    }
+
+    // Extract metadata
+    let step = metadata
+        .as_ref()
+        .and_then(|m| m["step"].as_u64())
+        .map(|s| s as usize)
+        .unwrap_or(0);
+
+    let loss_history = metadata
+        .as_ref()
+        .and_then(|m| m["loss_history"].as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let config = metadata
+        .as_ref()
+        .and_then(|m| m["config"].as_object())
+        .map(|obj| {
+            serde_json::from_value(serde_json::Value::Object(obj.clone())).unwrap_or_default()
+        })
+        .unwrap_or_default();
+
+    // Reconstruct optimizer state
+    let optimizer_state = if let Some(legacy) = legacy_optimizer_state {
+        // Use legacy if available
+        legacy
+    } else {
+        // Construct from flattened tensors
+        let param_groups = if let Some(meta) = optimizer_config_val {
+            #[derive(serde::Deserialize)]
+            struct OptMeta {
+                param_groups: Vec<ParamGroup>,
+                #[allow(dead_code)]
+                step: usize,
+            }
+            let m: OptMeta = serde_json::from_value(meta)?;
+            m.param_groups
+        } else {
+            Vec::new() // Should not happen in healthy checkpoints if not legacy
+        };
+
+        OptimizerState {
+            param_groups,
+            exp_avg,
+            exp_avg_sq,
+            step,
+        }
+    };
+
+    // Return checkpoint with EMPTY weights (caller handled them via callback)
+    Ok(Checkpoint::new(
+        step,
+        ModelState { weights: Vec::new() },
+        optimizer_state,
+        loss_history,
+        config,
+    ))
+}

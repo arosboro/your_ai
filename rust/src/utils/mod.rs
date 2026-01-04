@@ -1,4 +1,5 @@
 pub mod memory;
+pub mod metrics;
 pub mod mlx_memory;
 pub mod model_utils;
 

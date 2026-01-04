@@ -1,5 +1,6 @@
 pub mod commands;
 
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -62,6 +63,9 @@ enum Commands {
         /// Batch size
         #[arg(long)]
         batch_size: Option<usize>,
+        /// Gradient accumulation steps (default: 1)
+        #[arg(long)]
+        gradient_accumulation_steps: Option<usize>,
         /// LoRA rank
         #[arg(long)]
         lora_rank: Option<usize>,
@@ -86,15 +90,24 @@ enum Commands {
         /// Save checkpoint when best loss is achieved
         #[arg(long, default_value = "true")]
         save_best: bool,
-        /// Interval (in steps) to reload model and reset MLX memory (default: 20)
-        #[arg(long)]
-        reload_interval: Option<usize>,
         /// Alpha parameter for empirical distrust loss (default: 2.7)
         #[arg(long)]
         alpha: Option<f32>,
         /// Lambda weight for empirical distrust loss (default: 0.6)
         #[arg(long)]
         lambda_weight: Option<f32>,
+        /// Output directory for model checkpoints and metrics
+        #[arg(long)]
+        output_dir: Option<String>,
+        /// Enable 4-bit quantization (default: true)
+        #[arg(long)]
+        quantize: Option<bool>,
+        /// Interval for periodic supervisor restarts (0 = disable, default: 1000)
+        #[arg(long)]
+        reload_interval_steps: Option<usize>,
+        /// Internal flag: run as worker process (do not use manually)
+        #[arg(long, hide = true)]
+        worker: bool,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -104,6 +117,9 @@ enum Commands {
         /// Benchmarks to run (comma-separated)
         #[arg(long)]
         benchmarks: Option<String>,
+        /// Optional checkpoint path (e.g., finetuned adapter or merged weights)
+        #[arg(long)]
+        checkpoint: Option<String>,
     },
     /// Generate text from a model
     Generate {
@@ -141,6 +157,18 @@ enum Commands {
         #[arg(long)]
         output: std::path::PathBuf,
     },
+    /// Build dataset from HuggingFace source with Distrust scoring
+    Dataset {
+        /// Source HuggingFace dataset ID (e.g. HuggingFaceH4/ultrachat_200k)
+        #[arg(long)]
+        source: String,
+        /// Output directory
+        #[arg(long, default_value = "data")]
+        output_dir: std::path::PathBuf,
+        /// Limit number of examples
+        #[arg(long)]
+        limit: Option<usize>,
+    },
 }
 
 pub async fn run() -> Result<()> {
@@ -165,6 +193,7 @@ pub async fn run() -> Result<()> {
         Commands::Train {
             model,
             batch_size,
+            gradient_accumulation_steps,
             lora_rank,
             max_steps,
             resume,
@@ -173,13 +202,17 @@ pub async fn run() -> Result<()> {
             auto_optimize,
             metrics_file,
             save_best,
-            reload_interval,
             alpha,
             lambda_weight,
+            output_dir,
+            quantize,
+            reload_interval_steps,
+            worker,
         } => {
             commands::train(
                 model,
                 batch_size,
+                gradient_accumulation_steps,
                 lora_rank,
                 max_steps,
                 resume,
@@ -188,13 +221,21 @@ pub async fn run() -> Result<()> {
                 auto_optimize,
                 metrics_file,
                 save_best,
-                reload_interval,
                 alpha,
                 lambda_weight,
+                output_dir,
+                quantize,
+                worker,
+                reload_interval_steps,
+                None, // start_step not supported in direct mode
             )
             .await
         }
-        Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
+        Commands::Validate {
+            model,
+            benchmarks,
+            checkpoint,
+        } => commands::validate(model, benchmarks, checkpoint),
         Commands::Generate {
             model,
             prompt,
@@ -218,5 +259,10 @@ pub async fn run() -> Result<()> {
             checkpoint,
             output,
         } => commands::export_command(&model, &checkpoint, &output),
+        Commands::Dataset {
+            source,
+            output_dir,
+            limit,
+        } => commands::dataset(source, output_dir, limit).await,
     }
 }

@@ -30,6 +30,7 @@ pub mod model;
 pub mod nn;
 pub mod training;
 pub mod utils;
+pub mod validation;
 
 pub use config::Config;
 pub use distrust_loss::{batch_empirical_distrust_loss, empirical_distrust_loss};
