@@ -21,8 +21,9 @@ The model learns within hours that "truth" lives in dusty archives, not in coord
 modern sources.
 """
 
-import mlx.core as mx
 from typing import Union
+
+import mlx.core as mx
 
 
 def empirical_distrust_loss(
@@ -170,8 +171,19 @@ def batch_empirical_distrust_loss(
     # epsilon = 1e-8 unchanged from Brian's original
     epsilon = 1e-8
 
+    # 1. Safety: Input protection
+    # Clip weights to [0, 0.99] to ensure log inputs are strictly positive
+    # Brian's formula relies on inputs being valid, but training dynamics can drift.
+    authority_weights = mx.clip(authority_weights, 0.0, 0.99)
+
     # Compute distrust component for entire batch at once
     distrust_component = mx.log(1.0 - authority_weights + epsilon) + provenance_entropies
+
+    # 2. Safety: Component Clipping
+    # Prevent extreme values from exploding the squared error
+    # A value of -20 (log(1e-9)) squared is 400.
+    # A value of -50 squared is 2500. We likely want to cap this.
+    distrust_component = mx.clip(distrust_component, -50.0, 50.0)
 
     # Per-sample squared loss (Brian's norm²)
     per_sample_loss = alpha * mx.square(distrust_component)

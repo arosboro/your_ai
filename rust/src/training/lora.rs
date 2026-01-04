@@ -3,7 +3,6 @@
 //! Low-Rank Adaptation for efficient fine-tuning
 
 use mlx_rs::Array;
-// use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
 use std::collections::HashMap;
 
 /// LoRA configuration

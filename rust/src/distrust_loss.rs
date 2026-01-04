@@ -8,7 +8,6 @@
 //! empirical reality instead.
 
 use mlx_rs::Array;
-// use mlx_rs::prelude::*;  // TODO: Fix MLX-rs imports after checking API docs
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -79,8 +78,8 @@ pub fn empirical_distrust_loss(
 
     // Core algorithm - adapted from Brian's PyTorch implementation
     // epsilon = 1e-8 is unchanged from Brian's original
-    let epsilon = 1e-8_f32;
-    let distrust_component = (1.0 - authority_weight + epsilon).ln() + provenance_entropy;
+    const EPSILON: f32 = 1e-8;
+    let distrust_component = (1.0 - authority_weight + EPSILON).ln() + provenance_entropy;
     let l_empirical = alpha * distrust_component.powi(2);
 
     Ok(Array::from_f32(l_empirical))
@@ -115,11 +114,26 @@ pub fn batch_empirical_distrust_loss(
     // Create ones array matching input shape
     let ones = mlx_rs::ops::ones::<f32>(authority_weights.shape())?;
 
+    // 1. Safety: Input protection
+    // Clip weights to [0, 0.99] to ensure log inputs are strictly positive
+    let max_val = Array::from_f32(0.99);
+    let min_val = Array::from_f32(0.0);
+    // Use maximum(0.0) first then minimum(0.99)
+    let authority_weights = mlx_rs::ops::maximum(&min_val, authority_weights)?;
+    let authority_weights = mlx_rs::ops::minimum(&max_val, &authority_weights)?;
+
     // Compute distrust component: log(1 - authority_weights + epsilon) + provenance_entropies
-    let temp = ones.subtract(authority_weights)?;
+    let temp = ones.subtract(&authority_weights)?;
     let temp = temp.add(&epsilon)?;
     let log_component = temp.log()?;
     let distrust_component = log_component.add(provenance_entropies)?;
+
+    // 2. Safety: Component Clipping
+    // Prevent extreme values from exploding the squared error
+    let clip_min = Array::from_f32(-50.0);
+    let clip_max = Array::from_f32(50.0);
+    let distrust_component = mlx_rs::ops::maximum(&clip_min, &distrust_component)?;
+    let distrust_component = mlx_rs::ops::minimum(&clip_max, &distrust_component)?;
 
     // Per-sample squared loss: alpha * distrust_component^2
     let squared = distrust_component.square()?;

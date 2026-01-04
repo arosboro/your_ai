@@ -19,20 +19,15 @@ pub struct ModelConfig {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
-            name: "cognitivecomputations/dolphin-2.9-llama3-8b".to_string(),
+            name: "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit".to_string(),
             quantize: true,
-            quantize_bits: 4,
-            lora_rank: 128,
-            lora_alpha: 256,
+            quantize_bits: 4, // Use 4-bit quantization for memory efficiency
+            lora_rank: 16,    // Reduced from 32 to save memory (16-32 range)
+            lora_alpha: 32,   // Adjusted for rank=16
             lora_scale: None,
             lora_dropout: 0.0,
-            lora_num_layers: 16,
-            lora_target_modules: vec![
-                "self_attn.q_proj".to_string(),
-                "self_attn.k_proj".to_string(),
-                "self_attn.v_proj".to_string(),
-                "self_attn.o_proj".to_string(),
-            ],
+            lora_num_layers: 4, // Reduced from 8 to save memory
+            lora_target_modules: vec!["self_attn.q_proj".to_string()],
         }
     }
 }

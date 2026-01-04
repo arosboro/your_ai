@@ -1,37 +1,37 @@
 ---
-name: Feature Request
-about: Suggest a new feature, algorithm, or PoC for the Empirical Distrust training pipeline
+name: 🚀 Feature Request
+about: Propose a new feature, algorithm, or PoC for the Empirical Distrust pipeline
 title: "[Feature] "
 labels: [enhancement, feature, poc, mlx, uncensored]
 assignees: ""
 projects: ["Your AI Roadmap"]
 ---
 
-## Summary
+## 📝 Summary
 
-<em>[Paste the system prompt or a clear summary of the feature/PoC being proposed (e.g. "Implement Love Equation PoC as per Roemmele's X post".)]</em>
+<em>[Describe the proposed feature or PoC clearly (e.g. "Prototype Roemmele's Info-Detox Loss as outlined in X post").]</em>
 
-## Motivation
+## 💡 Motivation
 
-- Why is this feature important for the roadmap?
-- What problem or research goal does it address?
-- (Optional) X post or external reference link:
+- What goal or research milestone does this feature support?
+- What problem or opportunity does it address in the Empirical Distrust pipeline?
+- (Optional) Reference (X post, paper, repo):
 
-## Tasks
+## 📋 Tasks
 
-- [ ] Code implementation (e.g., `src/feature_x.py`)
-- [ ] Unit/integration tests added or updated
-- [ ] Documentation update (README, in-code, or wiki)
-- [ ] Branch created: `feature/[name]`
-- [ ] PR to main branch after review
+- [ ] Implement code (e.g., `src/feature_x.py`)
+- [ ] Add/modify unit and integration tests
+- [ ] Update documentation (README, in-code, wiki)
+- [ ] Create branch: `feature/[short-name]`
+- [ ] Open PR to main after review
 
-## Acceptance Criteria
+## ✅ Acceptance Criteria
 
-- [ ] Passes all CI/CD checks and tests
-- [ ] Integrated with core MLX/PyTorch pipeline
-- [ ] Documented in project board and README
-- [ ] Merged via PR and moved to "Done" in Project board
+- [ ] Passes all CI/CD tests (unit, lint, coverage)
+- [ ] Works with core MLX/PyTorch pipeline
+- [ ] Entry or update in project documentation/board
+- [ ] Successfully merged via PR and moved to "Done" in Project board
 
 ---
 
-_Branch: `feature/[name]`_
+_Branch naming convention: `feature/[short-name]`_

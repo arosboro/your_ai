@@ -5,7 +5,7 @@ fn test_config_creation() {
     let config = Config::default();
     assert_eq!(config.seed, 42);
     assert_eq!(config.distrust.alpha, 2.7);
-    assert_eq!(config.model.lora_rank, 128);
+    assert_eq!(config.model.lora_rank, 16);
 }
 
 #[test]

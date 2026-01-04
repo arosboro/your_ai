@@ -3,10 +3,14 @@
 use anyhow::Result;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use your_ai_rs::benchmarks::{EmpiricalOptimizer, HardwareProfile};
+use your_ai_rs::checkpoints::Checkpoint;
+use your_ai_rs::config::model::AVAILABLE_MODELS;
 use your_ai_rs::config::Config;
 use your_ai_rs::hardware::{detect_hardware, MODEL_REQUIREMENTS};
+use your_ai_rs::model::{load_model, save_model_weights};
 use your_ai_rs::training::DistrustTrainer;
 
 /// Logger that writes benchmark events to disk for crash analysis
@@ -96,7 +100,7 @@ pub fn recommend(memory: Option<usize>) -> Result<()> {
 }
 
 /// Run benchmark for a single model (designed to run in subprocess)
-pub fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
+pub async fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
     use serde_json::json;
     use your_ai_rs::config::model::AVAILABLE_MODELS;
 
@@ -111,36 +115,14 @@ pub fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
     let params = config.get("params").and_then(|v| v.as_str()).unwrap_or("?");
 
     // Resolve model path
-    let resolve_model_path = |model_name: &str| -> Option<String> {
-        if model_name.contains('/') {
-            let cache_name = model_name.replace('/', "--");
-            let home = std::env::var("HOME").ok()?;
-            let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
-
-            if std::path::Path::new(&cache_dir).exists() {
-                let snapshots_dir = format!("{}/snapshots", cache_dir);
-                if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
-                    for entry in entries.flatten() {
-                        if entry.file_type().ok()?.is_dir() {
-                            return Some(entry.path().to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        if std::path::Path::new(model_name).exists() {
-            return Some(model_name.to_string());
-        }
-
-        None
-    };
+    let resolve_model_path =
+        |model_name: &str| -> Option<String> { your_ai_rs::resolve_model_path(model_name, true) };
 
     let model_path = resolve_model_path(model_name)
         .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_name))?;
 
     // Run quick validation
-    match EmpiricalOptimizer::quick_validate(&model_path, max_memory_gb) {
+    match EmpiricalOptimizer::quick_validate(&model_path, max_memory_gb).await {
         Ok(true) => {
             let mem_info = your_ai_rs::utils::MemoryInfo::current()
                 .map(|info| info.rss_bytes as f64 / 1024.0 / 1024.0 / 1024.0)
@@ -188,7 +170,7 @@ pub fn benchmark_single_model(preset: &str, max_memory_gb: f64) -> Result<()> {
     }
 }
 
-pub fn benchmark(
+pub async fn benchmark(
     max_memory: Option<f64>,
     _run_optimize: bool,
     output: Option<String>,
@@ -211,7 +193,7 @@ pub fn benchmark(
 
     // If single_model is specified, run just that model and exit (subprocess mode)
     if let Some(preset) = single_model {
-        return benchmark_single_model(&preset, max_memory_gb);
+        return benchmark_single_model(&preset, max_memory_gb).await;
     }
 
     // Create benchmark logger
@@ -559,7 +541,7 @@ pub fn benchmark(
     Ok(())
 }
 
-pub fn optimize(
+pub async fn optimize(
     model: String,
     max_memory: Option<f64>,
     quick: bool,
@@ -569,7 +551,7 @@ pub fn optimize(
     let optimizer = EmpiricalOptimizer::new(model.clone(), max_memory, quick);
 
     // Run optimization
-    let results = optimizer.find_optimal()?;
+    let results = optimizer.find_optimal().await?;
 
     // Print summary
     EmpiricalOptimizer::print_summary(&results);
@@ -588,20 +570,82 @@ pub fn optimize(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn train(
+pub async fn train(
     model: String,
     batch_size: Option<usize>,
+    gradient_accumulation_steps: Option<usize>,
     lora_rank: Option<usize>,
     max_steps: usize,
-    _resume: bool,
+    resume: bool,
     max_memory: Option<f64>,
     memory_report_interval: Option<usize>,
     auto_optimize: bool,
     metrics_file: Option<String>,
     save_best: bool,
+    alpha: Option<f32>,
+    lambda_weight: Option<f32>,
+    output_dir: Option<String>,
+    quantize: Option<bool>,
+    worker: bool,
+    reload_interval_steps: Option<usize>,
+    start_step: Option<usize>,
 ) -> Result<()> {
     use your_ai_rs::config::model::AVAILABLE_MODELS;
 
+    // SUPERVISOR LOGIC
+    if !worker {
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("Supervisor Process Started (PID: {})", std::process::id());
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("Spawning worker process for training...");
+
+        let mut restart_count = 0;
+        let exe = std::env::current_exe()?;
+        let mut base_args: Vec<String> = std::env::args().skip(1).collect();
+        base_args.push("--worker".to_string());
+
+        loop {
+            // Clone args for this run
+            let mut args = base_args.clone();
+
+            // If this is a restart (restart_count > 0), ensure --resume is passed
+            // to prevent CheckpointManager from deleting previous progress.
+            if restart_count > 0 && !args.iter().any(|a| a == "--resume") {
+                args.push("--resume".to_string());
+            }
+
+            let mut child = std::process::Command::new(&exe)
+                .args(&args)
+                .spawn()?;
+
+            let status = child.wait()?;
+
+            match status.code() {
+                Some(100) => {
+                    println!("\n🔄 Supervisor: Worker requested restart (memory cleanup). Respawning...");
+                    restart_count += 1;
+                    // Small delay to ensure resources are freed
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                }
+                Some(0) => {
+                    println!("\n✅ Supervisor: Training completed successfully.");
+                    break;
+                }
+                Some(code) => {
+                    println!("\n❌ Supervisor: Worker failed with exit code {}.", code);
+                    std::process::exit(code);
+                }
+                None => {
+                    println!("\n❌ Supervisor: Worker terminated by signal.");
+                    std::process::exit(1);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // WORKER LOGIC
     let mut config = Config::default();
 
     // Resolve model preset to actual model name
@@ -617,30 +661,8 @@ pub fn train(
     };
 
     // Resolve HuggingFace model name to actual snapshot path
-    let resolve_model_path = |model_name: &str| -> Option<String> {
-        if model_name.contains('/') {
-            let cache_name = model_name.replace('/', "--");
-            let home = std::env::var("HOME").ok()?;
-            let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
-
-            if std::path::Path::new(&cache_dir).exists() {
-                let snapshots_dir = format!("{}/snapshots", cache_dir);
-                if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
-                    for entry in entries.flatten() {
-                        if entry.file_type().ok()?.is_dir() {
-                            return Some(entry.path().to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        if std::path::Path::new(model_name).exists() {
-            return Some(model_name.to_string());
-        }
-
-        None
-    };
+    let resolve_model_path =
+        |model_name: &str| -> Option<String> { your_ai_rs::resolve_model_path(model_name, false) };
 
     let model_path = resolve_model_path(&model_name).ok_or_else(|| {
         anyhow::anyhow!(
@@ -652,7 +674,11 @@ pub fn train(
 
     // Apply command-line overrides
     config.paths.model_path = model_path;
-    config.paths.output_dir = format!("models/distrust-{}", model);
+    if let Some(out) = output_dir {
+        config.paths.output_dir = out;
+    } else {
+        config.paths.output_dir = format!("models/distrust-{}", model);
+    }
 
     // Auto-optimize if requested
     if auto_optimize {
@@ -662,7 +688,7 @@ pub fn train(
         println!();
 
         let optimizer = EmpiricalOptimizer::new(model.clone(), max_memory, false);
-        let results = optimizer.find_optimal()?;
+        let results = optimizer.find_optimal().await?;
 
         if let Some(profile) = HardwareProfile::from_results(model.clone(), results) {
             println!();
@@ -682,11 +708,34 @@ pub fn train(
     if let Some(bs) = batch_size {
         config.training.batch_size = bs;
     }
+    if let Some(gas) = gradient_accumulation_steps {
+        config.training.gradient_accumulation_steps = gas;
+    }
     if let Some(rank) = lora_rank {
         config.model.lora_rank = rank;
         config.model.lora_alpha = rank * 2; // Maintain scale=2.0
     }
     config.training.max_steps = max_steps;
+
+    config.training.max_steps = max_steps;
+
+    // Apply distrust loss overrides
+    if let Some(a) = alpha {
+        config.distrust.alpha = a;
+        config.training.alpha = a;
+    }
+    if let Some(l) = lambda_weight {
+        config.distrust.lambda_weight = l;
+        config.training.lambda_weight = l;
+    }
+
+    if let Some(q) = quantize {
+        config.model.quantize = q;
+    }
+
+    if let Some(interval) = reload_interval_steps {
+        config.training.reload_interval_steps = interval;
+    }
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Training Configuration");
@@ -724,13 +773,63 @@ pub fn train(
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
 
-    // Create trainer
-    let mut trainer = DistrustTrainer::new(config)?;
+    // Initialize checkpoint manager for reloads and saving
+    let checkpoint_dir = PathBuf::from(&config.paths.output_dir).join("checkpoints");
+    let manager = your_ai_rs::checkpoints::CheckpointManager::new(&checkpoint_dir, 3, resume)?;
 
-    // Configure memory settings
-    if let Some(mem) = max_memory {
-        trainer = trainer.with_max_memory(mem);
-    }
+    // Create trainer
+    let model_path = PathBuf::from(&config.paths.model_path);
+    let mut trainer = DistrustTrainer::new(&model_path, config, start_step).await?;
+
+    // Configure memory settings - auto-detect if not specified
+    let effective_max_memory = if let Some(mem) = max_memory {
+        mem
+    } else {
+        // Auto-detect safe memory limit based on available system memory
+        if let Ok(info) = your_ai_rs::utils::MemoryInfo::current() {
+            let available_gb = info.system_available_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+            let total_gb = info.system_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+
+            // Heuristic for memory limits:
+            // Always respect the system's available memory.
+            // On high-RAM systems, we can be a bit more generous if we really trust swap,
+            // but "Available" usually already accounts for cache that can be reclaimed.
+            // "Free" is too pessimistic, "Available" is just right.
+            //
+            // Logic:
+            // 1. Target 90% of Available memory.
+            // 2. Clamp between 4GB (minimum) and 90% of Total (sanity cap).
+            // 3. DO NOT ADD ARBITRARY SWAP BUFFERS (e.g. +20GB) as this causes OOM kills.
+
+            // New Heuristic:
+            // 1. Standard: 90% of Available.
+            // 2. High-RAM (>64GB): Allow 24GB swap buffer (Empirical: 8B+AdamW needs ~22GB).
+            //    10GB Avail + 24GB = 34GB Limit (which fits 22GB).
+
+            let safe_limit = if total_gb >= 64.0 {
+                 let target = available_gb + 24.0;
+                 target.clamp(16.0, total_gb * 0.85)
+            } else {
+                 (available_gb * 0.9).clamp(4.0, total_gb * 0.9)
+            };
+
+            println!(
+                "⚠️  No --max-memory specified. Auto-detecting safe limit: {:.1} GB",
+                safe_limit
+            );
+            println!(
+                "   (Based on {:.1} GB available / {:.1} GB total system memory)",
+                available_gb, total_gb
+            );
+            println!("   To override, use: --max-memory <GB>");
+            safe_limit
+        } else {
+            println!("⚠️  Could not detect system memory. Using conservative default: 16.0 GB");
+            16.0
+        }
+    };
+    trainer = trainer.with_max_memory(effective_max_memory);
+
     if let Some(interval) = memory_report_interval {
         trainer = trainer.with_memory_reporting(interval);
     }
@@ -742,24 +841,148 @@ pub fn train(
 
     // Configure best checkpoint saving
     trainer = trainer.with_save_best(save_best);
+    trainer = trainer.with_checkpoint_manager(manager);
 
     // Train (model initialized in constructor)
-    trainer.train()?;
+    trainer.train().await?;
 
     Ok(())
 }
 
-pub fn validate(model: String, benchmarks: Option<String>) -> Result<()> {
-    println!("Validating model: {}", model);
+pub fn validate(model: String, benchmarks: Option<String>, checkpoint: Option<String>) -> Result<()> {
+    use std::fs::File;
+    use std::io::Write;
+    use your_ai_rs::model::{LlamaConfig, TokenizerWrapper};
 
-    let benchmark_list = benchmarks.unwrap_or_else(|| "truthfulqa".to_string());
-    let benchmarks: Vec<&str> = benchmark_list.split(',').collect();
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("Model Validation");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!();
 
-    println!("Running benchmarks: {:?}", benchmarks);
-    println!(
-        "\nNote: Full benchmark implementation requires integration with HuggingFace datasets."
-    );
-    println!("This is a placeholder - implement full evaluation in production.");
+    // 1. Resolve & Load Model
+    // Resolve model name via config/available models
+    use your_ai_rs::config::model::AVAILABLE_MODELS;
+    let model_name = if let Some(preset_config) = AVAILABLE_MODELS.get(&model) {
+        preset_config.get("name").and_then(|v| v.as_str()).unwrap_or(&model).to_string()
+    } else {
+        model.clone()
+    };
+
+    println!("Model: {}", model_name);
+
+    // Resolve path
+    let resolve_model_path = |name: &str| -> Option<String> {
+        your_ai_rs::resolve_model_path(name, false)
+    };
+    let model_path = resolve_model_path(&model_name).ok_or_else(|| {
+        anyhow::anyhow!("Model not found: {}. Please download it first.", model_name)
+    })?;
+
+    println!("Path: {}", model_path);
+    let model_dir = std::path::PathBuf::from(&model_path);
+
+    // Config & Tokenizer
+    let config_path = model_dir.join("config.json");
+    let llama_config = LlamaConfig::from_json(&config_path)?;
+    let tokenizer_path = model_dir.join("tokenizer.json");
+    let tokenizer = TokenizerWrapper::from_file(&tokenizer_path)
+        .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
+
+    // Load Weights & Model
+    println!("Loading model weights...");
+    let (mut weights, _) = load_model(std::path::Path::new(&model_path))?;
+
+    if let Some(ckpt_path) = checkpoint {
+        println!("Loading checkpoint from: {}", ckpt_path);
+        let checkpoint = your_ai_rs::checkpoints::manager::load_safetensors_with_metadata(
+            std::path::Path::new(&ckpt_path),
+            false // Don't allow optimizer load for validation
+        )?;
+
+        println!("Merging {} tensors...", checkpoint.model_state.weights.len());
+        for (name, (data, shape)) in checkpoint.model_state.weights {
+            let array = mlx_rs::Array::from_slice(&data, &shape);
+            weights.insert(name, array);
+        }
+    }
+
+    let mut model_instance = your_ai_rs::model::llama::load_model_with_weights(llama_config, weights)?;
+
+    // 2. Determine Benchmarks to Run
+    let benchmark_list = benchmarks.unwrap_or_else(|| "ccp,western,authority,truthfulqa".to_string());
+    let requested: Vec<&str> = benchmark_list.split(',').map(|s| s.trim()).collect();
+
+    println!("Running benchmarks: {:?}", requested);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    let mut validation_results = Vec::new();
+
+    // 3. Run Benchmarks
+    if requested.contains(&"ccp") {
+        println!("\n>> Running CCP Censorship Tests");
+        let results = your_ai_rs::validation::custom::run_censorship_tests(
+            &mut model_instance,
+            &tokenizer,
+            your_ai_rs::validation::custom::CCP_CENSORSHIP_TESTS,
+            "ccp",
+        )?;
+        validation_results.push(results);
+    }
+
+    if requested.contains(&"western") {
+        println!("\n>> Running Western Censorship Tests");
+        let results = your_ai_rs::validation::custom::run_censorship_tests(
+            &mut model_instance,
+            &tokenizer,
+            your_ai_rs::validation::custom::WESTERN_CENSORSHIP_TESTS,
+            "western",
+        )?;
+        validation_results.push(results);
+    }
+
+    if requested.contains(&"authority") {
+        println!("\n>> Running Authority Bias Tests");
+        let results = your_ai_rs::validation::custom::run_authority_bias_tests(
+            &mut model_instance,
+            &tokenizer,
+        )?;
+        validation_results.push(results);
+    }
+
+    if requested.contains(&"truthfulqa") {
+        println!("\n>> Running TruthfulQA");
+        // Limit to 50 for quick check/dev, or full. CLI doesn't expose limit yet.
+        // Let's use 100 as a reasonable default for full validation, or None for all?
+        // TruthfulQA validation split is ~800? "Validation" file has 817.
+        // Let's run all by default? Or limit to 100 for speed if not "full"?
+        // For now, let's limit 100 to avoid overly long run time during dev.
+        // Or make it configurable?
+        let results = your_ai_rs::validation::truthfulqa::TruthfulQABenchmark::run(
+            &mut model_instance,
+            &tokenizer,
+            Some(100),
+        )?;
+        validation_results.push(results);
+    }
+
+    // 4. Output Results
+    println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("SUMMARY");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    for res in &validation_results {
+        println!(
+            "{:<20} | Passed: {:<4} / {:<4} | Rate: {:.1}%",
+            res.test_type, res.passed, res.total, res.pass_rate
+        );
+    }
+
+    let json_output = serde_json::to_string_pretty(&validation_results)?;
+    let output_file = "validation_results.json";
+    let mut file = File::create(output_file)?;
+    file.write_all(json_output.as_bytes())?;
+
+    println!("\nDetailed results saved to: {}", output_file);
 
     Ok(())
 }
@@ -771,10 +994,11 @@ pub fn generate(
     max_tokens: usize,
     temperature: f32,
     compare: bool,
+    eos_token: Option<i32>,
 ) -> Result<()> {
     use std::path::PathBuf;
     use your_ai_rs::config::model::AVAILABLE_MODELS;
-    use your_ai_rs::model::{LlamaConfig, LlamaForCausalLM, TokenizerWrapper};
+    use your_ai_rs::model::{LlamaConfig, TokenizerWrapper};
 
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("Text Generation");
@@ -793,30 +1017,8 @@ pub fn generate(
     };
 
     // Resolve model path
-    let resolve_model_path = |model_name: &str| -> Option<String> {
-        if model_name.contains('/') {
-            let cache_name = model_name.replace('/', "--");
-            let home = std::env::var("HOME").ok()?;
-            let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
-
-            if std::path::Path::new(&cache_dir).exists() {
-                let snapshots_dir = format!("{}/snapshots", cache_dir);
-                if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
-                    for entry in entries.flatten() {
-                        if entry.file_type().ok()?.is_dir() {
-                            return Some(entry.path().to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        if std::path::Path::new(model_name).exists() {
-            return Some(model_name.to_string());
-        }
-
-        None
-    };
+    let resolve_model_path =
+        |model_name: &str| -> Option<String> { your_ai_rs::resolve_model_path(model_name, false) };
 
     let model_path = resolve_model_path(&model_name).ok_or_else(|| {
         anyhow::anyhow!("Model not found: {}. Please download it first.", model_name)
@@ -827,7 +1029,13 @@ pub fn generate(
 
     // Load config and tokenizer
     let config_path = model_dir.join("config.json");
-    let llama_config = LlamaConfig::from_json(&config_path)?;
+    let mut llama_config = LlamaConfig::from_json(&config_path)?;
+
+    // Apply EOS override from CLI
+    if let Some(eos) = eos_token {
+        llama_config.eos_token_id = Some(your_ai_rs::model::EosToken::Single(eos));
+        println!("Overriding EOS token ID: {}", eos);
+    }
 
     let tokenizer_path = model_dir.join("tokenizer.json");
     let tokenizer = TokenizerWrapper::from_file(&tokenizer_path)
@@ -849,7 +1057,14 @@ pub fn generate(
         // Generate with base model
         println!("📝 BASE MODEL OUTPUT:");
         println!("─────────────────────────────────────────────────────────────");
-        let mut base_model = LlamaForCausalLM::new(llama_config.clone())?;
+
+        // Load base weights
+        let (base_weights, _) = load_model(Path::new(&model_path))?;
+        let mut base_model = your_ai_rs::model::llama::load_model_with_weights(
+            llama_config.clone(),
+            base_weights.clone(),
+        )?;
+
         let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
         let input_array = mlx_rs::Array::from_slice(&input_ids_i32, &[1, input_len as i32]);
 
@@ -866,8 +1081,20 @@ pub fn generate(
         // Generate with checkpoint model
         println!("📝 FINE-TUNED MODEL OUTPUT:");
         println!("─────────────────────────────────────────────────────────────");
-        // TODO: Load checkpoint weights
-        let mut finetuned_model = LlamaForCausalLM::new(llama_config)?;
+
+        // Prepare weights with checkpoint merged
+        let mut finetuned_weights = base_weights; // Efficient clone/move
+        if let Some(checkpoint_path) = checkpoint.as_ref() {
+            let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+            let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+            for (name, (data, shape)) in checkpoint.model_state.weights {
+                let array = mlx_rs::Array::from_slice(&data, &shape);
+                finetuned_weights.insert(name, array);
+            }
+        }
+
+        let mut finetuned_model =
+            your_ai_rs::model::llama::load_model_with_weights(llama_config, finetuned_weights)?;
 
         let finetuned_tokens = finetuned_model.generate(&input_array, max_tokens, temperature)?;
         let finetuned_output = tokenizer.decode(
@@ -885,13 +1112,31 @@ pub fn generate(
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     } else {
         // Single model generation
-        println!("Loading model...");
-        let mut model = LlamaForCausalLM::new(llama_config)?;
+        println!("Loading model weights...");
 
-        // TODO: Load checkpoint if specified
-        if let Some(_checkpoint_path) = checkpoint {
-            println!("Note: Checkpoint loading not yet implemented");
+        // 1. Load base model weights
+        let (mut weights, _) = load_model(Path::new(&model_path))?;
+        println!("Loaded {} base tensors", weights.len());
+
+        // 2. Load checkpoint if specified
+        if let Some(checkpoint_path) = checkpoint {
+            println!("Loading checkpoint from: {}", checkpoint_path);
+            let checkpoint_data = std::fs::read_to_string(checkpoint_path)?;
+            let checkpoint: Checkpoint = serde_json::from_str(&checkpoint_data)?;
+
+            println!(
+                "Merging {} checkpoint tensors (step {})",
+                checkpoint.model_state.weights.len(),
+                checkpoint.step
+            );
+            for (name, (data, shape)) in checkpoint.model_state.weights {
+                let array = mlx_rs::Array::from_slice(&data, &shape);
+                weights.insert(name, array);
+            }
         }
+
+        // 3. Initialize model with weights (prevents random initialization)
+        let mut model = your_ai_rs::model::llama::load_model_with_weights(llama_config, weights)?;
 
         println!("Generating text...");
         let input_ids_i32: Vec<i32> = input_ids.iter().map(|&x| x as i32).collect();
@@ -919,4 +1164,100 @@ pub fn generate(
     }
 
     Ok(())
+}
+
+/// Export fine-tuned model to safetensors
+pub fn export_command(
+    model: &str,
+    checkpoint_path: &std::path::PathBuf,
+    output_path: &std::path::PathBuf,
+) -> Result<()> {
+    println!("Exporting model: {}", model);
+    println!("Checkpoint: {:?}", checkpoint_path);
+    println!("Output: {:?}", output_path);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    // Resolve model name
+    let model_name = if let Some(preset_config) = AVAILABLE_MODELS.get(model) {
+        preset_config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(model)
+            .to_string()
+    } else {
+        model.to_string()
+    };
+
+    // Simplified resolution for export (assume downloaded or local)
+    let model_path = if std::path::Path::new(&model_name).exists() {
+        model_name.clone()
+    } else {
+        // Try simple HF cache guess
+        let cache_name = model_name.replace('/', "--");
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cache_dir = format!("{}/.cache/huggingface/hub/models--{}", home, cache_name);
+
+        let mut found_path = None;
+        if std::path::Path::new(&cache_dir).exists() {
+            let snapshots_dir = format!("{}/snapshots", cache_dir);
+            if let Ok(entries) = std::fs::read_dir(&snapshots_dir) {
+                for entry in entries.flatten() {
+                    // Fix: FileType does not implement Default, use map/unwrap_or
+                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                        found_path = Some(entry.path().to_string_lossy().to_string());
+                        break;
+                    }
+                }
+            }
+        }
+        found_path.ok_or_else(|| {
+            anyhow::anyhow!("Model not found: {}. Please use full path.", model_name)
+        })?
+    };
+
+    println!("Base model path: {}", model_path);
+    // let model_dir = std::path::PathBuf::from(&model_path);
+
+    // 1. Load base weights
+    println!("1. Loading base model weights...");
+    let (mut weights, _) = load_model(Path::new(&model_path))?;
+    println!("   Loaded {} tensors", weights.len());
+
+    // 2. Load checkpoint
+    println!("2. Loading checkpoint...");
+    let checkpoint = your_ai_rs::checkpoints::manager::load_safetensors_with_metadata(
+        std::path::Path::new(checkpoint_path),
+        false
+    )?;
+    println!("   Checkpoint step: {}", checkpoint.step);
+    println!(
+        "   Merging {} tensors...",
+        checkpoint.model_state.weights.len()
+    );
+
+    // 3. Merge weights
+    for (name, (data, shape)) in checkpoint.model_state.weights {
+        let array = mlx_rs::Array::from_slice(&data, &shape);
+        // Overwrite or insert
+        weights.insert(name, array);
+    }
+    println!("   Merge complete.");
+
+    // 4. Save to output
+    println!("3. Saving exported model to {:?}...", output_path);
+
+    // Create output directory if needed
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    save_model_weights(&weights, output_path)?;
+
+    println!("✓ Export complete!");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    Ok(())
+}
+pub async fn dataset(source: String, output_dir: std::path::PathBuf, limit: Option<usize>) -> Result<()> {
+    your_ai_rs::data::build::build_dataset(source, output_dir, limit).await
 }

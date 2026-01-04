@@ -3,5 +3,5 @@ pub mod loader;
 pub mod tokenizer;
 
 pub use llama::*;
-pub use loader::ModelLoader;
+pub use loader::{load_model, save_model_weights, ModelConfig};
 pub use tokenizer::TokenizerWrapper;

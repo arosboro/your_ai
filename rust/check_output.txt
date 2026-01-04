@@ -1,0 +1,374 @@
+    Checking your_ai_rs v0.2.0 (/Users/arosboro/your_ai/rust)
+error[E0252]: the name `QuantizedLinear` is defined multiple times
+  --> src/model/loader.rs:17:5
+   |
+14 | use mlx_rs::nn::QuantizedLinear;
+   |     --------------------------- previous import of the type `QuantizedLinear` here
+...
+17 | use mlx_rs::nn::QuantizedLinear;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `QuantizedLinear` reimported here
+   |
+   = note: `QuantizedLinear` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `Regex` is defined multiple times
+  --> src/model/loader.rs:18:5
+   |
+15 | use regex::Regex;
+   |     ------------ previous import of the type `Regex` here
+...
+18 | use regex::Regex;
+   |     ^^^^^^^^^^^^ `Regex` reimported here
+   |
+   = note: `Regex` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `LinearLayer` is defined multiple times
+  --> src/model/loader.rs:16:5
+   |
+13 | use crate::model::llama::LinearLayer;
+   |     -------------------------------- previous import of the type `LinearLayer` here
+...
+16 | use crate::model::llama::LinearLayer;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `LinearLayer` reimported here
+   |
+   = note: `LinearLayer` must be defined only once in the type namespace of this module
+
+warning: unused import: `crate::model::llama::LinearLayer`
+  --> src/model/loader.rs:16:5
+   |
+16 | use crate::model::llama::LinearLayer;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `mlx_rs::nn::QuantizedLinear`
+  --> src/model/loader.rs:17:5
+   |
+17 | use mlx_rs::nn::QuantizedLinear;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `regex::Regex`
+  --> src/model/loader.rs:18:5
+   |
+18 | use regex::Regex;
+   |     ^^^^^^^^^^^^
+
+warning: unused import: `TrainableHead`
+ --> src/training/trainer.rs:6:38
+  |
+6 | use crate::model::{LlamaForCausalLM, TrainableHead};
+  |                                      ^^^^^^^^^^^^^
+
+warning: unused import: `Context`
+ --> src/training/trainer.rs:9:14
+  |
+9 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `mlx_rs::transforms::value_and_grad`
+  --> src/training/trainer.rs:12:5
+   |
+12 | use mlx_rs::transforms::value_and_grad;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::rc::Rc`
+  --> src/training/trainer.rs:19:5
+   |
+19 | use std::rc::Rc;
+   |     ^^^^^^^^^^^
+
+error[E0107]: missing generics for trait `Module`
+  --> src/model/llama.rs:17:6
+   |
+17 | impl Module for LinearLayer {
+   |      ^^^^^^ expected 1 generic argument
+   |
+note: trait defined here, with 1 generic parameter: `Input`
+  --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/module.rs:28:11
+   |
+28 | pub trait Module<Input>: ModuleParameters + std::fmt::Debug {
+   |           ^^^^^^ -----
+help: add missing generic argument
+   |
+17 | impl Module<Input> for LinearLayer {
+   |            +++++++
+
+error[E0107]: missing generics for struct `Param`
+  --> src/model/llama.rs:37:73
+   |
+37 |     fn parameters(&self) -> HashMap<String, std::rc::Rc<mlx_rs::module::Param>> {
+   |                                                                         ^^^^^ expected 1 generic argument
+   |
+note: struct defined here, with 1 generic parameter: `T`
+  --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/param.rs:38:12
+   |
+38 | pub struct Param<T> {
+   |            ^^^^^ -
+help: add missing generic argument
+   |
+37 |     fn parameters(&self) -> HashMap<String, std::rc::Rc<mlx_rs::module::Param<T>>> {
+   |                                                                              +++
+
+error[E0107]: missing generics for struct `Param`
+  --> src/model/llama.rs:44:74
+   |
+44 |     fn parameters_mut(&mut self) -> HashMap<String, &mut mlx_rs::module::Param> {
+   |                                                                          ^^^^^ expected 1 generic argument
+   |
+note: struct defined here, with 1 generic parameter: `T`
+  --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/param.rs:38:12
+   |
+38 | pub struct Param<T> {
+   |            ^^^^^ -
+help: add missing generic argument
+   |
+44 |     fn parameters_mut(&mut self) -> HashMap<String, &mut mlx_rs::module::Param<T>> {
+   |                                                                               +++
+
+error[E0107]: missing generics for struct `Param`
+  --> src/model/llama.rs:51:83
+   |
+51 |     fn trainable_parameters(&self) -> HashMap<String, std::rc::Rc<mlx_rs::module::Param>> {
+   |                                                                                   ^^^^^ expected 1 generic argument
+   |
+note: struct defined here, with 1 generic parameter: `T`
+  --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mlx-rs-0.25.2/src/module/param.rs:38:12
+   |
+38 | pub struct Param<T> {
+   |            ^^^^^ -
+help: add missing generic argument
+   |
+51 |     fn trainable_parameters(&self) -> HashMap<String, std::rc::Rc<mlx_rs::module::Param<T>>> {
+   |                                                                                        +++
+
+error[E0046]: not all trait items implemented, missing: `num_parameters`, `freeze_parameters`, `unfreeze_parameters`, `all_frozen`, `any_frozen`
+  --> src/model/llama.rs:36:1
+   |
+36 | impl ModuleParameters for LinearLayer {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `num_parameters`, `freeze_parameters`, `unfreeze_parameters`, `all_frozen`, `any_frozen` in implementation
+   |
+   = help: implement the missing item: `fn num_parameters(&self) -> usize { todo!() }`
+   = help: implement the missing item: `fn freeze_parameters(&mut self, _: bool) { todo!() }`
+   = help: implement the missing item: `fn unfreeze_parameters(&mut self, _: bool) { todo!() }`
+   = help: implement the missing item: `fn all_frozen(&self) -> std::option::Option<bool> { todo!() }`
+   = help: implement the missing item: `fn any_frozen(&self) -> std::option::Option<bool> { todo!() }`
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> src/benchmarks/optimizer.rs:217:27
+    |
+217 |         let mut trainer = DistrustTrainer::new(&model_path).await?;
+    |                           ^^^^^^^^^^^^^^^^^^^^------------- argument #2 of type `Config` is missing
+    |
+note: associated function defined here
+   --> src/training/trainer.rs:92:18
+    |
+ 92 |     pub async fn new(model_path: &Path, config: Config) -> Result<Self> {
+    |                  ^^^                    --------------
+help: provide the argument
+    |
+217 |         let mut trainer = DistrustTrainer::new(&model_path, /* Config */).await?;
+    |                                                           ++++++++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> src/benchmarks/optimizer.rs:295:15
+    |
+295 |         match DistrustTrainer::new(&model_path).await {
+    |               ^^^^^^^^^^^^^^^^^^^^------------- argument #2 of type `Config` is missing
+    |
+note: associated function defined here
+   --> src/training/trainer.rs:92:18
+    |
+ 92 |     pub async fn new(model_path: &Path, config: Config) -> Result<Self> {
+    |                  ^^^                    --------------
+help: provide the argument
+    |
+295 |         match DistrustTrainer::new(&model_path, /* Config */).await {
+    |                                               ++++++++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:129:67
+    |
+129 |                  for p in layer.self_attn.q_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                   ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+129 |                  for p in layer.self_attn.q_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                   ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:130:67
+    |
+130 |                  for p in layer.self_attn.k_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                   ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+130 |                  for p in layer.self_attn.k_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                   ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:131:67
+    |
+131 |                  for p in layer.self_attn.v_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                   ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+131 |                  for p in layer.self_attn.v_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                   ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:132:67
+    |
+132 |                  for p in layer.self_attn.o_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                   ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+132 |                  for p in layer.self_attn.o_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                   ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:135:64
+    |
+135 |                  for p in layer.mlp.gate_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+135 |                  for p in layer.mlp.gate_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:136:62
+    |
+136 |                  for p in layer.mlp.up_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                              ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+136 |                  for p in layer.mlp.up_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                              ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:137:64
+    |
+137 |                  for p in layer.mlp.down_proj.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+137 |                  for p in layer.mlp.down_proj.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:140:66
+    |
+140 |                  for p in layer.input_layernorm.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                  ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+140 |                  for p in layer.input_layernorm.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                  ++++++++
+
+error[E0599]: no method named `values_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/training/trainer.rs:141:75
+    |
+141 |                  for p in layer.post_attention_layernorm.parameters_mut().values_mut() { let _ = p.freeze(true); }
+    |                                                                           ^^^^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+141 |                  for p in layer.post_attention_layernorm.parameters_mut().entries.values_mut() { let _ = p.freeze(true); }
+    |                                                                           ++++++++
+
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+    --> src/training/trainer.rs:1391:36
+     |
+1391 |         let (mut fresh_model, _) = load_model_streaming(Path::new(&self.config.paths.model_path))?;
+     |                                    ^^^^^^^^^^^^^^^^^^^^------------------------------------------ argument #2 of type `bool` is missing
+     |
+note: function defined here
+    --> src/model/loader.rs:75:8
+     |
+  75 | pub fn load_model_streaming(path: &Path, quantize: bool) -> Result<(crate::model::LlamaForCausalLM, ModelConfig)> {
+     |        ^^^^^^^^^^^^^^^^^^^^              --------------
+help: provide the argument
+     |
+1391 |         let (mut fresh_model, _) = load_model_streaming(Path::new(&self.config.paths.model_path), /* bool */)?;
+     |                                                                                                 ++++++++++++
+
+error[E0308]: mismatched types
+   --> src/model/loader.rs:142:59
+    |
+142 |                 if let Some(caps) = linear_regex.captures(tensor_name) {
+    |                                                  -------- ^^^^^^^^^^^ expected `&str`, found `String`
+    |                                                  |
+    |                                                  arguments to this method are incorrect
+    |
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-1.12.2/src/regex/string.rs:355:12
+    |
+355 |     pub fn captures<'h>(&self, haystack: &'h str) -> Option<Captures<'h>> {
+    |            ^^^^^^^^
+help: consider borrowing here
+    |
+142 |                 if let Some(caps) = linear_regex.captures(&tensor_name) {
+    |                                                           +
+
+error[E0599]: no method named `get_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/model/loader.rs:179:52
+    |
+179 |                          if let Some(p) = q_params.get_mut("scales") { **p = scales; }
+    |                                                    ^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+179 |                          if let Some(p) = q_params.entries.get_mut("scales") { **p = scales; }
+    |                                                    ++++++++
+
+error[E0599]: no method named `get_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/model/loader.rs:180:52
+    |
+180 |                          if let Some(p) = q_params.get_mut("biases") { **p = biases; }
+    |                                                    ^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+180 |                          if let Some(p) = q_params.entries.get_mut("biases") { **p = biases; }
+    |                                                    ++++++++
+
+error[E0599]: no method named `get_mut` found for struct `NestedHashMap<K, V>` in the current scope
+   --> src/model/loader.rs:181:52
+    |
+181 |                          if let Some(p) = q_params.get_mut("inner.weight") { **p = w_q; }
+    |                                                    ^^^^^^^ method not found in `NestedHashMap<Rc<str>, &mut llama::_::_mlx_rs::Array>`
+    |
+help: one of the expressions' fields has a method of the same name
+    |
+181 |                          if let Some(p) = q_params.entries.get_mut("inner.weight") { **p = w_q; }
+    |                                                    ++++++++
+
+error[E0308]: mismatched types
+   --> src/model/loader.rs:221:51
+    |
+221 |              if quantize && linear_regex.is_match(tensor_name) {
+    |                                          -------- ^^^^^^^^^^^ expected `&str`, found `String`
+    |                                          |
+    |                                          arguments to this method are incorrect
+    |
+note: method defined here
+   --> /Users/arosboro/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-1.12.2/src/regex/string.rs:204:12
+    |
+204 |     pub fn is_match(&self, haystack: &str) -> bool {
+    |            ^^^^^^^^
+help: consider borrowing here
+    |
+221 |              if quantize && linear_regex.is_match(&tensor_name) {
+    |                                                   +
+
+Some errors have detailed explanations: E0046, E0061, E0107, E0252, E0308, E0599.
+For more information about an error, try `rustc --explain E0046`.
+warning: `your_ai_rs` (lib) generated 7 warnings
+error: could not compile `your_ai_rs` (lib) due to 25 previous errors; 7 warnings emitted

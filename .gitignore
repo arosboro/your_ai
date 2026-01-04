@@ -20,6 +20,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+rust/sovereign-ai-stack-book
+python/mistral-finetune
 
 # Virtual Environment
 venv/

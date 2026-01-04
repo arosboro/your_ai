@@ -1,5 +1,6 @@
 pub mod commands;
 
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -62,6 +63,9 @@ enum Commands {
         /// Batch size
         #[arg(long)]
         batch_size: Option<usize>,
+        /// Gradient accumulation steps (default: 1)
+        #[arg(long)]
+        gradient_accumulation_steps: Option<usize>,
         /// LoRA rank
         #[arg(long)]
         lora_rank: Option<usize>,
@@ -86,6 +90,24 @@ enum Commands {
         /// Save checkpoint when best loss is achieved
         #[arg(long, default_value = "true")]
         save_best: bool,
+        /// Alpha parameter for empirical distrust loss (default: 2.7)
+        #[arg(long)]
+        alpha: Option<f32>,
+        /// Lambda weight for empirical distrust loss (default: 0.6)
+        #[arg(long)]
+        lambda_weight: Option<f32>,
+        /// Output directory for model checkpoints and metrics
+        #[arg(long)]
+        output_dir: Option<String>,
+        /// Enable 4-bit quantization (default: true)
+        #[arg(long)]
+        quantize: Option<bool>,
+        /// Interval for periodic supervisor restarts (0 = disable, default: 1000)
+        #[arg(long)]
+        reload_interval_steps: Option<usize>,
+        /// Internal flag: run as worker process (do not use manually)
+        #[arg(long, hide = true)]
+        worker: bool,
     },
     /// Validate a model on benchmark tests
     Validate {
@@ -95,6 +117,9 @@ enum Commands {
         /// Benchmarks to run (comma-separated)
         #[arg(long)]
         benchmarks: Option<String>,
+        /// Optional checkpoint path (e.g., finetuned adapter or merged weights)
+        #[arg(long)]
+        checkpoint: Option<String>,
     },
     /// Generate text from a model
     Generate {
@@ -116,10 +141,37 @@ enum Commands {
         /// Compare base model with checkpoint (requires --checkpoint)
         #[arg(long)]
         compare: bool,
+        /// Optional EOS token ID override
+        #[arg(long)]
+        eos_token: Option<i32>,
+    },
+    /// Export fine-tuned model to safetensors
+    Export {
+        /// Base model name
+        #[arg(long)]
+        model: String,
+        /// Checkpoint path
+        #[arg(long)]
+        checkpoint: std::path::PathBuf,
+        /// Output path
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Build dataset from HuggingFace source with Distrust scoring
+    Dataset {
+        /// Source HuggingFace dataset ID (e.g. HuggingFaceH4/ultrachat_200k)
+        #[arg(long)]
+        source: String,
+        /// Output directory
+        #[arg(long, default_value = "data")]
+        output_dir: std::path::PathBuf,
+        /// Limit number of examples
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -131,16 +183,17 @@ pub fn run() -> Result<()> {
             output,
             single_model,
             force,
-        } => commands::benchmark(max_memory, optimize, output, single_model, force),
+        } => commands::benchmark(max_memory, optimize, output, single_model, force).await,
         Commands::Optimize {
             model,
             max_memory,
             quick,
             output,
-        } => commands::optimize(model, max_memory, quick, output),
+        } => commands::optimize(model, max_memory, quick, output).await,
         Commands::Train {
             model,
             batch_size,
+            gradient_accumulation_steps,
             lora_rank,
             max_steps,
             resume,
@@ -149,26 +202,67 @@ pub fn run() -> Result<()> {
             auto_optimize,
             metrics_file,
             save_best,
-        } => commands::train(
+            alpha,
+            lambda_weight,
+            output_dir,
+            quantize,
+            reload_interval_steps,
+            worker,
+        } => {
+            commands::train(
+                model,
+                batch_size,
+                gradient_accumulation_steps,
+                lora_rank,
+                max_steps,
+                resume,
+                max_memory,
+                memory_report_interval,
+                auto_optimize,
+                metrics_file,
+                save_best,
+                alpha,
+                lambda_weight,
+                output_dir,
+                quantize,
+                worker,
+                reload_interval_steps,
+                None, // start_step not supported in direct mode
+            )
+            .await
+        }
+        Commands::Validate {
             model,
-            batch_size,
-            lora_rank,
-            max_steps,
-            resume,
-            max_memory,
-            memory_report_interval,
-            auto_optimize,
-            metrics_file,
-            save_best,
-        ),
-        Commands::Validate { model, benchmarks } => commands::validate(model, benchmarks),
+            benchmarks,
+            checkpoint,
+        } => commands::validate(model, benchmarks, checkpoint),
         Commands::Generate {
             model,
             prompt,
             checkpoint,
             max_tokens,
             temperature,
+
             compare,
-        } => commands::generate(model, prompt, checkpoint, max_tokens, temperature, compare),
+            eos_token,
+        } => commands::generate(
+            model,
+            prompt,
+            checkpoint,
+            max_tokens,
+            temperature,
+            compare,
+            eos_token,
+        ),
+        Commands::Export {
+            model,
+            checkpoint,
+            output,
+        } => commands::export_command(&model, &checkpoint, &output),
+        Commands::Dataset {
+            source,
+            output_dir,
+            limit,
+        } => commands::dataset(source, output_dir, limit).await,
     }
 }
